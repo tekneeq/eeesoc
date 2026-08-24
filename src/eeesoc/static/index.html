@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>eeesoc — Matches + Similar</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,600;0,9..40,700;1,9..40,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/static/app.css" />
+  </head>
+  <body>
+    <div class="atmosphere" aria-hidden="true"></div>
+    <header class="top">
+      <div class="brand">
+        <span class="brand-mark">eeesoc</span>
+        <span class="brand-sub" id="seasonLabel">—</span>
+      </div>
+      <nav class="tabs" role="tablist">
+        <button class="tab active" data-tab="matches" role="tab" aria-selected="true">Matches</button>
+        <button class="tab" data-tab="similar" role="tab" aria-selected="false">Similar</button>
+      </nav>
+      <button type="button" class="preset" id="evertonPreset" title="Load Everton 53' snapshot">
+        Everton 53′
+      </button>
+    </header>
+
+    <main>
+      <section id="panel-matches" class="panel active" role="tabpanel">
+        <div class="panel-head">
+          <h1>Matches</h1>
+          <p class="lede">Pick a fixture, freeze the cut minute, then jump to Similar lookalikes.</p>
+        </div>
+        <div class="toolbar">
+          <label class="search">
+            <span>Filter</span>
+            <input id="matchFilter" type="search" placeholder="Everton, Liverpool…" autocomplete="off" />
+          </label>
+          <label class="minute">
+            <span>Cut</span>
+            <input id="cutMinute" type="number" min="1" max="90" value="53" />
+          </label>
+        </div>
+        <div id="matchList" class="match-list"></div>
+      </section>
+
+      <section id="panel-similar" class="panel" role="tabpanel" hidden>
+        <div class="panel-head">
+          <h1>Similar</h1>
+          <p class="lede">
+            Snapshot frozen at cut minute — goal times, shots/SOT — ranked against last-season history.
+          </p>
+        </div>
+        <div class="freeze" id="freezeCard">
+          <div class="freeze-title" id="freezeTitle">No snapshot yet</div>
+          <div class="freeze-label" id="freezeLabel">Select a match or hit Everton 53′</div>
+          <div class="freeze-meta" id="freezeMeta"></div>
+        </div>
+        <div id="similarList" class="similar-list"></div>
+      </section>
+    </main>
+
+    <script src="/static/app.js"></script>
+  </body>
+</html>
