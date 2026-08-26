@@ -23,7 +23,8 @@ log "1/2  rebuild dashboard container (git pull + docker build/run)"
 ./restart.sh
 
 sleep 3
-if ! docker ps --format '{{.Names}}' | grep -qx eeesoc-dashboard; then
+if ! docker ps --format '{{.Names}}' 2>/dev/null | grep -qx eeesoc-dashboard \
+   && ! sudo docker ps --format '{{.Names}}' 2>/dev/null | grep -qx eeesoc-dashboard; then
     log "ERROR: eeesoc-dashboard container is not running after restart.sh"
     exit 1
 fi
@@ -37,11 +38,14 @@ for i in 1 2 3 4 5 6 7 8 9 10; do
     fi
     if [ "$i" -eq 10 ]; then
         log "ERROR: /health did not respond after restart"
-        docker logs --tail 80 eeesoc-dashboard || true
+        docker logs --tail 80 eeesoc-dashboard 2>/dev/null \
+          || sudo docker logs --tail 80 eeesoc-dashboard 2>/dev/null \
+          || true
         exit 1
     fi
     sleep 3
 done
 
 log "=== deploy done (rev=$(git rev-parse --short HEAD)) ==="
-docker ps --filter name=eeesoc-dashboard --format '{{.Names}} {{.Status}} {{.Image}}'
+docker ps --filter name=eeesoc-dashboard --format '{{.Names}} {{.Status}} {{.Image}}' 2>/dev/null \
+  || sudo docker ps --filter name=eeesoc-dashboard --format '{{.Names}} {{.Status}} {{.Image}}'

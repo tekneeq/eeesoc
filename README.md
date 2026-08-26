@@ -37,10 +37,14 @@ Flow on every push/merge to `main`:
 ### One-time bootstrap on the EC2 host
 
 ```bash
-# Docker + git already assumed (same box as julia is fine)
+# Docker + git (same box as julia is fine — install Docker if missing)
 git clone https://github.com/tekneeq/eeesoc.git ~/eeesoc
 cd ~/eeesoc
-chmod +x deploy.sh restart.sh scripts/docker-entrypoint.sh
+chmod +x deploy.sh restart.sh scripts/*.sh
+
+# If `docker` is not on PATH (fresh Amazon Linux):
+./scripts/install-docker-amazon-linux.sh
+# re-login (or: newgrp docker), then:
 ./deploy.sh
 ```
 
