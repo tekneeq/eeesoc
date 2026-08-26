@@ -50,19 +50,16 @@ chmod +x deploy.sh restart.sh scripts/*.sh
 ./deploy.sh
 ```
 
-Optional nginx reverse proxy (`eeesoc.com` / `www.eeesoc.com` `:80` → app `:8081`):
+Optional nginx reverse proxy (`eeesoc.com` / `www.eeesoc.com` `:80`/`:443` → app `:8081`):
 
 ```bash
 cd ~/eeesoc
-./scripts/install-nginx-amazon-linux.sh
-# or:
-#   sudo dnf install -y nginx   # or: sudo yum install -y nginx
-#   sudo cp scripts/nginx-eeesoc-dashboard.conf /etc/nginx/conf.d/eeesoc-dashboard.conf
-#   sudo rm -f /etc/nginx/conf.d/default.conf
-#   sudo nginx -t && sudo systemctl enable --now nginx && sudo systemctl reload nginx
+./scripts/install-nginx-amazon-linux.sh          # HTTP + ACME webroot
+# DNS A records for eeesoc.com + www → this instance; SG: TCP 80 and 443
+CERTBOT_EMAIL=you@example.com ./scripts/install-https-letsencrypt.sh
 ```
 
-Point DNS **A records** for `eeesoc.com` and `www.eeesoc.com` at the instance, open SG **TCP 80**, then browse `http://eeesoc.com/`.
+Then browse `https://eeesoc.com/`. HTTP redirects to HTTPS. Certs auto-renew via certbot’s timer.
 
 ### Auto-deploy on push
 

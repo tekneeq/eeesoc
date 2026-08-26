@@ -21,6 +21,17 @@ if ! command -v nginx >/dev/null 2>&1; then
   fi
 fi
 
+# Prefer full HTTPS conf when certs already exist; otherwise HTTP bootstrap
+# (ACME-ready). Full HTTPS is enabled by ./scripts/install-https-letsencrypt.sh.
+BOOTSTRAP="$ROOT/scripts/nginx-eeesoc-http-bootstrap.conf"
+HTTPS_CONF="$ROOT/scripts/nginx-eeesoc-dashboard.conf"
+if [ -f /etc/letsencrypt/live/eeesoc.com/fullchain.pem ] && [ -f "$HTTPS_CONF" ]; then
+  CONF_SRC="$HTTPS_CONF"
+  echo "Found existing Let's Encrypt cert — installing HTTPS nginx config."
+elif [ -f "$BOOTSTRAP" ]; then
+  CONF_SRC="$BOOTSTRAP"
+fi
+
 # Stock package configs often also claim :80.
 rm -f /etc/nginx/conf.d/default.conf
 # Named hosts (eeesoc.com / www) can coexist with julia's default_server
@@ -37,8 +48,8 @@ systemctl enable --now nginx
 systemctl reload nginx
 
 echo
-echo "nginx is proxying eeesoc.com www.eeesoc.com :80 → 127.0.0.1:8081"
-echo "Point DNS A records for eeesoc.com + www at this instance (SG: TCP 80)."
-echo "Open http://eeesoc.com/  (or curl -H 'Host: eeesoc.com' http://127.0.0.1/health)"
+echo "nginx HTTP ready for eeesoc.com / www.eeesoc.com (:80 → :8081)"
+echo "Point DNS A records at this instance (SG: TCP 80 + 443)."
+echo "Then enable HTTPS:  ./scripts/install-https-letsencrypt.sh"
 curl -fsS -H 'Host: eeesoc.com' http://127.0.0.1/health \
   || echo "(local /health via nginx failed — is eeesoc-dashboard up?)"
