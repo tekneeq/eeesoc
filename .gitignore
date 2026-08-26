@@ -6,3 +6,6 @@ __pycache__/
 *.egg-info/
 dist/
 .eeesoc/
+data/
+.env
+*.pem
