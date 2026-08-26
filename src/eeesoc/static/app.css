@@ -290,6 +290,201 @@ main {
   }
 }
 
+/* —— Live tab / Revenant chiclets —— */
+.live-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.live-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  color: var(--muted);
+  padding-top: 0.35rem;
+}
+
+.pulse,
+.live-dot {
+  width: 0.45rem;
+  height: 0.45rem;
+  border-radius: 1px;
+  background: var(--danger);
+  box-shadow: 0 0 0 0 rgba(255, 107, 107, 0.55);
+  animation: pulse 1.6s ease infinite;
+}
+
+.live-dot {
+  display: inline-block;
+  margin-right: 0.35rem;
+  vertical-align: middle;
+}
+
+@keyframes pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(255, 107, 107, 0.45);
+  }
+  70% {
+    box-shadow: 0 0 0 0.45rem rgba(255, 107, 107, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(255, 107, 107, 0);
+  }
+}
+
+.chiclet-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin: 0 0 1.25rem;
+  padding-bottom: 0.85rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.chiclet {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.02);
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 0.38rem 0.55rem;
+  border-radius: 0.28rem; /* chiclet, not pill */
+  cursor: pointer;
+  transition: color 140ms ease, background 140ms ease, border-color 140ms ease, transform 120ms ease;
+}
+
+.chiclet:hover {
+  color: var(--text);
+  border-color: rgba(125, 255, 179, 0.28);
+  transform: translateY(-1px);
+}
+
+.chiclet.on {
+  color: var(--accent);
+  background: var(--accent-dim);
+  border-color: rgba(125, 255, 179, 0.4);
+}
+
+.chiclet.dim {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.chiclet.dim:hover {
+  transform: none;
+  color: var(--muted);
+  border-color: var(--line);
+}
+
+.chiclet-count {
+  min-width: 1.1rem;
+  text-align: center;
+  color: inherit;
+  opacity: 0.85;
+}
+
+.live-board {
+  display: flex;
+  flex-direction: column;
+  gap: 1.35rem;
+  animation: rise 280ms ease both;
+}
+
+.league-block {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.league-head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.65rem;
+  margin-bottom: 0.2rem;
+}
+
+.league-head h2 {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.league-chiclet-tag {
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--accent);
+  border: 1px solid rgba(125, 255, 179, 0.28);
+  background: var(--accent-dim);
+  padding: 0.15rem 0.4rem;
+  border-radius: 0.22rem;
+}
+
+.league-n {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  color: var(--muted);
+}
+
+.live-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.live-row {
+  display: grid;
+  grid-template-columns: 4.5rem 1fr auto 1fr;
+  gap: 0.75rem;
+  align-items: center;
+  padding: 0.65rem 0.35rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.live-clock {
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  color: var(--danger);
+  white-space: nowrap;
+}
+
+.live-home {
+  font-weight: 600;
+  text-align: right;
+}
+
+.live-away {
+  font-weight: 600;
+  text-align: left;
+}
+
+.live-score {
+  font-family: var(--mono);
+  font-weight: 600;
+  font-size: 1rem;
+  color: var(--text);
+  min-width: 3.5rem;
+  text-align: center;
+}
+
+.empty-live {
+  margin-top: 0.5rem;
+}
+
 @media (max-width: 640px) {
   .top {
     flex-wrap: wrap;
@@ -305,5 +500,29 @@ main {
   .match-row .meta,
   .similar-row .meta {
     justify-self: start;
+  }
+  .live-row {
+    grid-template-columns: 3.5rem 1fr;
+    grid-template-areas:
+      "clock score"
+      "home home"
+      "away away";
+  }
+  .live-clock {
+    grid-area: clock;
+  }
+  .live-score {
+    grid-area: score;
+    justify-self: end;
+  }
+  .live-home,
+  .live-away {
+    text-align: left;
+  }
+  .live-home {
+    grid-area: home;
+  }
+  .live-away {
+    grid-area: away;
   }
 }

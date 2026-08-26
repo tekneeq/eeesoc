@@ -4,6 +4,8 @@ Soccer **Matches + Similar** dashboard with a dark Revenant look.
 
 Freeze an in-play snapshot (cut minute, goal times, shots/SOT) and rank last-season lookalikes. History is cached under `~/.eeesoc/cache` (or `./data/cache` on EC2).
 
+The **Live** tab pulls in-play scores across top leagues (ESPN CDN), grouped by league with Revenant-style chiclet filters.
+
 ## Quick start
 
 ```bash
