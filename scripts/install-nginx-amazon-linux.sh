@@ -23,11 +23,11 @@ fi
 
 # Stock package configs often also claim :80.
 rm -f /etc/nginx/conf.d/default.conf
-# If julia's config is on this same host it will conflict as another
-# default_server on :80 — warn loudly.
+# Named hosts (eeesoc.com / www) can coexist with julia's default_server
+# as long as Host headers match. Still warn if both are present.
 if [ -f /etc/nginx/conf.d/julia-dashboard.conf ]; then
-  echo "WARNING: /etc/nginx/conf.d/julia-dashboard.conf already exists."
-  echo "Both cannot be default_server on :80. Move julia aside or use a path split."
+  echo "NOTE: julia-dashboard.conf is also installed."
+  echo "eeesoc answers for eeesoc.com / www.eeesoc.com; julia keeps default_server."
 fi
 
 install -m 0644 "$CONF_SRC" /etc/nginx/conf.d/eeesoc-dashboard.conf
@@ -37,6 +37,8 @@ systemctl enable --now nginx
 systemctl reload nginx
 
 echo
-echo "nginx is proxying :80 → 127.0.0.1:8081"
-echo "Open http://<EC2-public-IP>/  (security group must allow TCP 80)"
-curl -fsS http://127.0.0.1/health || echo "(local /health via nginx failed — is eeesoc-dashboard up?)"
+echo "nginx is proxying eeesoc.com www.eeesoc.com :80 → 127.0.0.1:8081"
+echo "Point DNS A records for eeesoc.com + www at this instance (SG: TCP 80)."
+echo "Open http://eeesoc.com/  (or curl -H 'Host: eeesoc.com' http://127.0.0.1/health)"
+curl -fsS -H 'Host: eeesoc.com' http://127.0.0.1/health \
+  || echo "(local /health via nginx failed — is eeesoc-dashboard up?)"

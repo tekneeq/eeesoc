@@ -50,7 +50,7 @@ chmod +x deploy.sh restart.sh scripts/*.sh
 ./deploy.sh
 ```
 
-Optional nginx reverse proxy (**julia-style**: public `:80` → app `:8081`):
+Optional nginx reverse proxy (`eeesoc.com` / `www.eeesoc.com` `:80` → app `:8081`):
 
 ```bash
 cd ~/eeesoc
@@ -62,7 +62,7 @@ cd ~/eeesoc
 #   sudo nginx -t && sudo systemctl enable --now nginx && sudo systemctl reload nginx
 ```
 
-Open security group inbound **TCP 80**. Then browse `http://<EC2-public-IP>/` (no `:8081`).
+Point DNS **A records** for `eeesoc.com` and `www.eeesoc.com` at the instance, open SG **TCP 80**, then browse `http://eeesoc.com/`.
 
 ### Auto-deploy on push
 
