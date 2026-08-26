@@ -10,6 +10,7 @@ from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 from eeesoc.data import load_season, previous_season_label
+from eeesoc.live import fetch_live_board
 from eeesoc.models import Match, MatchSnapshot
 from eeesoc.similar import find_similar
 
@@ -84,6 +85,11 @@ def make_handler(state: DashboardState):
 
             if path == "/health":
                 return self._send(200, b"ok\n", "text/plain; charset=utf-8")
+
+            if path == "/api/live":
+                live_only = (qs.get("live_only") or ["1"])[0] not in ("0", "false", "no")
+                board = fetch_live_board(live_only=live_only)
+                return self._send(200, _json_bytes(board), "application/json")
 
             if path == "/api/matches":
                 rows = [
