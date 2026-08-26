@@ -19,6 +19,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--dashboard", action="store_true", help="Serve the web dashboard")
     p.add_argument("--port", type=int, default=8081, help="Dashboard port (default 8081)")
     p.add_argument(
+        "--host",
+        default="127.0.0.1",
+        help="Dashboard bind address (default 127.0.0.1; use 0.0.0.0 in Docker)",
+    )
+    p.add_argument(
         "--warm",
         metavar="SPEC",
         help="Warm cache for a season, e.g. EPL:2025 (also pulls previous season)",
@@ -95,9 +100,9 @@ def main(argv: list[str] | None = None) -> None:
             raise SystemExit(2)
         from eeesoc.dashboard import serve
 
-        print(f"Serving dashboard on http://127.0.0.1:{args.port}  season={season}")
+        print(f"Serving dashboard on http://{args.host}:{args.port}  season={season}")
         print(f"Cache: {cache_root()}")
-        serve(port=args.port, season=season)
+        serve(port=args.port, season=season, host=args.host)
 
     if not args.warm and not args.dashboard and not args.similar:
         build_parser().print_help()

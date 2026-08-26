@@ -139,3 +139,11 @@ def test_cache_json_helpers(tmp_path, monkeypatch):
     write_json(path, {"ok": True})
     assert read_json(path) == {"ok": True}
     assert path.read_text().endswith("\n")
+
+
+def test_cli_host_flag_defaults():
+    from eeesoc.cli import build_parser
+
+    ns = build_parser().parse_args(["--dashboard", "--host", "0.0.0.0", "--port", "8081"])
+    assert ns.host == "0.0.0.0"
+    assert ns.port == 8081

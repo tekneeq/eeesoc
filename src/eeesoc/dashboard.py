@@ -82,6 +82,9 @@ def make_handler(state: DashboardState):
                     "application/json",
                 )
 
+            if path == "/health":
+                return self._send(200, b"ok\n", "text/plain; charset=utf-8")
+
             if path == "/api/matches":
                 rows = [
                     {

@@ -1,0 +1,19 @@
+services:
+  dashboard:
+    build:
+      context: .
+      args:
+        GIT_SHA: ${GIT_SHA:-unknown}
+        GIT_COMMIT_TIME: ${GIT_COMMIT_TIME:-unknown}
+    image: eeesoc-dashboard:latest
+    container_name: eeesoc-dashboard
+    ports:
+      - "8081:8081"
+    volumes:
+      - ./data/cache:/data/cache
+    environment:
+      EEESOC_GIT_SHA: ${GIT_SHA:-unknown}
+      EEESOC_GIT_COMMIT_TIME: ${GIT_COMMIT_TIME:-unknown}
+      EEESOC_SEASON: ${EEESOC_SEASON:-EPL:2025}
+      EEESOC_CACHE: /data/cache
+    restart: unless-stopped
