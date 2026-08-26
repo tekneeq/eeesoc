@@ -48,14 +48,19 @@ chmod +x deploy.sh restart.sh scripts/*.sh
 ./deploy.sh
 ```
 
-Optional nginx reverse proxy (julia already owns `:80`, so this sample listens on `:8080`):
+Optional nginx reverse proxy (**julia-style**: public `:80` → app `:8081`):
 
 ```bash
-sudo cp scripts/nginx-eeesoc-dashboard.conf /etc/nginx/conf.d/eeesoc-dashboard.conf
-sudo nginx -t && sudo systemctl reload nginx
+cd ~/eeesoc
+./scripts/install-nginx-amazon-linux.sh
+# or:
+#   sudo dnf install -y nginx   # or: sudo yum install -y nginx
+#   sudo cp scripts/nginx-eeesoc-dashboard.conf /etc/nginx/conf.d/eeesoc-dashboard.conf
+#   sudo rm -f /etc/nginx/conf.d/default.conf
+#   sudo nginx -t && sudo systemctl enable --now nginx && sudo systemctl reload nginx
 ```
 
-Open security group inbound for `8081` (direct) and/or `8080` (nginx).
+Open security group inbound **TCP 80**. Then browse `http://<EC2-public-IP>/` (no `:8081`).
 
 ### Auto-deploy on push
 
