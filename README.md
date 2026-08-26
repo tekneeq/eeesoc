@@ -55,11 +55,13 @@ Optional nginx reverse proxy (`eeesoc.com` / `www.eeesoc.com` `:80`/`:443` → a
 ```bash
 cd ~/eeesoc
 ./scripts/install-nginx-amazon-linux.sh          # HTTP + ACME webroot
-# DNS A records for eeesoc.com + www → this instance; SG: TCP 80 and 443
+# DNS A records for eeesoc.com (+ www if you want it) → this instance; SG: TCP 80 and 443
 CERTBOT_EMAIL=you@example.com ./scripts/install-https-letsencrypt.sh
+# Apex only (if www has no DNS yet):
+# CERTBOT_DOMAINS="eeesoc.com" CERTBOT_EMAIL=you@example.com ./scripts/install-https-letsencrypt.sh
 ```
 
-Then browse `https://eeesoc.com/`. HTTP redirects to HTTPS. Certs auto-renew via certbot’s timer.
+Then browse `https://eeesoc.com/`. HTTP redirects to HTTPS. Domains without DNS are skipped automatically; re-run after adding `www` to expand the cert. Certs auto-renew via certbot’s timer.
 
 ### Auto-deploy on push
 
