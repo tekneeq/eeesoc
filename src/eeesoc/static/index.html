@@ -34,15 +34,27 @@
         <div class="panel-head live-head">
           <div>
             <h1>Live</h1>
-            <p class="lede">In-play matches across top leagues — Revenant chiclets to filter.</p>
+            <p class="lede">
+              Match chiclets for every in-play game — tap one for ball position, passes, and shots on the pitch.
+            </p>
           </div>
           <div class="live-status">
             <span class="pulse" aria-hidden="true"></span>
             <span id="liveStamp">loading…</span>
           </div>
         </div>
-        <div class="chiclet-row" id="liveChiclets" role="toolbar" aria-label="League filters"></div>
-        <div id="liveBoard" class="live-board"></div>
+        <div class="chiclet-row" id="leagueChiclets" role="toolbar" aria-label="League filters"></div>
+        <div class="match-chiclet-grid" id="matchChiclets" role="list"></div>
+        <div class="pitch-panel" id="pitchPanel" hidden>
+          <div class="pitch-toolbar">
+            <div class="pitch-title" id="pitchTitle">—</div>
+            <div class="pitch-stats" id="pitchStats"></div>
+          </div>
+          <div class="pitch-wrap">
+            <svg id="pitchSvg" class="pitch-svg" viewBox="0 0 1050 680" role="img" aria-label="Live pitch"></svg>
+          </div>
+          <div class="pitch-feed" id="pitchFeed"></div>
+        </div>
       </section>
 
       <section id="panel-matches" class="panel" role="tabpanel" hidden>
