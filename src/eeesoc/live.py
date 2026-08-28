@@ -228,3 +228,224 @@ def fetch_live_board(
 def clear_live_cache() -> None:
     global _cache_lock_payload
     _cache_lock_payload = None
+
+
+# —— Live pitch tracking (passes / shots / ball) ——
+
+PLAYS_URL = (
+    "https://sports.core.api.espn.com/v2/sports/soccer/leagues/{league}"
+    "/events/{event_id}/competitions/{event_id}/plays?limit={limit}&page={page}"
+)
+
+SHOT_TYPES = {
+    "shot",
+    "shot-on-target",
+    "shot-off-target",
+    "shot-blocked",
+    "goal",
+    "penalty-goal",
+    "miss",
+    "woodwork",
+}
+PASS_TYPES = {"pass", "cross", "through-ball", "blocked-pass"}
+BALL_TYPES = SHOT_TYPES | PASS_TYPES | {
+    "ball-touch",
+    "tackle",
+    "clear",
+    "take-on",
+    "interception",
+    "throw-in",
+    "foul",
+    "save",
+    "claim",
+    "aerial",
+    "dispossessed",
+    "free-kick",
+    "corner-awarded",
+    "goal-kick",
+}
+
+_track_cache: dict[str, tuple[float, dict[str, Any]]] = {}
+_TRACK_TTL_S = 8.0
+
+
+def _play_type(play: dict[str, Any]) -> str:
+    t = play.get("type") or {}
+    return str(t.get("type") or t.get("text") or "").lower()
+
+
+def _clock_label(play: dict[str, Any]) -> str:
+    clock = play.get("clock") or {}
+    if isinstance(clock, dict) and clock.get("displayValue"):
+        return str(clock["displayValue"])
+    return ""
+
+
+def _coord(play: dict[str, Any], key: str) -> float | None:
+    val = play.get(key)
+    if val is None:
+        return None
+    try:
+        return float(val)
+    except (TypeError, ValueError):
+        return None
+
+
+def fetch_plays_pages(
+    league_slug: str,
+    event_id: str,
+    *,
+    pages: int = 3,
+    page_size: int = 100,
+    fetcher: Callable[[str], dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
+    """Fetch the newest N pages of ESPN plays (with pitch coordinates)."""
+    fetch = fetcher or _fetch_json
+    first_url = PLAYS_URL.format(
+        league=urllib.parse.quote(league_slug, safe="."),
+        event_id=urllib.parse.quote(str(event_id), safe=""),
+        limit=page_size,
+        page=1,
+    )
+    try:
+        first = fetch(first_url)
+    except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, json.JSONDecodeError, OSError):
+        return []
+
+    page_count = int(first.get("pageCount") or 1)
+    start_page = max(1, page_count - pages + 1)
+    plays: list[dict[str, Any]] = []
+    for page in range(start_page, page_count + 1):
+        if page == 1:
+            payload = first
+        else:
+            url = PLAYS_URL.format(
+                league=urllib.parse.quote(league_slug, safe="."),
+                event_id=urllib.parse.quote(str(event_id), safe=""),
+                limit=page_size,
+                page=page,
+            )
+            try:
+                payload = fetch(url)
+            except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, json.JSONDecodeError, OSError):
+                continue
+        plays.extend(payload.get("items") or [])
+    return plays
+
+
+def build_pitch_track(
+    league_slug: str,
+    event_id: str,
+    *,
+    home: str = "",
+    away: str = "",
+    home_score: int = 0,
+    away_score: int = 0,
+    clock: str = "",
+    league_chiclet: str = "",
+    fetcher: Callable[[str], dict[str, Any]] | None = None,
+    use_cache: bool = True,
+) -> dict[str, Any]:
+    """
+    Build a pitch graphic payload: ball position, recent passes, shots.
+
+    Coordinates are ESPN fieldPosition* on a 0–100 pitch
+    (X along length, Y across width).
+    """
+    cache_key = f"{league_slug}:{event_id}"
+    if use_cache and cache_key in _track_cache:
+        ts, payload = _track_cache[cache_key]
+        if time.time() - ts < _TRACK_TTL_S:
+            return payload
+
+    plays = fetch_plays_pages(league_slug, event_id, pages=8, fetcher=fetcher)
+    passes: list[dict[str, Any]] = []
+    shots: list[dict[str, Any]] = []
+    ball: dict[str, Any] | None = None
+    counts = {"passes": 0, "shots": 0, "shots_on": 0, "goals": 0, "fouls": 0}
+
+    for play in plays:
+        ptype = _play_type(play)
+        if ptype in PASS_TYPES:
+            counts["passes"] += 1
+        if ptype in SHOT_TYPES:
+            counts["shots"] += 1
+        if ptype in {"shot-on-target", "goal", "penalty-goal"}:
+            counts["shots_on"] += 1
+        if ptype in {"goal", "penalty-goal"}:
+            counts["goals"] += 1
+        if ptype == "foul":
+            counts["fouls"] += 1
+
+        x = _coord(play, "fieldPositionX")
+        y = _coord(play, "fieldPositionY")
+        x2 = _coord(play, "fieldPosition2X")
+        y2 = _coord(play, "fieldPosition2Y")
+        label = str(play.get("shortText") or play.get("text") or ptype)
+        entry = {
+            "id": str(play.get("id") or ""),
+            "type": ptype,
+            "text": label,
+            "clock": _clock_label(play),
+            "x": x,
+            "y": y,
+            "x2": x2,
+            "y2": y2,
+            "scoring": bool(play.get("scoringPlay")),
+        }
+
+        if ptype in PASS_TYPES and x is not None and y is not None:
+            passes.append(entry)
+        if ptype in SHOT_TYPES and x is not None and y is not None:
+            shots.append(entry)
+
+        # Ball = end of latest positioned action
+        if ptype in BALL_TYPES:
+            bx = x2 if x2 is not None else x
+            by = y2 if y2 is not None else y
+            if bx is not None and by is not None:
+                ball = {
+                    "x": bx,
+                    "y": by,
+                    "type": ptype,
+                    "text": label,
+                    "clock": _clock_label(play),
+                }
+
+    # Keep the most recent trails for the graphic
+    passes = passes[-40:]
+    shots = shots[-25:]
+    recent = []
+    for play in plays[-30:]:
+        recent.append(
+            {
+                "type": _play_type(play),
+                "text": str(play.get("shortText") or play.get("text") or ""),
+                "clock": _clock_label(play),
+            }
+        )
+    recent = list(reversed(recent))
+
+    payload = {
+        "event_id": str(event_id),
+        "league_slug": league_slug,
+        "league_chiclet": league_chiclet,
+        "home": home,
+        "away": away,
+        "home_score": home_score,
+        "away_score": away_score,
+        "clock": clock,
+        "ball": ball,
+        "passes": passes,
+        "shots": shots,
+        "recent": recent,
+        "counts": counts,
+        "fetched_at": time.time(),
+    }
+    if use_cache:
+        _track_cache[cache_key] = (time.time(), payload)
+    return payload
+
+
+def clear_track_cache() -> None:
+    _track_cache.clear()

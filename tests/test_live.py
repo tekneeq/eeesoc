@@ -2,7 +2,13 @@
 
 from __future__ import annotations
 
-from eeesoc.live import clear_live_cache, fetch_live_board, parse_scoreboard
+from eeesoc.live import (
+    build_pitch_track,
+    clear_live_cache,
+    clear_track_cache,
+    fetch_live_board,
+    parse_scoreboard,
+)
 
 
 SAMPLE_SB = {
@@ -85,7 +91,7 @@ def test_parse_scoreboard_extracts_live_and_pre():
     assert live.league_chiclet == "La Liga"
 
 
-def test_fetch_live_board_filters_and_groups(monkeypatch):
+def test_fetch_live_board_filters_and_groups():
     clear_live_cache()
 
     def fake_fetch(url: str):
@@ -107,3 +113,65 @@ def test_fetch_live_board_filters_and_groups(monkeypatch):
     chic = {c["slug"]: c["live_count"] for c in board["chiclets"]}
     assert chic["esp.1"] == 1
     assert chic["eng.1"] == 0
+
+
+SAMPLE_PLAYS = {
+    "count": 3,
+    "pageIndex": 1,
+    "pageSize": 100,
+    "pageCount": 1,
+    "items": [
+        {
+            "id": "1",
+            "type": {"type": "pass", "text": "Pass"},
+            "shortText": "Player A Pass",
+            "clock": {"displayValue": "10'"},
+            "fieldPositionX": 20,
+            "fieldPositionY": 50,
+            "fieldPosition2X": 40,
+            "fieldPosition2Y": 55,
+        },
+        {
+            "id": "2",
+            "type": {"type": "shot-on-target", "text": "Shot On Target"},
+            "shortText": "Player B Shot On Target",
+            "clock": {"displayValue": "12'"},
+            "fieldPositionX": 88,
+            "fieldPositionY": 48,
+        },
+        {
+            "id": "3",
+            "type": {"type": "goal", "text": "Goal"},
+            "shortText": "Player B Goal",
+            "clock": {"displayValue": "13'"},
+            "scoringPlay": True,
+            "fieldPositionX": 95,
+            "fieldPositionY": 50,
+        },
+    ],
+}
+
+
+def test_build_pitch_track_ball_passes_shots():
+    clear_track_cache()
+
+    def fake_fetch(url: str):
+        return SAMPLE_PLAYS
+
+    track = build_pitch_track(
+        "esp.1",
+        "99",
+        home="Home",
+        away="Away",
+        fetcher=fake_fetch,
+        use_cache=False,
+    )
+    assert track["counts"]["passes"] == 1
+    assert track["counts"]["shots"] == 2
+    assert track["counts"]["goals"] == 1
+    assert len(track["passes"]) == 1
+    assert track["passes"][0]["x2"] == 40
+    assert len(track["shots"]) == 2
+    assert track["ball"]["type"] == "goal"
+    assert track["ball"]["x"] == 95
+    assert track["ball"]["y"] == 50
