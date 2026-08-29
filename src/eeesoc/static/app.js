@@ -100,8 +100,15 @@
 
   function renderMatchChiclets(gridEl, filter, selected, onSelect, opts = {}) {
     const grid = $(gridEl);
-    grid.innerHTML = "";
     const rows = flatLiveMatches(filter);
+    const withTimeline = !!opts.withTimeline;
+    const soft = !!opts.soft && withTimeline;
+
+    if (soft && softPatchLiveChiclets(grid, rows, selected, onSelect, opts)) {
+      return;
+    }
+
+    grid.innerHTML = "";
     if (!rows.length) {
       grid.innerHTML = `<p class="lede empty-live">No live matches right now — chiclets light up at kickoff.</p>`;
       return;
@@ -114,7 +121,6 @@
       byLeague.get(key).matches.push(m);
     }
 
-    const withTimeline = !!opts.withTimeline;
     for (const [, group] of byLeague) {
       const block = document.createElement("div");
       block.className = "match-chiclet-league";
@@ -122,40 +128,103 @@
       const wrap = document.createElement("div");
       wrap.className = "match-chiclet-row" + (withTimeline ? " match-chiclet-row-tl" : "");
       for (const m of group.matches) {
-        const btn = document.createElement("button");
-        btn.type = "button";
-        btn.className =
-          "match-chiclet" +
-          (withTimeline ? " match-chiclet-tl" : "") +
-          (selected && selected.event_id === m.event_id ? " on" : "");
-        btn.setAttribute("role", "listitem");
-        btn.dataset.eventId = m.event_id;
-        btn.innerHTML = `
-          <span class="mc-clock"><span class="live-dot"></span>${escapeHtml(m.clock || "LIVE")}</span>
-          <span class="mc-teams">
-            <span class="mc-home">${escapeHtml(shortName(m.home))}</span>
-            <span class="mc-score">${m.home_score}–${m.away_score}</span>
-            <span class="mc-away">${escapeHtml(shortName(m.away))}</span>
-          </span>
-          <span class="mc-league">${escapeHtml(m.league_chiclet)}</span>
-          ${
-            withTimeline
-              ? `<div class="mc-charts">
-                  <span class="mc-timeline" data-tl-for="${escapeHtml(m.event_id)}" aria-label="Match event timeline"><span class="mc-timeline-loading">timeline…</span></span>
-                  <span class="mc-xg" data-xg-for="${escapeHtml(m.event_id)}" aria-label="Expected goals versus time"><span class="mc-timeline-loading">xG…</span></span>
-                </div>`
-              : ""
-          }
-        `;
-        btn.addEventListener("click", () => onSelect(m));
+        const btn = buildMatchChicletButton(m, selected, onSelect, withTimeline);
         wrap.appendChild(btn);
         if (withTimeline) {
-          loadMatchTimeline(m, btn.querySelector(".mc-timeline"), btn.querySelector(".mc-xg"));
+          loadMatchTimeline(m, btn.querySelector(".mc-timeline"), btn.querySelector(".mc-xg"), {
+            preferCache: true,
+          });
         }
       }
       block.appendChild(wrap);
       grid.appendChild(block);
     }
+  }
+
+  function buildMatchChicletButton(m, selected, onSelect, withTimeline) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className =
+      "match-chiclet" +
+      (withTimeline ? " match-chiclet-tl" : "") +
+      (selected && selected.event_id === m.event_id ? " on" : "");
+    btn.setAttribute("role", "listitem");
+    btn.dataset.eventId = m.event_id;
+    btn.__match = m;
+    btn.__onSelect = onSelect;
+    const cached = withTimeline ? state.timelines?.[m.event_id] : null;
+    btn.innerHTML = `
+      <span class="mc-clock"><span class="live-dot"></span><span class="mc-clock-text">${escapeHtml(m.clock || "LIVE")}</span></span>
+      <span class="mc-teams">
+        <span class="mc-home">${escapeHtml(shortName(m.home))}</span>
+        <span class="mc-score">${m.home_score}–${m.away_score}</span>
+        <span class="mc-away">${escapeHtml(shortName(m.away))}</span>
+      </span>
+      <span class="mc-league">${escapeHtml(m.league_chiclet)}</span>
+      ${
+        withTimeline
+          ? `<div class="mc-charts">
+              <span class="mc-timeline" data-tl-for="${escapeHtml(m.event_id)}" aria-label="Match event timeline">${
+                cached ? timelineSvg(cached) : `<span class="mc-timeline-loading">timeline…</span>`
+              }</span>
+              <span class="mc-xg" data-xg-for="${escapeHtml(m.event_id)}" aria-label="Expected goals versus time">${
+                cached ? xgSvg(cached) : `<span class="mc-timeline-loading">xG…</span>`
+              }</span>
+            </div>`
+          : ""
+      }
+    `;
+    btn.addEventListener("click", () => {
+      if (btn.__onSelect) btn.__onSelect(btn.__match);
+    });
+    return btn;
+  }
+
+  function softPatchLiveChiclets(grid, rows, selected, onSelect, opts = {}) {
+    if (!grid) return false;
+    const existing = [...grid.querySelectorAll(".match-chiclet[data-event-id]")];
+    if (!existing.length && !rows.length) return true;
+    if (existing.length !== rows.length) return false;
+    const byId = new Map(existing.map((el) => [el.dataset.eventId, el]));
+    for (const m of rows) {
+      if (!byId.has(String(m.event_id))) return false;
+    }
+
+    const refreshTimelines = opts.refreshTimelines !== false;
+
+    for (const m of rows) {
+      const btn = byId.get(String(m.event_id));
+      btn.__match = m;
+      btn.__onSelect = onSelect;
+      btn.classList.toggle("on", !!(selected && selected.event_id === m.event_id));
+      const clockText = btn.querySelector(".mc-clock-text");
+      if (clockText) clockText.textContent = m.clock || "LIVE";
+      else {
+        const clock = btn.querySelector(".mc-clock");
+        if (clock) {
+          const dot = clock.querySelector(".live-dot");
+          clock.textContent = "";
+          if (dot) clock.appendChild(dot);
+          const span = document.createElement("span");
+          span.className = "mc-clock-text";
+          span.textContent = m.clock || "LIVE";
+          clock.appendChild(span);
+        }
+      }
+      const score = btn.querySelector(".mc-score");
+      if (score) score.textContent = `${m.home_score}–${m.away_score}`;
+      const home = btn.querySelector(".mc-home");
+      if (home) home.textContent = shortName(m.home);
+      const away = btn.querySelector(".mc-away");
+      if (away) away.textContent = shortName(m.away);
+      if (refreshTimelines) {
+        loadMatchTimeline(m, btn.querySelector(".mc-timeline"), btn.querySelector(".mc-xg"), {
+          quiet: true,
+          force: true,
+        });
+      }
+    }
+    return true;
   }
 
   function timelineSvg(tl) {
@@ -265,34 +334,72 @@
     </svg>`;
   }
 
-  async function loadMatchTimeline(m, mount, xgMount) {
+  async function loadMatchTimeline(m, mount, xgMount, opts = {}) {
     if (!mount) return;
+    const quiet = Boolean(opts.quiet);
+    const force = Boolean(opts.force);
+    const preferCache = Boolean(opts.preferCache);
     const cached = state.timelines?.[m.event_id];
-    if (cached && Date.now() - cached._ts < 12000) {
-      mount.innerHTML = timelineSvg(cached);
-      if (xgMount) xgMount.innerHTML = xgSvg(cached);
-      return;
+    const fresh = cached && Date.now() - cached._ts < 12000;
+    const hasSvg = () => !!mount.querySelector("svg.mc-tl-svg");
+
+    const paint = (tl) => {
+      if (mount.isConnected) mount.innerHTML = timelineSvg(tl);
+      if (xgMount && xgMount.isConnected) xgMount.innerHTML = xgSvg(tl);
+    };
+
+    const chartSig = (tl) =>
+      JSON.stringify({
+        minute: tl.minute,
+        max: tl.max_minute,
+        events: (tl.events || []).map((e) => [e.minute, e.kind, e.team, e.xg]),
+        xh: tl.xg?.home_total,
+        xa: tl.xg?.away_total,
+      });
+
+    // Keep existing pictograms visible while refetching — only fill empty mounts from cache.
+    if (cached) {
+      if (!hasSvg()) paint(cached);
+      if (fresh && !force) return;
+    } else if (!quiet && !hasSvg()) {
+      mount.innerHTML = `<span class="mc-timeline-loading">timeline…</span>`;
+      if (xgMount && !xgMount.querySelector("svg")) {
+        xgMount.innerHTML = `<span class="mc-timeline-loading">xG…</span>`;
+      }
     }
+
+    if (preferCache && fresh && !force) return;
+
     try {
       const qs = liveQuery(m);
       const tl = await (await fetch(`/api/live/timeline?${qs}`)).json();
       tl._ts = Date.now();
       state.timelines = state.timelines || {};
+      const prev = state.timelines[m.event_id];
       state.timelines[m.event_id] = tl;
-      if (mount.isConnected) mount.innerHTML = timelineSvg(tl);
-      if (xgMount && xgMount.isConnected) xgMount.innerHTML = xgSvg(tl);
+      // Skip DOM rewrite when nothing meaningful changed (avoids a 25s blink).
+      if (hasSvg() && prev && chartSig(prev) === chartSig(tl)) return;
+      paint(tl);
     } catch (err) {
-      if (mount.isConnected) mount.innerHTML = `<span class="mc-timeline-loading">timeline unavailable</span>`;
-      if (xgMount && xgMount.isConnected) xgMount.innerHTML = `<span class="mc-timeline-loading">xG unavailable</span>`;
+      // Soft refresh: leave the last good chart up on network errors.
+      if (quiet && (hasSvg() || cached)) return;
+      if (mount.isConnected && !hasSvg()) {
+        mount.innerHTML = `<span class="mc-timeline-loading">timeline unavailable</span>`;
+      }
+      if (xgMount && xgMount.isConnected && !xgMount.querySelector("svg")) {
+        xgMount.innerHTML = `<span class="mc-timeline-loading">xG unavailable</span>`;
+      }
     }
   }
 
-  function renderLiveTabChiclets() {
+  function renderLiveTabChiclets(opts = {}) {
     renderLeagueChiclets("#leagueChiclets", "liveFilter", () => {
       renderLiveTabChiclets();
     });
     renderMatchChiclets("#matchChiclets", state.liveFilter, state.selectedLive, selectLiveMatch, {
       withTimeline: true,
+      soft: !!opts.soft,
+      refreshTimelines: opts.refreshTimelines,
     });
   }
 
@@ -310,7 +417,7 @@
 
   async function selectLiveMatch(m) {
     state.selectedLive = m;
-    renderLiveTabChiclets();
+    renderLiveTabChiclets({ soft: true, refreshTimelines: false });
     $("#pitchPanel").hidden = false;
     $("#pitchTitle").textContent = `${m.home} ${m.home_score}–${m.away_score} ${m.away} · ${m.clock || "LIVE"}`;
     await refreshTrack();
@@ -731,8 +838,13 @@
         if (state.similarTimer) clearInterval(state.similarTimer);
       });
 
-      renderLiveTabChiclets();
+      renderLiveTabChiclets({ soft: true });
       renderSimilarTabChiclets();
+
+      if (state.selectedLive) {
+        const m = state.selectedLive;
+        $("#pitchTitle").textContent = `${m.home} ${m.home_score}–${m.away_score} ${m.away} · ${m.clock || "LIVE"}`;
+      }
 
       if (state.selectedSimilarLive && !state.selectedId) {
         // keep live similar fresh when board refreshes
