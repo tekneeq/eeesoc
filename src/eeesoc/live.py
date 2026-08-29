@@ -712,8 +712,8 @@ _TIMELINE_TTL_S = 12.0
 def _normalize_play_type(ptype: str) -> str:
     if ptype.startswith("penalty") and "scor" in ptype:
         return "penalty---scored"
-    # ESPN variants: goal---header, goal---volley, …
-    if ptype.startswith("goal"):
+    # ESPN variants: goal---header, goal---volley — but not goal-kick
+    if ptype == "goal" or ptype.startswith("goal---"):
         return "goal"
     return ptype
 
