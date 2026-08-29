@@ -76,17 +76,28 @@
       </section>
 
       <section id="panel-similar" class="panel" role="tabpanel" hidden>
-        <div class="panel-head">
-          <h1>Similar</h1>
-          <p class="lede">
-            Snapshot frozen at cut minute — goal times, shots/SOT — ranked against last-season history.
-          </p>
+        <div class="panel-head live-head">
+          <div>
+            <h1>Similar</h1>
+            <p class="lede">
+              Live match chiclets — tap one to freeze the situation. When a side scores, see what
+              each team had (shots / on target) and historical peers for that moment.
+            </p>
+          </div>
+          <div class="live-status">
+            <span class="pulse" aria-hidden="true"></span>
+            <span id="similarLiveStamp">loading…</span>
+          </div>
         </div>
+        <div class="chiclet-row" id="similarLeagueChiclets" role="toolbar" aria-label="Similar league filters"></div>
+        <div class="match-chiclet-grid" id="similarMatchChiclets" role="list"></div>
         <div class="freeze" id="freezeCard">
           <div class="freeze-title" id="freezeTitle">No snapshot yet</div>
-          <div class="freeze-label" id="freezeLabel">Select a match or hit Everton 53′</div>
+          <div class="freeze-label" id="freezeLabel">Pick a live chiclet, a Matches fixture, or Everton 53′</div>
           <div class="freeze-meta" id="freezeMeta"></div>
+          <div class="goal-context" id="goalContext" hidden></div>
         </div>
+        <div id="concedeSummary" class="concede-summary" hidden></div>
         <div id="similarList" class="similar-list"></div>
       </section>
     </main>

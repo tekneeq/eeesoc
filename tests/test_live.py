@@ -33,12 +33,12 @@ SAMPLE_SB = {
                                 {
                                     "homeAway": "home",
                                     "score": "3",
-                                    "team": {"displayName": "Real Madrid"},
+                                    "team": {"id": "86", "displayName": "Real Madrid"},
                                 },
                                 {
                                     "homeAway": "away",
                                     "score": "1",
-                                    "team": {"displayName": "Real Sociedad"},
+                                    "team": {"id": "89", "displayName": "Real Sociedad"},
                                 },
                             ],
                         }
@@ -89,6 +89,8 @@ def test_parse_scoreboard_extracts_live_and_pre():
     assert live.away_score == 1
     assert live.clock == "72'"
     assert live.league_chiclet == "La Liga"
+    assert live.home_id == "86"
+    assert live.away_id == "89"
 
 
 def test_fetch_live_board_filters_and_groups():
@@ -130,23 +132,38 @@ SAMPLE_PLAYS = {
             "fieldPositionY": 50,
             "fieldPosition2X": 40,
             "fieldPosition2Y": 55,
+            "team": {"$ref": "http://sports.core.api.espn.com/v2/sports/soccer/leagues/eng.1/seasons/2026/teams/364"},
         },
         {
             "id": "2",
             "type": {"type": "shot-on-target", "text": "Shot On Target"},
             "shortText": "Player B Shot On Target",
+            "text": "Player B (Liverpool) Shot On Target at 12'",
             "clock": {"displayValue": "12'"},
             "fieldPositionX": 88,
             "fieldPositionY": 48,
+            "team": {"$ref": "http://sports.core.api.espn.com/v2/sports/soccer/leagues/eng.1/seasons/2026/teams/364"},
         },
         {
             "id": "3",
+            "type": {"type": "shot-off-target", "text": "Shot Off Target"},
+            "shortText": "Player C Shot Off Target",
+            "text": "Player C (Nottingham Forest) Shot Off Target at 20'",
+            "clock": {"displayValue": "20'"},
+            "fieldPositionX": 20,
+            "fieldPositionY": 40,
+            "team": {"$ref": "http://sports.core.api.espn.com/v2/sports/soccer/leagues/eng.1/seasons/2026/teams/393"},
+        },
+        {
+            "id": "4",
             "type": {"type": "goal", "text": "Goal"},
-            "shortText": "Player B Goal",
-            "clock": {"displayValue": "13'"},
+            "shortText": "Dan Ndoye Goal",
+            "text": "Dan Ndoye (Nottingham Forest) Goal at 24'",
+            "clock": {"displayValue": "24'"},
             "scoringPlay": True,
             "fieldPositionX": 95,
             "fieldPositionY": 50,
+            "team": {"$ref": "http://sports.core.api.espn.com/v2/sports/soccer/leagues/eng.1/seasons/2026/teams/393"},
         },
     ],
 }
@@ -167,11 +184,100 @@ def test_build_pitch_track_ball_passes_shots():
         use_cache=False,
     )
     assert track["counts"]["passes"] == 1
-    assert track["counts"]["shots"] == 2
+    assert track["counts"]["shots"] == 3
     assert track["counts"]["goals"] == 1
     assert len(track["passes"]) == 1
     assert track["passes"][0]["x2"] == 40
-    assert len(track["shots"]) == 2
+    assert len(track["shots"]) == 3
     assert track["ball"]["type"] == "goal"
     assert track["ball"]["x"] == 95
     assert track["ball"]["y"] == 50
+
+
+def test_build_live_situation_goal_and_team_shots():
+    from eeesoc.live import build_live_situation, clear_situation_cache, parse_clock_minute
+
+    clear_situation_cache()
+    assert parse_clock_minute("24'") == 24
+    assert parse_clock_minute("45'+2") == 45
+
+    def fake_fetch(url: str):
+        return SAMPLE_PLAYS
+
+    sit = build_live_situation(
+        "eng.1",
+        "401879314",
+        home="Liverpool",
+        away="Nottingham Forest",
+        home_score=0,
+        away_score=1,
+        clock="33'",
+        home_id="364",
+        away_id="393",
+        fetcher=fake_fetch,
+        use_cache=False,
+    )
+    assert sit["minute"] == 33
+    snap = sit["snapshot"]
+    assert snap["home_shots"] == 1
+    assert snap["home_sot"] == 1
+    assert snap["away_shots"] == 2  # off-target + goal
+    assert snap["away_sot"] == 1
+    assert snap["away_goals"] == 1
+    assert sit["latest_goal"]["minute"] == 24
+    assert sit["latest_goal"]["team"] == "away"
+    assert sit["latest_goal"]["conceded_by_name"] == "Liverpool"
+    assert sit["latest_goal"]["my_shots"] == 1
+    assert sit["latest_goal"]["my_sot"] == 1
+    assert sit["latest_goal"]["scorer_shots"] == 2
+    assert sit["latest_goal"]["scorer_sot"] == 1
+
+
+def test_opponent_scored_context_averages():
+    from eeesoc.models import GoalEvent, Match
+    from eeesoc.similar import opponent_scored_context
+
+    peers = [
+        Match(
+            match_id="a",
+            season="EPL:2024",
+            date="01/01/2024",
+            home="A",
+            away="B",
+            home_goals_ft=0,
+            away_goals_ft=1,
+            home_shots_ft=8,
+            away_shots_ft=10,
+            home_sot_ft=2,
+            away_sot_ft=4,
+            goals=[GoalEvent(24, "away")],
+            home_shots_by_min=[0] + [3] * 90,
+            away_shots_by_min=[0] + [5] * 90,
+            home_sot_by_min=[0] + [1] * 90,
+            away_sot_by_min=[0] + [2] * 90,
+        ),
+        Match(
+            match_id="b",
+            season="EPL:2024",
+            date="02/01/2024",
+            home="C",
+            away="D",
+            home_goals_ft=0,
+            away_goals_ft=1,
+            home_shots_ft=6,
+            away_shots_ft=9,
+            home_sot_ft=1,
+            away_sot_ft=3,
+            goals=[GoalEvent(22, "away")],
+            home_shots_by_min=[0] + [5] * 90,
+            away_shots_by_min=[0] + [7] * 90,
+            home_sot_by_min=[0] + [2] * 90,
+            away_sot_by_min=[0] + [3] * 90,
+        ),
+    ]
+    ctx = opponent_scored_context(peers, goal_minute=24, scored_by="away", window=5)
+    assert ctx["count"] == 2
+    assert ctx["conceded_by"] == "home"
+    assert ctx["avg_my_shots"] == 4.0  # (3+5)/2
+    assert ctx["avg_my_sot"] == 1.5
+    assert ctx["peers"][0]["conceded_by_name"] == "A"

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import time
 import urllib.error
 import urllib.parse
@@ -51,6 +52,8 @@ class LiveMatch:
     clock: str
     detail: str
     start: str
+    home_id: str = ""
+    away_id: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -96,18 +99,17 @@ def parse_scoreboard(payload: dict[str, Any], league_slug: str, chiclet: str) ->
         detail = str(stype.get("detail") or stype.get("shortDetail") or "")
 
         home = away = "?"
+        home_id = away_id = ""
         home_score = away_score = 0
         for team in comp.get("competitors") or []:
-            name = (
-                (team.get("team") or {}).get("displayName")
-                or (team.get("team") or {}).get("shortDisplayName")
-                or "?"
-            )
+            tmeta = team.get("team") or {}
+            name = tmeta.get("displayName") or tmeta.get("shortDisplayName") or "?"
+            tid = str(tmeta.get("id") or team.get("id") or "")
             score = _safe_int(team.get("score"), 0)
             if team.get("homeAway") == "home":
-                home, home_score = name, score
+                home, home_score, home_id = name, score, tid
             elif team.get("homeAway") == "away":
-                away, away_score = name, score
+                away, away_score, away_id = name, score, tid
 
         out.append(
             LiveMatch(
@@ -123,6 +125,8 @@ def parse_scoreboard(payload: dict[str, Any], league_slug: str, chiclet: str) ->
                 clock=clock,
                 detail=detail,
                 start=str(event.get("date") or ""),
+                home_id=home_id,
+                away_id=away_id,
             )
         )
     return out
@@ -449,3 +453,240 @@ def build_pitch_track(
 
 def clear_track_cache() -> None:
     _track_cache.clear()
+
+
+# —— Live situation for Similar (goals + per-team shots/SOT) ——
+
+_TEAM_ID_RE = re.compile(r"/teams/(\d+)")
+_CLOCK_MIN_RE = re.compile(r"(\d+)")
+_sit_cache: dict[str, tuple[float, dict[str, Any]]] = {}
+_SIT_TTL_S = 12.0
+
+
+def parse_clock_minute(clock: str | None, *, default: int = 1) -> int:
+    """Parse ESPN display clocks like \"24'\" / \"45'+2\" / \"90'+4\" into a 1–90 minute."""
+    if not clock:
+        return default
+    m = _CLOCK_MIN_RE.search(str(clock))
+    if not m:
+        return default
+    return max(1, min(90, int(m.group(1))))
+
+
+def _team_id_from_play(play: dict[str, Any]) -> str | None:
+    team = play.get("team") or {}
+    ref = str(team.get("$ref") or "")
+    m = _TEAM_ID_RE.search(ref)
+    if m:
+        return m.group(1)
+    for part in play.get("participants") or []:
+        tref = str((part.get("team") or {}).get("$ref") or "")
+        m = _TEAM_ID_RE.search(tref)
+        if m:
+            return m.group(1)
+    return None
+
+
+def _play_minute(play: dict[str, Any]) -> int | None:
+    clock = play.get("clock") or {}
+    if isinstance(clock, dict):
+        if clock.get("displayValue"):
+            return parse_clock_minute(str(clock["displayValue"]), default=0) or None
+        val = clock.get("value")
+        if val is not None:
+            try:
+                # ESPN clock.value is seconds elapsed in the match
+                return max(1, min(90, int(float(val) // 60) + 1))
+            except (TypeError, ValueError):
+                return None
+    return None
+
+
+def fetch_all_plays(
+    league_slug: str,
+    event_id: str,
+    *,
+    page_size: int = 100,
+    fetcher: Callable[[str], dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
+    """Fetch every ESPN play page for an event (needed for accurate shot totals)."""
+    fetch = fetcher or _fetch_json
+    first_url = PLAYS_URL.format(
+        league=urllib.parse.quote(league_slug, safe="."),
+        event_id=urllib.parse.quote(str(event_id), safe=""),
+        limit=page_size,
+        page=1,
+    )
+    try:
+        first = fetch(first_url)
+    except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, json.JSONDecodeError, OSError):
+        return []
+
+    page_count = max(1, int(first.get("pageCount") or 1))
+    plays: list[dict[str, Any]] = list(first.get("items") or [])
+    for page in range(2, page_count + 1):
+        url = PLAYS_URL.format(
+            league=urllib.parse.quote(league_slug, safe="."),
+            event_id=urllib.parse.quote(str(event_id), safe=""),
+            limit=page_size,
+            page=page,
+        )
+        try:
+            payload = fetch(url)
+        except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, json.JSONDecodeError, OSError):
+            continue
+        plays.extend(payload.get("items") or [])
+    return plays
+
+
+def _side_for_team(
+    team_id: str | None,
+    *,
+    home_id: str,
+    away_id: str,
+    home: str,
+    away: str,
+    play: dict[str, Any],
+) -> str | None:
+    if team_id and home_id and team_id == home_id:
+        return "home"
+    if team_id and away_id and team_id == away_id:
+        return "away"
+    text = str(play.get("text") or "")
+    # "Dan Ndoye (Nottingham Forest) Goal at 24'"
+    if home and f"({home})" in text:
+        return "home"
+    if away and f"({away})" in text:
+        return "away"
+    return None
+
+
+def build_live_situation(
+    league_slug: str,
+    event_id: str,
+    *,
+    home: str = "",
+    away: str = "",
+    home_score: int = 0,
+    away_score: int = 0,
+    clock: str = "",
+    league_chiclet: str = "",
+    home_id: str = "",
+    away_id: str = "",
+    fetcher: Callable[[str], dict[str, Any]] | None = None,
+    use_cache: bool = True,
+) -> dict[str, Any]:
+    """
+    Freeze a live match into a Similar-ready snapshot plus goal-event context.
+
+    Counts shots / SOT / goals from the full ESPN play feed, attributed home/away.
+    For each goal, records each team's cumulative shots/SOT at that minute.
+    """
+    cache_key = f"sit:{league_slug}:{event_id}"
+    if use_cache and cache_key in _sit_cache:
+        ts, payload = _sit_cache[cache_key]
+        if time.time() - ts < _SIT_TTL_S:
+            return payload
+
+    plays = fetch_all_plays(league_slug, event_id, fetcher=fetcher)
+    minute = parse_clock_minute(clock, default=1)
+
+    home_shots = away_shots = home_sot = away_sot = 0
+    home_goals = away_goals = 0
+    goals: list[dict[str, Any]] = []
+    goal_minutes: list[int] = []
+
+    # Running tallies so each goal can snapshot "what each team had when this happened"
+    for play in plays:
+        ptype = _play_type(play)
+        tid = _team_id_from_play(play)
+        side = _side_for_team(
+            tid, home_id=home_id, away_id=away_id, home=home, away=away, play=play
+        )
+        pmin = _play_minute(play) or minute
+
+        is_shot = ptype in SHOT_TYPES
+        is_sot = ptype in {"shot-on-target", "goal", "penalty-goal"}
+        is_goal = ptype in {"goal", "penalty-goal"} or bool(play.get("scoringPlay"))
+
+        if is_shot and side == "home":
+            home_shots += 1
+            if is_sot:
+                home_sot += 1
+        elif is_shot and side == "away":
+            away_shots += 1
+            if is_sot:
+                away_sot += 1
+
+        if is_goal and side in {"home", "away"}:
+            if side == "home":
+                home_goals += 1
+            else:
+                away_goals += 1
+            goal_minutes.append(pmin)
+            scorer = str(play.get("shortText") or play.get("text") or "Goal")
+            goals.append(
+                {
+                    "minute": pmin,
+                    "team": side,
+                    "team_name": home if side == "home" else away,
+                    "opponent_name": away if side == "home" else home,
+                    "text": scorer,
+                    "home_shots": home_shots,
+                    "away_shots": away_shots,
+                    "home_sot": home_sot,
+                    "away_sot": away_sot,
+                    "home_goals": home_goals,
+                    "away_goals": away_goals,
+                    # Focal "my team" when opponent scored = the conceding side
+                    "conceded_by": "away" if side == "home" else "home",
+                    "conceded_by_name": away if side == "home" else home,
+                    "my_shots": away_shots if side == "home" else home_shots,
+                    "my_sot": away_sot if side == "home" else home_sot,
+                    "scorer_shots": home_shots if side == "home" else away_shots,
+                    "scorer_sot": home_sot if side == "home" else away_sot,
+                }
+            )
+
+    # Prefer live scoreboard totals when plays missed attribution
+    if home_goals + away_goals < home_score + away_score:
+        home_goals, away_goals = home_score, away_score
+
+    snapshot = {
+        "minute": minute,
+        "home_goals": home_goals,
+        "away_goals": away_goals,
+        "home_shots": home_shots,
+        "away_shots": away_shots,
+        "home_sot": home_sot,
+        "away_sot": away_sot,
+        "goal_minutes": tuple(goal_minutes),
+    }
+
+    latest = goals[-1] if goals else None
+    goals_label = "/".join(f"{m}'" for m in goal_minutes) or "—"
+    payload = {
+        "event_id": str(event_id),
+        "league_slug": league_slug,
+        "league_chiclet": league_chiclet,
+        "home": home,
+        "away": away,
+        "home_id": home_id,
+        "away_id": away_id,
+        "home_score": home_score,
+        "away_score": away_score,
+        "clock": clock,
+        "minute": minute,
+        "snapshot": snapshot,
+        "label": f"{goals_label} · {home_shots}/{home_sot} vs {away_shots}/{away_sot}",
+        "goals": goals,
+        "latest_goal": latest,
+        "fetched_at": time.time(),
+    }
+    if use_cache:
+        _sit_cache[cache_key] = (time.time(), payload)
+    return payload
+
+
+def clear_situation_cache() -> None:
+    _sit_cache.clear()
