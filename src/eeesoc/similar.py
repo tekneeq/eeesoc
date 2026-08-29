@@ -80,6 +80,87 @@ def _avg(values: list[float]) -> float | None:
     return round(sum(values) / len(values), 2)
 
 
+def _rate(count: int, total: int) -> float | None:
+    if total <= 0:
+        return None
+    return round(count / total, 3)
+
+
+def _after_goal_timeline(
+    match: Match,
+    *,
+    trigger_minute: int,
+    scored_by: str,
+    conceded_by: str,
+) -> dict[str, Any]:
+    """Goals after the trigger — rest of 1H, 2H, and full remainder."""
+    after = [g for g in match.goals if g.minute > trigger_minute]
+    rest_1h = [g for g in after if g.minute <= 45]
+    second_half = [g for g in after if g.minute >= 46]
+
+    def pack(goals: list) -> list[dict[str, Any]]:
+        rows = []
+        for g in goals:
+            side = "my" if g.team == conceded_by else "opp"
+            rows.append(
+                {
+                    "minute": g.minute,
+                    "team": g.team,
+                    "side": side,
+                    "team_name": match.home if g.team == "home" else match.away,
+                    "half": "1H" if g.minute <= 45 else "2H",
+                }
+            )
+        return rows
+
+    after_rows = pack(after)
+    sh_rows = pack(second_half)
+    my_after = sum(1 for g in after if g.team == conceded_by)
+    opp_after = sum(1 for g in after if g.team == scored_by)
+    my_2h = sum(1 for g in second_half if g.team == conceded_by)
+    opp_2h = sum(1 for g in second_half if g.team == scored_by)
+    home_after = sum(1 for g in after if g.team == "home")
+    away_after = sum(1 for g in after if g.team == "away")
+    home_2h = sum(1 for g in second_half if g.team == "home")
+    away_2h = sum(1 for g in second_half if g.team == "away")
+
+    # Equalizer / next goal from the conceding side
+    next_my = next((r for r in after_rows if r["side"] == "my"), None)
+    next_opp = next((r for r in after_rows if r["side"] == "opp"), None)
+    next_any = after_rows[0] if after_rows else None
+    next_2h = sh_rows[0] if sh_rows else None
+
+    return {
+        "after_goals": after_rows,
+        "rest_1h_goals": pack(rest_1h),
+        "second_half_goals": sh_rows,
+        "more_goals": len(after),
+        "more_goals_1h": len(rest_1h),
+        "more_goals_2h": len(second_half),
+        "my_after": my_after,
+        "opp_after": opp_after,
+        "my_2h": my_2h,
+        "opp_2h": opp_2h,
+        "home_after": home_after,
+        "away_after": away_after,
+        "home_2h": home_2h,
+        "away_2h": away_2h,
+        "next_goal_minute": next_any["minute"] if next_any else None,
+        "next_goal_side": next_any["side"] if next_any else None,
+        "next_my_minute": next_my["minute"] if next_my else None,
+        "next_opp_minute": next_opp["minute"] if next_opp else None,
+        "next_2h_minute": next_2h["minute"] if next_2h else None,
+        "next_2h_side": next_2h["side"] if next_2h else None,
+        "equalized": my_after > 0,
+        "after_label": (
+            " · ".join(f"{r['minute']}'{r['side'][0]}" for r in after_rows) or "no more goals"
+        ),
+        "second_half_label": (
+            " · ".join(f"{r['minute']}'{r['side'][0]}" for r in sh_rows) or "no 2H goals"
+        ),
+    }
+
+
 def opponent_scored_context(
     corpus: Iterable[Match],
     *,
@@ -91,8 +172,8 @@ def opponent_scored_context(
     """
     Historical peers where the same side scored around ``goal_minute``.
 
-    For each peer, report both teams' shots/SOT at that goal — and averages for
-    the conceding side ("my team when the opponent scored").
+    Focus: what happened next — more goals, 2nd-half goals, and when.
+    Also includes shots/SOT at the trigger for context.
     """
     if scored_by not in {"home", "away"}:
         raise ValueError("scored_by must be home or away")
@@ -116,6 +197,13 @@ def opponent_scored_context(
                 my_shots, my_sot = snap.away_shots, snap.away_sot
                 opp_shots, opp_sot = snap.home_shots, snap.home_sot
                 my_name, opp_name = match.away, match.home
+
+            timeline = _after_goal_timeline(
+                match,
+                trigger_minute=goal.minute,
+                scored_by=scored_by,
+                conceded_by=conceded_by,
+            )
             peers.append(
                 {
                     "match_id": match.match_id,
@@ -141,19 +229,47 @@ def opponent_scored_context(
                     "label": snap.label(),
                     "ft": f"{match.home_goals_ft}-{match.away_goals_ft}",
                     "minute_delta": abs(goal.minute - goal_minute),
+                    **timeline,
                 }
             )
             break  # one peer row per match (first matching goal)
 
     peers.sort(key=lambda p: (p["minute_delta"], p["date"]))
     peers = peers[:limit]
+    n = len(peers)
+
+    # Aggregate "when" buckets for 2H goals across peers
+    when_2h: dict[str, int] = {}
+    for p in peers:
+        for g in p["second_half_goals"]:
+            # bucket: 46-60, 61-75, 76-90
+            m = int(g["minute"])
+            if m <= 60:
+                bucket = "46-60"
+            elif m <= 75:
+                bucket = "61-75"
+            else:
+                bucket = "76-90"
+            key = f"{bucket}:{g['side']}"
+            when_2h[key] = when_2h.get(key, 0) + 1
+
+    when_2h_rows = [
+        {
+            "bucket": bucket,
+            "side": side,
+            "count": count,
+        }
+        for (bucket_side, count) in sorted(when_2h.items(), key=lambda kv: (-kv[1], kv[0]))
+        for bucket, side in [bucket_side.split(":", 1)]
+    ]
 
     return {
         "goal_minute": goal_minute,
         "scored_by": scored_by,
         "conceded_by": conceded_by,
         "window": window,
-        "count": len(peers),
+        "count": n,
+        # shots (secondary)
         "avg_my_shots": _avg([float(p["my_shots"]) for p in peers]),
         "avg_my_sot": _avg([float(p["my_sot"]) for p in peers]),
         "avg_opp_shots": _avg([float(p["opp_shots"]) for p in peers]),
@@ -162,5 +278,28 @@ def opponent_scored_context(
         "avg_home_sot": _avg([float(p["home_sot"]) for p in peers]),
         "avg_away_shots": _avg([float(p["away_shots"]) for p in peers]),
         "avg_away_sot": _avg([float(p["away_sot"]) for p in peers]),
+        # goals after trigger (primary)
+        "avg_more_goals": _avg([float(p["more_goals"]) for p in peers]),
+        "avg_more_goals_1h": _avg([float(p["more_goals_1h"]) for p in peers]),
+        "avg_more_goals_2h": _avg([float(p["more_goals_2h"]) for p in peers]),
+        "avg_my_after": _avg([float(p["my_after"]) for p in peers]),
+        "avg_opp_after": _avg([float(p["opp_after"]) for p in peers]),
+        "avg_my_2h": _avg([float(p["my_2h"]) for p in peers]),
+        "avg_opp_2h": _avg([float(p["opp_2h"]) for p in peers]),
+        "avg_home_2h": _avg([float(p["home_2h"]) for p in peers]),
+        "avg_away_2h": _avg([float(p["away_2h"]) for p in peers]),
+        "pct_any_more_goals": _rate(sum(1 for p in peers if p["more_goals"] > 0), n),
+        "pct_any_2h_goals": _rate(sum(1 for p in peers if p["more_goals_2h"] > 0), n),
+        "pct_equalized": _rate(sum(1 for p in peers if p["equalized"]), n),
+        "avg_next_goal_minute": _avg(
+            [float(p["next_goal_minute"]) for p in peers if p["next_goal_minute"] is not None]
+        ),
+        "avg_next_my_minute": _avg(
+            [float(p["next_my_minute"]) for p in peers if p["next_my_minute"] is not None]
+        ),
+        "avg_next_2h_minute": _avg(
+            [float(p["next_2h_minute"]) for p in peers if p["next_2h_minute"] is not None]
+        ),
+        "when_2h": when_2h_rows,
         "peers": peers,
     }
