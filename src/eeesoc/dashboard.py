@@ -12,7 +12,7 @@ from urllib.parse import parse_qs, urlparse
 from eeesoc.data import load_season, previous_season_label
 from eeesoc.live import build_event_timeline, build_live_situation, build_pitch_track, fetch_live_board
 from eeesoc.models import Match, MatchSnapshot
-from eeesoc.scorelines import build_live_scoreline_eval
+from eeesoc.scorelines import build_live_scoreline_eval, score_path
 from eeesoc.similar import find_similar, opponent_scored_context
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
@@ -189,10 +189,22 @@ def make_handler(state: DashboardState):
                 goals = situation.get("goals") or []
                 if goals:
                     last = goals[-1]
-                    if last.get("team") == "home":
-                        prev_h, prev_a = max(0, hs - 1), aws
-                    elif last.get("team") == "away":
-                        prev_h, prev_a = hs, max(0, aws - 1)
+                    # Prefer cumulative scores on the goal event (robust to board lag).
+                    try:
+                        gh = int(last.get("home_goals"))
+                        ga = int(last.get("away_goals"))
+                        if last.get("team") == "home":
+                            prev_h, prev_a = max(0, gh - 1), ga
+                        elif last.get("team") == "away":
+                            prev_h, prev_a = gh, max(0, ga - 1)
+                        # Align "now" with the last scored state when board disagrees.
+                        if gh + ga >= hs + aws:
+                            hs, aws = gh, ga
+                    except (TypeError, ValueError):
+                        if last.get("team") == "home":
+                            prev_h, prev_a = max(0, hs - 1), aws
+                        elif last.get("team") == "away":
+                            prev_h, prev_a = hs, max(0, aws - 1)
 
                 scorelines = build_live_scoreline_eval(
                     state.corpus,
@@ -284,9 +296,64 @@ def make_handler(state: DashboardState):
                     except (TypeError, ValueError):
                         return self._send(400, _json_bytes({"error": "bad query"}), "application/json")
                 hits = find_similar(snap, state.corpus, limit=limit, exclude_ids=exclude)
+                scorelines = None
+                situation = None
+                if match:
+                    visits = [(m, h, a) for m, h, a in score_path(match) if m <= minute]
+                    if not visits:
+                        visits = [(0, 0, 0)]
+                    _, hs, aws = visits[-1]
+                    prev_h = prev_a = None
+                    if len(visits) >= 2:
+                        _, prev_h, prev_a = visits[-2]
+                    scorelines = build_live_scoreline_eval(
+                        state.corpus,
+                        home_name=match.home,
+                        away_name=match.away,
+                        home_score=hs,
+                        away_score=aws,
+                        prev_home=prev_h,
+                        prev_away=prev_a,
+                        limit_peers=min(8, limit),
+                    )
+                    goal_rows = []
+                    running_h = running_a = 0
+                    for g in sorted(match.goals, key=lambda x: (x.minute, x.team)):
+                        if g.minute > minute:
+                            break
+                        if g.team == "home":
+                            running_h += 1
+                        else:
+                            running_a += 1
+                        goal_rows.append(
+                            {
+                                "minute": g.minute,
+                                "team": g.team,
+                                "team_name": match.home if g.team == "home" else match.away,
+                                "home_goals": running_h,
+                                "away_goals": running_a,
+                            }
+                        )
+                    situation = {
+                        "home": match.home,
+                        "away": match.away,
+                        "home_score": hs,
+                        "away_score": aws,
+                        "minute": minute,
+                        "clock": f"{minute}'",
+                        "goals": goal_rows,
+                    }
                 return self._send(
                     200,
-                    _json_bytes({"query": snap.to_dict(), "label": snap.label(), "hits": [h.to_dict() for h in hits]}),
+                    _json_bytes(
+                        {
+                            "query": snap.to_dict(),
+                            "label": snap.label(),
+                            "hits": [h.to_dict() for h in hits],
+                            "scorelines": scorelines,
+                            "situation": situation,
+                        }
+                    ),
                     "application/json",
                 )
 

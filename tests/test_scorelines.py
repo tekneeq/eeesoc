@@ -119,5 +119,29 @@ def test_build_live_scoreline_eval_liv_nfo():
     assert ev["scoreline"] == "1-1"
     assert ev["prev_scoreline"] == "0-1"
     assert ev["home_history"]["count"] >= 1
-    assert ev["trees"]["league"]["live_to"] == "1-1"
-    assert any(b["is_live_branch"] for b in ev["trees"]["league"]["branches"])
+    # Forward tree always present from current scoreline
+    assert ev["trees"]["league"]["from"] == "1-1"
+    assert ev["trees"]["league"]["count"] >= 1
+    # Retrospective tree highlights the live branch from previous score
+    assert ev["trees_from_prev"]["league"]["live_to"] == "1-1"
+    assert any(b["is_live_branch"] for b in ev["trees_from_prev"]["league"]["branches"])
+
+
+def test_forward_tree_at_kickoff():
+    corpus = [
+        _match("a", "Liverpool", "Chelsea", [(20, "home")], (1, 0)),
+        _match("b", "Arsenal", "Everton", [(15, "away")], (0, 1)),
+    ]
+    ev = build_live_scoreline_eval(
+        corpus,
+        home_name="Liverpool",
+        away_name="Chelsea",
+        home_score=0,
+        away_score=0,
+    )
+    assert ev["prev_scoreline"] is None
+    assert ev["trees_from_prev"] == {}
+    assert ev["trees"]["league"]["from"] == "0-0"
+    assert ev["trees"]["league"]["count"] >= 1
+    assert any(b["score"] == "1-0" for b in ev["trees"]["league"]["branches"])
+    assert any(b["score"] == "0-1" for b in ev["trees"]["league"]["branches"])
