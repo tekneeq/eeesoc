@@ -427,6 +427,78 @@ main {
   margin-bottom: 0.4rem;
 }
 
+.scoreline-eval {
+  margin: 0 0 1.25rem;
+  animation: rise 300ms ease both;
+}
+
+.sl-block {
+  margin: 0.85rem 0 1.1rem;
+  padding-bottom: 0.85rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.score-path {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.55rem;
+  margin-top: 0.75rem;
+}
+
+.score-path-label {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+
+.score-path-steps {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem;
+  font-family: var(--mono);
+  font-size: 0.85rem;
+}
+
+.score-step {
+  border: 1px solid var(--line);
+  border-radius: 0.22rem;
+  padding: 0.2rem 0.4rem;
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.score-step.now {
+  color: var(--accent);
+  border-color: rgba(125, 255, 179, 0.4);
+  background: var(--accent-dim);
+}
+
+.score-arrow {
+  color: var(--muted);
+  opacity: 0.7;
+}
+
+.team-stat .dim {
+  opacity: 0.55;
+  font-weight: 400;
+}
+
+.team-stat.live-branch {
+  outline: 1px solid rgba(125, 255, 179, 0.55);
+}
+
+.score-dist-label {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  align-self: center;
+  margin-right: 0.15rem;
+}
+
 .similar-row .score {
   font-family: var(--mono);
   color: var(--accent);
