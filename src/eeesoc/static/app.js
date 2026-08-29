@@ -13,6 +13,7 @@
     trackTimer: null,
     similarTimer: null,
     timelines: {},
+    timelineTickTimer: null,
   };
 
   const $ = (sel) => document.querySelector(sel);
@@ -131,7 +132,7 @@
         btn.setAttribute("role", "listitem");
         btn.dataset.eventId = m.event_id;
         btn.innerHTML = `
-          <span class="mc-clock"><span class="live-dot"></span>${escapeHtml(m.clock || "LIVE")}</span>
+          <span class="mc-clock"><span class="live-dot"></span><span class="mc-clock-text">${escapeHtml(m.clock || "LIVE")}</span></span>
           <span class="mc-teams">
             <span class="mc-home">${escapeHtml(shortName(m.home))}</span>
             <span class="mc-score">${m.home_score}–${m.away_score}</span>
@@ -153,15 +154,14 @@
     }
   }
 
-  function timelineSvg(tl) {
+  function timelineSvg(tl, nowMinutes) {
     const W = 320;
     const H = 52;
     const pad = 10;
     const axisY = 26;
     const maxM = Math.max(90, Number(tl.max_minute) || 90);
-    const now = Math.max(1, Math.min(maxM, Number(tl.minute) || 1));
+    const now = Math.max(0, Math.min(maxM, Number(nowMinutes ?? tl.minute) || 0));
     const xAt = (m) => pad + ((Number(m) / maxM) * (W - pad * 2));
-    // build via string for speed in innerHTML
     const marks = [];
     for (const ev of tl.events || []) {
       const x = xAt(ev.minute).toFixed(1);
@@ -186,7 +186,7 @@
     }
     const nowX = xAt(now).toFixed(1);
     const htX = xAt(45).toFixed(1);
-    return `<svg class="mc-tl-svg" viewBox="0 0 ${W} ${H}" width="100%" height="${H}" role="img" aria-label="0 to 90 minute event timeline">
+    return `<svg class="mc-tl-svg" viewBox="0 0 ${W} ${H}" width="100%" height="${H}" role="img" aria-label="0 to 90 minute event timeline" data-pad="${pad}" data-width="${W}" data-max="${maxM}" data-axis-y="${axisY}">
       <line x1="${pad}" y1="${axisY}" x2="${W - pad}" y2="${axisY}" class="tl-axis"/>
       <line x1="${pad}" y1="${axisY}" x2="${nowX}" y2="${axisY}" class="tl-progress"/>
       <line x1="${htX}" y1="${axisY - 5}" x2="${htX}" y2="${axisY + 5}" class="tl-ht"/>
@@ -198,20 +198,80 @@
     </svg>`;
   }
 
+  function liveElapsedSeconds(tl) {
+    const base = Number(tl.elapsed_seconds);
+    const fallback = Math.max(0, (Number(tl.minute) || 1) - 1) * 60;
+    const start = Number.isFinite(base) ? base : fallback;
+    if (tl.frozen) return start;
+    const synced = tl._syncedAt || tl._ts || Date.now();
+    const advanced = start + (Date.now() - synced) / 1000;
+    return Math.max(0, Math.min(99 * 60, advanced));
+  }
+
+  function formatTickClock(seconds) {
+    const s = Math.max(0, Math.floor(seconds));
+    const m = Math.floor(s / 60);
+    const r = s % 60;
+    return `${m}'${String(r).padStart(2, "0")}`;
+  }
+
+  function paintTimelineNow(mount, tl) {
+    const svg = mount.querySelector(".mc-tl-svg");
+    if (!svg) return;
+    const pad = Number(svg.dataset.pad || 10);
+    const W = Number(svg.dataset.width || 320);
+    const maxM = Number(svg.dataset.max || 90);
+    const secs = liveElapsedSeconds(tl);
+    const nowM = Math.min(maxM, secs / 60);
+    const x = (pad + (nowM / maxM) * (W - pad * 2)).toFixed(1);
+    const progress = svg.querySelector(".tl-progress");
+    const now = svg.querySelector(".tl-now");
+    if (progress) progress.setAttribute("x2", x);
+    if (now) {
+      now.setAttribute("x1", x);
+      now.setAttribute("x2", x);
+    }
+    const card = mount.closest(".match-chiclet");
+    const clockEl = card && card.querySelector(".mc-clock-text");
+    if (clockEl && !tl.frozen) {
+      clockEl.textContent = formatTickClock(secs);
+    }
+  }
+
+  function ensureTimelineTicker() {
+    if (state.timelineTickTimer) return;
+    state.timelineTickTimer = setInterval(() => {
+      const panel = $("#panel-live");
+      if (!panel || panel.hidden) return;
+      for (const [eventId, tl] of Object.entries(state.timelines || {})) {
+        const mount = document.querySelector('.mc-timeline[data-tl-for="' + String(eventId).replace(/"/g, "") + '"]');
+        if (!mount || !mount.isConnected) continue;
+        paintTimelineNow(mount, tl);
+      }
+    }, 1000);
+  }
+
   async function loadMatchTimeline(m, mount) {
     if (!mount) return;
     const cached = state.timelines?.[m.event_id];
     if (cached && Date.now() - cached._ts < 12000) {
-      mount.innerHTML = timelineSvg(cached);
+      mount.innerHTML = timelineSvg(cached, liveElapsedSeconds(cached) / 60);
+      paintTimelineNow(mount, cached);
+      ensureTimelineTicker();
       return;
     }
     try {
       const qs = liveQuery(m);
       const tl = await (await fetch(`/api/live/timeline?${qs}`)).json();
       tl._ts = Date.now();
+      tl._syncedAt = Date.now();
       state.timelines = state.timelines || {};
       state.timelines[m.event_id] = tl;
-      if (mount.isConnected) mount.innerHTML = timelineSvg(tl);
+      if (mount.isConnected) {
+        mount.innerHTML = timelineSvg(tl, liveElapsedSeconds(tl) / 60);
+        paintTimelineNow(mount, tl);
+      }
+      ensureTimelineTicker();
     } catch (err) {
       if (mount.isConnected) mount.innerHTML = `<span class="mc-timeline-loading">timeline unavailable</span>`;
     }
@@ -249,7 +309,7 @@
   }
 
   function liveQuery(m) {
-    return new URLSearchParams({
+    const params = {
       league: m.league_slug,
       event_id: m.event_id,
       home: m.home,
@@ -260,7 +320,11 @@
       chiclet: m.league_chiclet || "",
       home_id: m.home_id || "",
       away_id: m.away_id || "",
-    });
+    };
+    if (m.clock_seconds != null && m.clock_seconds !== "") {
+      params.clock_s = String(m.clock_seconds);
+    }
+    return new URLSearchParams(params);
   }
 
   async function selectSimilarLive(m) {

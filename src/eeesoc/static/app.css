@@ -726,11 +726,7 @@ main {
 .tl-progress {
   stroke: rgba(125, 255, 179, 0.55);
   stroke-width: 2;
-}
-
-.tl-ht {
-  stroke: rgba(180, 210, 200, 0.35);
-  stroke-width: 1;
+  transition: none;
 }
 
 .tl-now {
@@ -738,6 +734,7 @@ main {
   stroke-width: 1;
   stroke-dasharray: 2 2;
   opacity: 0.85;
+  transition: none;
 }
 
 .tl-label {
