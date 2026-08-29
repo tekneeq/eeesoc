@@ -244,13 +244,13 @@ def test_opponent_scored_context_averages():
             date="01/01/2024",
             home="A",
             away="B",
-            home_goals_ft=0,
-            away_goals_ft=1,
+            home_goals_ft=1,
+            away_goals_ft=2,
             home_shots_ft=8,
             away_shots_ft=10,
             home_sot_ft=2,
             away_sot_ft=4,
-            goals=[GoalEvent(24, "away")],
+            goals=[GoalEvent(24, "away"), GoalEvent(55, "home"), GoalEvent(78, "away")],
             home_shots_by_min=[0] + [3] * 90,
             away_shots_by_min=[0] + [5] * 90,
             home_sot_by_min=[0] + [1] * 90,
@@ -281,3 +281,18 @@ def test_opponent_scored_context_averages():
     assert ctx["avg_my_shots"] == 4.0  # (3+5)/2
     assert ctx["avg_my_sot"] == 1.5
     assert ctx["peers"][0]["conceded_by_name"] == "A"
+    # Goals after the ~24' away strike
+    assert ctx["peers"][0]["more_goals"] == 2
+    assert ctx["peers"][0]["more_goals_2h"] == 2
+    assert ctx["peers"][0]["my_2h"] == 1
+    assert ctx["peers"][0]["opp_2h"] == 1
+    assert ctx["peers"][0]["after_label"] == "55'm · 78'o"
+    assert ctx["peers"][0]["second_half_label"] == "55'm · 78'o"
+    assert ctx["peers"][1]["more_goals"] == 0
+    assert ctx["peers"][1]["second_half_label"] == "no 2H goals"
+    assert ctx["avg_more_goals"] == 1.0
+    assert ctx["avg_more_goals_2h"] == 1.0
+    assert ctx["pct_equalized"] == 0.5
+    assert ctx["pct_any_2h_goals"] == 0.5
+    assert any(w["bucket"] == "46-60" and w["side"] == "my" for w in ctx["when_2h"])
+    assert any(w["bucket"] == "76-90" and w["side"] == "opp" for w in ctx["when_2h"])

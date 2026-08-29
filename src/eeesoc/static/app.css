@@ -368,9 +368,9 @@ main {
   display: grid;
   grid-template-columns: 3rem 5.5rem 1fr auto;
   gap: 0.65rem;
-  align-items: center;
+  align-items: start;
   font-size: 0.85rem;
-  padding: 0.45rem 0;
+  padding: 0.55rem 0;
   border-bottom: 1px solid var(--line);
 }
 
@@ -378,16 +378,26 @@ main {
   font-family: var(--mono);
   color: var(--danger);
   font-size: 0.75rem;
+  padding-top: 0.15rem;
 }
 
 .peer-row .date {
   font-family: var(--mono);
   font-size: 0.72rem;
   color: var(--muted);
+  padding-top: 0.15rem;
 }
 
 .peer-row .teams {
   font-weight: 600;
+}
+
+.peer-row .ft {
+  font-family: var(--mono);
+  font-weight: 500;
+  font-size: 0.72rem;
+  color: var(--muted);
+  margin-left: 0.35rem;
 }
 
 .peer-row .meta {
@@ -395,6 +405,26 @@ main {
   font-size: 0.72rem;
   color: var(--muted);
   justify-self: end;
+  text-align: right;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.peer-row .meta-line {
+  white-space: nowrap;
+}
+
+.concede-when {
+  margin: 0.35rem 0 0.75rem;
+}
+
+.concede-when-label {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  margin-bottom: 0.4rem;
 }
 
 .similar-row .score {
