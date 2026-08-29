@@ -238,7 +238,7 @@ def test_build_event_timeline_kinds():
 
     clear_timeline_cache()
     plays = {
-        "count": 5,
+        "count": 6,
         "pageIndex": 1,
         "pageCount": 1,
         "items": [
@@ -249,23 +249,33 @@ def test_build_event_timeline_kinds():
                 "team": {"$ref": ".../teams/393"},
             },
             {
+                "type": {"type": "shot-blocked"},
+                "shortText": "Shot Blocked",
+                "clock": {"displayValue": "12'"},
+                "expectedGoals": 0.08,
+                "team": {"$ref": ".../teams/393"},
+            },
+            {
                 "type": {"type": "shot-off-target"},
                 "shortText": "Shot Off",
                 "clock": {"displayValue": "19'"},
+                "expectedGoals": 0.12,
                 "team": {"$ref": ".../teams/393"},
             },
             {
                 "type": {"type": "shot-on-target"},
                 "shortText": "Shot On",
                 "clock": {"displayValue": "39'"},
+                "expectedGoals": 0.2,
                 "team": {"$ref": ".../teams/364"},
             },
             {
-                "type": {"type": "goal"},
-                "shortText": "Goal",
+                "type": {"type": "goal---header"},
+                "shortText": "Header Goal",
                 "text": "Dan Ndoye (Nottingham Forest) Goal at 24'",
                 "clock": {"displayValue": "24'"},
                 "scoringPlay": True,
+                "expectedGoals": 0.35,
                 "team": {"$ref": ".../teams/393"},
             },
             {
@@ -293,13 +303,18 @@ def test_build_event_timeline_kinds():
     )
     assert tl["minute"] == 85
     kinds = [e["kind"] for e in tl["events"]]
-    assert kinds == ["corner", "shot", "goal", "shot_on"]
+    assert kinds == ["corner", "blocked", "shot", "goal", "shot_on"]
     assert tl["counts"]["corner"] == 1
+    assert tl["counts"]["blocked"] == 1
     assert tl["counts"]["shot"] == 1
     assert tl["counts"]["goal"] == 1
     assert tl["counts"]["shot_on"] == 1
-    assert tl["events"][2]["team"] == "away"
-    assert tl["events"][3]["team"] == "home"
+    assert tl["events"][3]["team"] == "away"
+    assert tl["events"][4]["team"] == "home"
+    assert tl["xg"]["away_total"] == 0.55  # 0.08+0.12+0.35
+    assert tl["xg"]["home_total"] == 0.2
+    assert tl["xg"]["away"][-1]["minute"] == 24
+    assert tl["xg"]["home"][-1]["cumulative"] == 0.2
 
 
 def test_timeline_now_follows_latest_play_not_stale_board_clock():

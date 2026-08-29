@@ -692,15 +692,15 @@ def clear_situation_cache() -> None:
     _sit_cache.clear()
 
 
-# —— Match minute timeline (shots / SOT / goals / corners) ——
+# —— Match minute timeline (shots / SOT / goals / corners / blocked) ——
 
 CORNER_TYPES = {"corner-awarded", "corner"}
 GOAL_TYPES = {"goal", "penalty-goal", "penalty---scored"}
 SHOT_ON_TYPES = {"shot-on-target", "goal", "penalty-goal", "penalty---scored"}
+BLOCKED_TYPES = {"shot-blocked"}
 SHOT_OFF_TYPES = {
     "shot",
     "shot-off-target",
-    "shot-blocked",
     "miss",
     "woodwork",
 }
@@ -709,17 +709,49 @@ _timeline_cache: dict[str, tuple[float, dict[str, Any]]] = {}
 _TIMELINE_TTL_S = 12.0
 
 
+def _normalize_play_type(ptype: str) -> str:
+    if ptype.startswith("penalty") and "scor" in ptype:
+        return "penalty---scored"
+    # ESPN variants: goal---header, goal---volley, …
+    if ptype.startswith("goal"):
+        return "goal"
+    return ptype
+
+
 def _event_kind(ptype: str, *, scoring: bool) -> str | None:
-    """Most specific marker: goal > shot_on > shot > corner."""
+    """Most specific marker: goal > shot_on > blocked > shot > corner."""
     if ptype in GOAL_TYPES or (scoring and ptype in SHOT_ON_TYPES):
         return "goal"
     if ptype in SHOT_ON_TYPES:
         return "shot_on"
+    if ptype in BLOCKED_TYPES:
+        return "blocked"
     if ptype in SHOT_OFF_TYPES or ptype in SHOT_TYPES:
         return "shot"
     if ptype in CORNER_TYPES:
         return "corner"
     return None
+
+
+def _safe_float(value: Any) -> float | None:
+    if value is None or value == "":
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _cumulative_xg_series(
+    points: list[tuple[int, float]],
+) -> list[dict[str, Any]]:
+    """Build step series from (minute, xg) shot points, starting at 0'."""
+    series: list[dict[str, Any]] = [{"minute": 0, "xg": 0.0, "cumulative": 0.0}]
+    total = 0.0
+    for minute, xg in sorted(points, key=lambda t: t[0]):
+        total = round(total + xg, 4)
+        series.append({"minute": minute, "xg": round(xg, 4), "cumulative": total})
+    return series
 
 
 def build_event_timeline(
@@ -735,9 +767,10 @@ def build_event_timeline(
     use_cache: bool = True,
 ) -> dict[str, Any]:
     """
-    Build a 0–90' event strip: shots, shots on target, goals, corners.
+    Build a 0–90' event strip + cumulative xG series.
 
-    Home events sit above the axis, away below. ``minute`` is the live clock cut.
+    Markers: shots, blocked, shots on target, goals, corners (home above / away below).
+    ``xg`` holds per-side cumulative expected-goals vs minute for the chart.
     """
     cache_key = f"tl:{league_slug}:{event_id}"
     if use_cache and cache_key in _timeline_cache:
@@ -756,33 +789,37 @@ def build_event_timeline(
     counts = {
         "shot": 0,
         "shot_on": 0,
+        "blocked": 0,
         "goal": 0,
         "corner": 0,
         "home_shot": 0,
         "away_shot": 0,
         "home_shot_on": 0,
         "away_shot_on": 0,
+        "home_blocked": 0,
+        "away_blocked": 0,
         "home_goal": 0,
         "away_goal": 0,
         "home_corner": 0,
         "away_corner": 0,
     }
+    home_xg_pts: list[tuple[int, float]] = []
+    away_xg_pts: list[tuple[int, float]] = []
 
     for play in plays:
-        ptype = _play_type(play)
-        # Normalise ESPN's odd penalty slug
-        if ptype.startswith("penalty") and "scor" in ptype:
-            ptype = "penalty---scored"
-        kind = _event_kind(ptype, scoring=bool(play.get("scoringPlay")))
-        if not kind:
-            continue
+        ptype = _normalize_play_type(_play_type(play))
         pmin = _play_minute(play)
-        if pmin is None:
-            continue
         tid = _team_id_from_play(play)
         side = _side_for_team(
             tid, home_id=home_id, away_id=away_id, home=home, away=away, play=play
         )
+        xg = _safe_float(play.get("expectedGoals"))
+        if xg is not None and pmin is not None and side in {"home", "away"} and xg > 0:
+            (home_xg_pts if side == "home" else away_xg_pts).append((pmin, xg))
+
+        kind = _event_kind(ptype, scoring=bool(play.get("scoringPlay")))
+        if not kind or pmin is None:
+            continue
         text = str(play.get("shortText") or play.get("text") or kind)
         events.append(
             {
@@ -792,6 +829,7 @@ def build_event_timeline(
                 "team": side,
                 "text": text,
                 "clock": _clock_label(play),
+                "xg": xg,
             }
         )
         counts[kind] += 1
@@ -799,6 +837,8 @@ def build_event_timeline(
             counts[f"{side}_{kind}"] = counts.get(f"{side}_{kind}", 0) + 1
 
     events.sort(key=lambda e: (e["minute"], e["kind"]))
+    home_series = _cumulative_xg_series(home_xg_pts)
+    away_series = _cumulative_xg_series(away_xg_pts)
     payload = {
         "event_id": str(event_id),
         "league_slug": league_slug,
@@ -810,6 +850,12 @@ def build_event_timeline(
         "max_minute": 90,
         "events": events,
         "counts": counts,
+        "xg": {
+            "home": home_series,
+            "away": away_series,
+            "home_total": home_series[-1]["cumulative"] if home_series else 0.0,
+            "away_total": away_series[-1]["cumulative"] if away_series else 0.0,
+        },
         "fetched_at": time.time(),
     }
     if use_cache:
