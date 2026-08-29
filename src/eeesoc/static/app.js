@@ -140,13 +140,18 @@
           <span class="mc-league">${escapeHtml(m.league_chiclet)}</span>
           ${
             withTimeline
-              ? `<span class="mc-timeline" data-tl-for="${escapeHtml(m.event_id)}" aria-label="Match event timeline"><span class="mc-timeline-loading">timeline…</span></span>`
+              ? `<div class="mc-charts">
+                  <span class="mc-timeline" data-tl-for="${escapeHtml(m.event_id)}" aria-label="Match event timeline"><span class="mc-timeline-loading">timeline…</span></span>
+                  <span class="mc-xg" data-xg-for="${escapeHtml(m.event_id)}" aria-label="Expected goals versus time"><span class="mc-timeline-loading">xG…</span></span>
+                </div>`
               : ""
           }
         `;
         btn.addEventListener("click", () => onSelect(m));
         wrap.appendChild(btn);
-        if (withTimeline) loadMatchTimeline(m, btn.querySelector(".mc-timeline"));
+        if (withTimeline) {
+          loadMatchTimeline(m, btn.querySelector(".mc-timeline"), btn.querySelector(".mc-xg"));
+        }
       }
       block.appendChild(wrap);
       grid.appendChild(block);
@@ -161,13 +166,13 @@
     const maxM = Math.max(90, Number(tl.max_minute) || 90);
     const now = Math.max(1, Math.min(maxM, Number(tl.minute) || 1));
     const xAt = (m) => pad + ((Number(m) / maxM) * (W - pad * 2));
-    // build via string for speed in innerHTML
     const marks = [];
     for (const ev of tl.events || []) {
       const x = xAt(ev.minute).toFixed(1);
       const home = ev.team !== "away";
       const y = home ? axisY - 8 : axisY + 8;
-      const title = `${ev.clock || ev.minute + "'"} ${ev.kind} — ${ev.text || ""}`;
+      const xgBit = ev.xg != null ? ` · xG ${Number(ev.xg).toFixed(2)}` : "";
+      const title = `${ev.clock || ev.minute + "'"} ${ev.kind}${xgBit} — ${ev.text || ""}`;
       if (ev.kind === "goal") {
         const y1 = home ? axisY - 16 : axisY + 2;
         const y2 = home ? axisY - 2 : axisY + 16;
@@ -176,6 +181,10 @@
         );
       } else if (ev.kind === "shot_on") {
         marks.push(`<g class="tl-sot"><title>${escapeHtml(title)}</title><circle cx="${x}" cy="${y}" r="3.2"/></g>`);
+      } else if (ev.kind === "blocked") {
+        marks.push(
+          `<g class="tl-blocked"><title>${escapeHtml(title)}</title><rect x="${(Number(x) - 2).toFixed(1)}" y="${(y - 2).toFixed(1)}" width="4" height="4"/></g>`
+        );
       } else if (ev.kind === "shot") {
         marks.push(`<g class="tl-shot"><title>${escapeHtml(title)}</title><circle cx="${x}" cy="${y}" r="2.2"/></g>`);
       } else if (ev.kind === "corner") {
@@ -198,11 +207,70 @@
     </svg>`;
   }
 
-  async function loadMatchTimeline(m, mount) {
+  function xgSeriesPath(series, xAt, yAt, nowM) {
+    const pts = series || [];
+    if (!pts.length) return "";
+    const parts = [];
+    let lastY = yAt(0);
+    parts.push(`M ${xAt(0).toFixed(1)} ${lastY.toFixed(1)}`);
+    for (const p of pts) {
+      if (p.minute === 0) {
+        lastY = yAt(p.cumulative);
+        continue;
+      }
+      const x = xAt(Math.min(nowM, p.minute));
+      parts.push(`L ${x.toFixed(1)} ${lastY.toFixed(1)}`);
+      lastY = yAt(p.cumulative);
+      parts.push(`L ${x.toFixed(1)} ${lastY.toFixed(1)}`);
+    }
+    parts.push(`L ${xAt(nowM).toFixed(1)} ${lastY.toFixed(1)}`);
+    return parts.join(" ");
+  }
+
+  function xgSvg(tl) {
+    const W = 320;
+    const H = 110;
+    const padL = 28;
+    const padR = 10;
+    const padT = 12;
+    const padB = 18;
+    const maxM = Math.max(90, Number(tl.max_minute) || 90);
+    const now = Math.max(1, Math.min(maxM, Number(tl.minute) || 1));
+    const xg = tl.xg || { home: [], away: [], home_total: 0, away_total: 0 };
+    const yMax = Math.max(0.5, xg.home_total || 0, xg.away_total || 0) * 1.15;
+    const xAt = (m) => padL + ((Number(m) / maxM) * (W - padL - padR));
+    const yAt = (v) => padT + ((yMax - Number(v)) / yMax) * (H - padT - padB);
+    const homePath = xgSeriesPath(xg.home, xAt, yAt, now);
+    const awayPath = xgSeriesPath(xg.away, xAt, yAt, now);
+    const nowX = xAt(now).toFixed(1);
+    const htX = xAt(45).toFixed(1);
+    const y0 = yAt(0).toFixed(1);
+    const yMid = yAt(yMax / 2).toFixed(1);
+    const yTop = yAt(yMax).toFixed(1);
+    return `<svg class="mc-xg-svg" viewBox="0 0 ${W} ${H}" width="100%" height="${H}" role="img" aria-label="Expected goals versus game time">
+      <text x="4" y="${Number(yTop) + 3}" class="tl-label">${yMax.toFixed(1)}</text>
+      <text x="4" y="${Number(yMid) + 3}" class="tl-label">${(yMax / 2).toFixed(1)}</text>
+      <text x="4" y="${Number(y0) + 3}" class="tl-label">0</text>
+      <line x1="${padL}" y1="${yTop}" x2="${W - padR}" y2="${yTop}" class="tl-grid"/>
+      <line x1="${padL}" y1="${yMid}" x2="${W - padR}" y2="${yMid}" class="tl-grid"/>
+      <line x1="${padL}" y1="${y0}" x2="${W - padR}" y2="${y0}" class="tl-axis"/>
+      <line x1="${htX}" y1="${padT}" x2="${htX}" y2="${y0}" class="tl-ht"/>
+      <line x1="${nowX}" y1="${padT}" x2="${nowX}" y2="${y0}" class="tl-now"/>
+      ${homePath ? `<path d="${homePath}" class="xg-home" fill="none"/>` : ""}
+      ${awayPath ? `<path d="${awayPath}" class="xg-away" fill="none"/>` : ""}
+      <text x="${padL}" y="${H - 4}" class="tl-label">0'</text>
+      <text x="${htX}" y="${H - 4}" class="tl-label" text-anchor="middle">45'</text>
+      <text x="${W - padR}" y="${H - 4}" class="tl-label" text-anchor="end">90'</text>
+      <text x="${W - padR}" y="10" class="tl-label" text-anchor="end">xG ${Number(xg.home_total || 0).toFixed(2)}–${Number(xg.away_total || 0).toFixed(2)}</text>
+    </svg>`;
+  }
+
+  async function loadMatchTimeline(m, mount, xgMount) {
     if (!mount) return;
     const cached = state.timelines?.[m.event_id];
     if (cached && Date.now() - cached._ts < 12000) {
       mount.innerHTML = timelineSvg(cached);
+      if (xgMount) xgMount.innerHTML = xgSvg(cached);
       return;
     }
     try {
@@ -212,8 +280,10 @@
       state.timelines = state.timelines || {};
       state.timelines[m.event_id] = tl;
       if (mount.isConnected) mount.innerHTML = timelineSvg(tl);
+      if (xgMount && xgMount.isConnected) xgMount.innerHTML = xgSvg(tl);
     } catch (err) {
       if (mount.isConnected) mount.innerHTML = `<span class="mc-timeline-loading">timeline unavailable</span>`;
+      if (xgMount && xgMount.isConnected) xgMount.innerHTML = `<span class="mc-timeline-loading">xG unavailable</span>`;
     }
   }
 
