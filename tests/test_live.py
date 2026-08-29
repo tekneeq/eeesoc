@@ -23,6 +23,7 @@ SAMPLE_SB = {
                         {
                             "status": {
                                 "displayClock": "72'",
+                                "clock": 4320,
                                 "type": {
                                     "state": "in",
                                     "detail": "72'",
@@ -91,6 +92,8 @@ def test_parse_scoreboard_extracts_live_and_pre():
     assert live.league_chiclet == "La Liga"
     assert live.home_id == "86"
     assert live.away_id == "89"
+    assert live.clock_seconds == 4320
+
 
 
 def test_fetch_live_board_filters_and_groups():
@@ -342,6 +345,7 @@ def test_timeline_now_follows_latest_play_not_stale_board_clock():
     assert tl["board_minute"] == 26
     assert tl["play_minute"] == 36
     assert tl["minute"] == 36
+    assert tl["elapsed_seconds"] >= 35 * 60
     assert max(e["minute"] for e in tl["events"]) <= tl["minute"]
 
 

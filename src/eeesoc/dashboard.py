@@ -118,6 +118,11 @@ def make_handler(state: DashboardState):
                     return self._send(
                         400, _json_bytes({"error": "league and event_id required"}), "application/json"
                     )
+                raw_cs = (qs.get("clock_s") or [""])[0]
+                try:
+                    clock_s = int(raw_cs) if raw_cs not in ("", None) else None
+                except ValueError:
+                    clock_s = None
                 timeline = build_event_timeline(
                     league,
                     event_id,
@@ -126,6 +131,7 @@ def make_handler(state: DashboardState):
                     home_id=(qs.get("home_id") or [""])[0],
                     away_id=(qs.get("away_id") or [""])[0],
                     clock=(qs.get("clock") or [""])[0],
+                    clock_seconds=clock_s,
                 )
                 return self._send(200, _json_bytes(timeline), "application/json")
 
