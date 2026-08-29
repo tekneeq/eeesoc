@@ -690,3 +690,125 @@ def build_live_situation(
 
 def clear_situation_cache() -> None:
     _sit_cache.clear()
+
+
+# —— Match minute timeline (shots / SOT / goals / corners) ——
+
+CORNER_TYPES = {"corner-awarded", "corner"}
+GOAL_TYPES = {"goal", "penalty-goal", "penalty---scored"}
+SHOT_ON_TYPES = {"shot-on-target", "goal", "penalty-goal", "penalty---scored"}
+SHOT_OFF_TYPES = {
+    "shot",
+    "shot-off-target",
+    "shot-blocked",
+    "miss",
+    "woodwork",
+}
+
+_timeline_cache: dict[str, tuple[float, dict[str, Any]]] = {}
+_TIMELINE_TTL_S = 12.0
+
+
+def _event_kind(ptype: str, *, scoring: bool) -> str | None:
+    """Most specific marker: goal > shot_on > shot > corner."""
+    if ptype in GOAL_TYPES or (scoring and ptype in SHOT_ON_TYPES):
+        return "goal"
+    if ptype in SHOT_ON_TYPES:
+        return "shot_on"
+    if ptype in SHOT_OFF_TYPES or ptype in SHOT_TYPES:
+        return "shot"
+    if ptype in CORNER_TYPES:
+        return "corner"
+    return None
+
+
+def build_event_timeline(
+    league_slug: str,
+    event_id: str,
+    *,
+    home: str = "",
+    away: str = "",
+    home_id: str = "",
+    away_id: str = "",
+    clock: str = "",
+    fetcher: Callable[[str], dict[str, Any]] | None = None,
+    use_cache: bool = True,
+) -> dict[str, Any]:
+    """
+    Build a 0–90' event strip: shots, shots on target, goals, corners.
+
+    Home events sit above the axis, away below. ``minute`` is the live clock cut.
+    """
+    cache_key = f"tl:{league_slug}:{event_id}"
+    if use_cache and cache_key in _timeline_cache:
+        ts, payload = _timeline_cache[cache_key]
+        if time.time() - ts < _TIMELINE_TTL_S:
+            return payload
+
+    plays = fetch_all_plays(league_slug, event_id, fetcher=fetcher)
+    minute = parse_clock_minute(clock, default=1)
+    events: list[dict[str, Any]] = []
+    counts = {
+        "shot": 0,
+        "shot_on": 0,
+        "goal": 0,
+        "corner": 0,
+        "home_shot": 0,
+        "away_shot": 0,
+        "home_shot_on": 0,
+        "away_shot_on": 0,
+        "home_goal": 0,
+        "away_goal": 0,
+        "home_corner": 0,
+        "away_corner": 0,
+    }
+
+    for play in plays:
+        ptype = _play_type(play)
+        # Normalise ESPN's odd penalty slug
+        if ptype.startswith("penalty") and "scor" in ptype:
+            ptype = "penalty---scored"
+        kind = _event_kind(ptype, scoring=bool(play.get("scoringPlay")))
+        if not kind:
+            continue
+        pmin = _play_minute(play)
+        if pmin is None:
+            continue
+        tid = _team_id_from_play(play)
+        side = _side_for_team(
+            tid, home_id=home_id, away_id=away_id, home=home, away=away, play=play
+        )
+        text = str(play.get("shortText") or play.get("text") or kind)
+        events.append(
+            {
+                "minute": pmin,
+                "kind": kind,
+                "type": ptype,
+                "team": side,
+                "text": text,
+                "clock": _clock_label(play),
+            }
+        )
+        counts[kind] += 1
+        if side in {"home", "away"}:
+            counts[f"{side}_{kind}"] = counts.get(f"{side}_{kind}", 0) + 1
+
+    events.sort(key=lambda e: (e["minute"], e["kind"]))
+    payload = {
+        "event_id": str(event_id),
+        "league_slug": league_slug,
+        "home": home,
+        "away": away,
+        "minute": minute,
+        "max_minute": 90,
+        "events": events,
+        "counts": counts,
+        "fetched_at": time.time(),
+    }
+    if use_cache:
+        _timeline_cache[cache_key] = (time.time(), payload)
+    return payload
+
+
+def clear_timeline_cache() -> None:
+    _timeline_cache.clear()
