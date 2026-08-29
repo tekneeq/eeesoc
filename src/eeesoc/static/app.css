@@ -688,6 +688,143 @@ main {
   border-color: rgba(125, 255, 179, 0.45);
 }
 
+.match-chiclet-row-tl {
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.match-chiclet-tl {
+  min-width: min(100%, 22rem);
+  max-width: 36rem;
+  width: 100%;
+}
+
+.mc-timeline {
+  display: block;
+  width: 100%;
+  margin-top: 0.15rem;
+}
+
+.mc-timeline-loading {
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  color: var(--muted);
+}
+
+.mc-tl-svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+
+.tl-axis {
+  stroke: rgba(180, 210, 200, 0.28);
+  stroke-width: 1.5;
+}
+
+.tl-progress {
+  stroke: rgba(125, 255, 179, 0.55);
+  stroke-width: 2;
+}
+
+.tl-ht {
+  stroke: rgba(180, 210, 200, 0.35);
+  stroke-width: 1;
+}
+
+.tl-now {
+  stroke: var(--danger);
+  stroke-width: 1;
+  stroke-dasharray: 2 2;
+  opacity: 0.85;
+}
+
+.tl-label {
+  fill: var(--muted);
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 8px;
+}
+
+.tl-shot circle {
+  fill: rgba(255, 200, 87, 0.85);
+  stroke: #1a1200;
+  stroke-width: 0.6;
+}
+
+.tl-sot circle {
+  fill: rgba(125, 200, 255, 0.95);
+  stroke: #061018;
+  stroke-width: 0.7;
+}
+
+.tl-goal line {
+  stroke: var(--accent);
+  stroke-width: 2;
+}
+
+.tl-goal circle {
+  fill: var(--accent);
+  stroke: #04140c;
+  stroke-width: 0.8;
+}
+
+.tl-corner rect {
+  fill: rgba(230, 245, 235, 0.75);
+  stroke: rgba(125, 255, 179, 0.5);
+  stroke-width: 0.6;
+}
+
+.tl-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: center;
+  margin: 0 0 0.85rem;
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  color: var(--muted);
+}
+
+.tl-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.tl-legend-note {
+  margin-left: auto;
+  opacity: 0.75;
+}
+
+.tl-mark {
+  display: inline-block;
+  width: 0.55rem;
+  height: 0.55rem;
+}
+
+.tl-mark.tl-corner {
+  background: rgba(230, 245, 235, 0.75);
+  transform: rotate(45deg);
+}
+
+.tl-mark.tl-shot {
+  border-radius: 50%;
+  background: rgba(255, 200, 87, 0.85);
+}
+
+.tl-mark.tl-sot {
+  border-radius: 50%;
+  background: rgba(125, 200, 255, 0.95);
+}
+
+.tl-mark.tl-goal {
+  width: 0.2rem;
+  height: 0.7rem;
+  background: var(--accent);
+  border-radius: 1px;
+}
+
 .mc-clock {
   font-family: var(--mono);
   font-size: 0.72rem;

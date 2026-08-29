@@ -35,7 +35,8 @@
           <div>
             <h1>Live</h1>
             <p class="lede">
-              Match chiclets for every in-play game — tap one for ball position, passes, and shots on the pitch.
+              Match chiclets for every in-play game — each card has a minute line for shots,
+              shots on target, goals, and corners. Tap one for the pitch graphic.
             </p>
           </div>
           <div class="live-status">
@@ -44,6 +45,13 @@
           </div>
         </div>
         <div class="chiclet-row" id="leagueChiclets" role="toolbar" aria-label="League filters"></div>
+        <div class="tl-legend" aria-hidden="true">
+          <span><i class="tl-mark tl-corner"></i> Corner</span>
+          <span><i class="tl-mark tl-shot"></i> Shot</span>
+          <span><i class="tl-mark tl-sot"></i> On target</span>
+          <span><i class="tl-mark tl-goal"></i> Goal</span>
+          <span class="tl-legend-note">home ↑ · away ↓</span>
+        </div>
         <div class="match-chiclet-grid" id="matchChiclets" role="list"></div>
         <div class="pitch-panel" id="pitchPanel" hidden>
           <div class="pitch-toolbar">

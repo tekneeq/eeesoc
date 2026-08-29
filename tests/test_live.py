@@ -233,6 +233,75 @@ def test_build_live_situation_goal_and_team_shots():
     assert sit["latest_goal"]["scorer_sot"] == 1
 
 
+def test_build_event_timeline_kinds():
+    from eeesoc.live import build_event_timeline, clear_timeline_cache
+
+    clear_timeline_cache()
+    plays = {
+        "count": 5,
+        "pageIndex": 1,
+        "pageCount": 1,
+        "items": [
+            {
+                "type": {"type": "corner-awarded"},
+                "shortText": "Corner",
+                "clock": {"displayValue": "11'"},
+                "team": {"$ref": ".../teams/393"},
+            },
+            {
+                "type": {"type": "shot-off-target"},
+                "shortText": "Shot Off",
+                "clock": {"displayValue": "19'"},
+                "team": {"$ref": ".../teams/393"},
+            },
+            {
+                "type": {"type": "shot-on-target"},
+                "shortText": "Shot On",
+                "clock": {"displayValue": "39'"},
+                "team": {"$ref": ".../teams/364"},
+            },
+            {
+                "type": {"type": "goal"},
+                "shortText": "Goal",
+                "text": "Dan Ndoye (Nottingham Forest) Goal at 24'",
+                "clock": {"displayValue": "24'"},
+                "scoringPlay": True,
+                "team": {"$ref": ".../teams/393"},
+            },
+            {
+                "type": {"type": "pass"},
+                "shortText": "Pass",
+                "clock": {"displayValue": "10'"},
+                "team": {"$ref": ".../teams/364"},
+            },
+        ],
+    }
+
+    def fake_fetch(url: str):
+        return plays
+
+    tl = build_event_timeline(
+        "eng.1",
+        "401879314",
+        home="Liverpool",
+        away="Nottingham Forest",
+        home_id="364",
+        away_id="393",
+        clock="85'",
+        fetcher=fake_fetch,
+        use_cache=False,
+    )
+    assert tl["minute"] == 85
+    kinds = [e["kind"] for e in tl["events"]]
+    assert kinds == ["corner", "shot", "goal", "shot_on"]
+    assert tl["counts"]["corner"] == 1
+    assert tl["counts"]["shot"] == 1
+    assert tl["counts"]["goal"] == 1
+    assert tl["counts"]["shot_on"] == 1
+    assert tl["events"][2]["team"] == "away"
+    assert tl["events"][3]["team"] == "home"
+
+
 def test_opponent_scored_context_averages():
     from eeesoc.models import GoalEvent, Match
     from eeesoc.similar import opponent_scored_context
@@ -278,10 +347,9 @@ def test_opponent_scored_context_averages():
     ctx = opponent_scored_context(peers, goal_minute=24, scored_by="away", window=5)
     assert ctx["count"] == 2
     assert ctx["conceded_by"] == "home"
-    assert ctx["avg_my_shots"] == 4.0  # (3+5)/2
+    assert ctx["avg_my_shots"] == 4.0
     assert ctx["avg_my_sot"] == 1.5
     assert ctx["peers"][0]["conceded_by_name"] == "A"
-    # Goals after the ~24' away strike
     assert ctx["peers"][0]["more_goals"] == 2
     assert ctx["peers"][0]["more_goals_2h"] == 2
     assert ctx["peers"][0]["my_2h"] == 1

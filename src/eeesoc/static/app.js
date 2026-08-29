@@ -12,6 +12,7 @@
     liveTimer: null,
     trackTimer: null,
     similarTimer: null,
+    timelines: {},
   };
 
   const $ = (sel) => document.querySelector(sel);
@@ -97,7 +98,7 @@
     }
   }
 
-  function renderMatchChiclets(gridEl, filter, selected, onSelect) {
+  function renderMatchChiclets(gridEl, filter, selected, onSelect, opts = {}) {
     const grid = $(gridEl);
     grid.innerHTML = "";
     const rows = flatLiveMatches(filter);
@@ -113,18 +114,22 @@
       byLeague.get(key).matches.push(m);
     }
 
+    const withTimeline = !!opts.withTimeline;
     for (const [, group] of byLeague) {
       const block = document.createElement("div");
       block.className = "match-chiclet-league";
       block.innerHTML = `<div class="match-chiclet-league-label"><span class="league-chiclet-tag">${escapeHtml(group.chiclet)}</span> ${escapeHtml(group.name)}</div>`;
       const wrap = document.createElement("div");
-      wrap.className = "match-chiclet-row";
+      wrap.className = "match-chiclet-row" + (withTimeline ? " match-chiclet-row-tl" : "");
       for (const m of group.matches) {
         const btn = document.createElement("button");
         btn.type = "button";
         btn.className =
-          "match-chiclet" + (selected && selected.event_id === m.event_id ? " on" : "");
+          "match-chiclet" +
+          (withTimeline ? " match-chiclet-tl" : "") +
+          (selected && selected.event_id === m.event_id ? " on" : "");
         btn.setAttribute("role", "listitem");
+        btn.dataset.eventId = m.event_id;
         btn.innerHTML = `
           <span class="mc-clock"><span class="live-dot"></span>${escapeHtml(m.clock || "LIVE")}</span>
           <span class="mc-teams">
@@ -133,12 +138,82 @@
             <span class="mc-away">${escapeHtml(shortName(m.away))}</span>
           </span>
           <span class="mc-league">${escapeHtml(m.league_chiclet)}</span>
+          ${
+            withTimeline
+              ? `<span class="mc-timeline" data-tl-for="${escapeHtml(m.event_id)}" aria-label="Match event timeline"><span class="mc-timeline-loading">timeline…</span></span>`
+              : ""
+          }
         `;
         btn.addEventListener("click", () => onSelect(m));
         wrap.appendChild(btn);
+        if (withTimeline) loadMatchTimeline(m, btn.querySelector(".mc-timeline"));
       }
       block.appendChild(wrap);
       grid.appendChild(block);
+    }
+  }
+
+  function timelineSvg(tl) {
+    const W = 320;
+    const H = 52;
+    const pad = 10;
+    const axisY = 26;
+    const maxM = Math.max(90, Number(tl.max_minute) || 90);
+    const now = Math.max(1, Math.min(maxM, Number(tl.minute) || 1));
+    const xAt = (m) => pad + ((Number(m) / maxM) * (W - pad * 2));
+    // build via string for speed in innerHTML
+    const marks = [];
+    for (const ev of tl.events || []) {
+      const x = xAt(ev.minute).toFixed(1);
+      const home = ev.team !== "away";
+      const y = home ? axisY - 8 : axisY + 8;
+      const title = `${ev.clock || ev.minute + "'"} ${ev.kind} — ${ev.text || ""}`;
+      if (ev.kind === "goal") {
+        const y1 = home ? axisY - 16 : axisY + 2;
+        const y2 = home ? axisY - 2 : axisY + 16;
+        marks.push(
+          `<g class="tl-goal"><title>${escapeHtml(title)}</title><line x1="${x}" y1="${y1}" x2="${x}" y2="${y2}"/><circle cx="${x}" cy="${y}" r="3.5"/></g>`
+        );
+      } else if (ev.kind === "shot_on") {
+        marks.push(`<g class="tl-sot"><title>${escapeHtml(title)}</title><circle cx="${x}" cy="${y}" r="3.2"/></g>`);
+      } else if (ev.kind === "shot") {
+        marks.push(`<g class="tl-shot"><title>${escapeHtml(title)}</title><circle cx="${x}" cy="${y}" r="2.2"/></g>`);
+      } else if (ev.kind === "corner") {
+        marks.push(
+          `<g class="tl-corner"><title>${escapeHtml(title)}</title><rect x="${(Number(x) - 2.2).toFixed(1)}" y="${(y - 2.2).toFixed(1)}" width="4.4" height="4.4" transform="rotate(45 ${x} ${y})"/></g>`
+        );
+      }
+    }
+    const nowX = xAt(now).toFixed(1);
+    const htX = xAt(45).toFixed(1);
+    return `<svg class="mc-tl-svg" viewBox="0 0 ${W} ${H}" width="100%" height="${H}" role="img" aria-label="0 to 90 minute event timeline">
+      <line x1="${pad}" y1="${axisY}" x2="${W - pad}" y2="${axisY}" class="tl-axis"/>
+      <line x1="${pad}" y1="${axisY}" x2="${nowX}" y2="${axisY}" class="tl-progress"/>
+      <line x1="${htX}" y1="${axisY - 5}" x2="${htX}" y2="${axisY + 5}" class="tl-ht"/>
+      <text x="${pad}" y="${H - 4}" class="tl-label">0'</text>
+      <text x="${htX}" y="${H - 4}" class="tl-label" text-anchor="middle">45'</text>
+      <text x="${W - pad}" y="${H - 4}" class="tl-label" text-anchor="end">90'</text>
+      <line x1="${nowX}" y1="4" x2="${nowX}" y2="${H - 12}" class="tl-now"/>
+      ${marks.join("")}
+    </svg>`;
+  }
+
+  async function loadMatchTimeline(m, mount) {
+    if (!mount) return;
+    const cached = state.timelines?.[m.event_id];
+    if (cached && Date.now() - cached._ts < 12000) {
+      mount.innerHTML = timelineSvg(cached);
+      return;
+    }
+    try {
+      const qs = liveQuery(m);
+      const tl = await (await fetch(`/api/live/timeline?${qs}`)).json();
+      tl._ts = Date.now();
+      state.timelines = state.timelines || {};
+      state.timelines[m.event_id] = tl;
+      if (mount.isConnected) mount.innerHTML = timelineSvg(tl);
+    } catch (err) {
+      if (mount.isConnected) mount.innerHTML = `<span class="mc-timeline-loading">timeline unavailable</span>`;
     }
   }
 
@@ -146,7 +221,9 @@
     renderLeagueChiclets("#leagueChiclets", "liveFilter", () => {
       renderLiveTabChiclets();
     });
-    renderMatchChiclets("#matchChiclets", state.liveFilter, state.selectedLive, selectLiveMatch);
+    renderMatchChiclets("#matchChiclets", state.liveFilter, state.selectedLive, selectLiveMatch, {
+      withTimeline: true,
+    });
   }
 
   function renderSimilarTabChiclets() {
