@@ -302,6 +302,49 @@ def test_build_event_timeline_kinds():
     assert tl["events"][3]["team"] == "home"
 
 
+def test_timeline_now_follows_latest_play_not_stale_board_clock():
+    from eeesoc.live import build_event_timeline, clear_timeline_cache
+
+    clear_timeline_cache()
+    plays = {
+        "pageCount": 1,
+        "items": [
+            {
+                "type": {"type": "shot-off-target"},
+                "shortText": "Late shot",
+                "clock": {"displayValue": "35'", "value": 2049.0},
+                "team": {"$ref": ".../teams/2950"},
+            },
+            {
+                "type": {"type": "corner-awarded"},
+                "shortText": "Corner",
+                "clock": {"displayValue": "36'", "value": 2133.0},
+                "team": {"$ref": ".../teams/2950"},
+            },
+        ],
+    }
+
+    def fake_fetch(url: str):
+        return plays
+
+    # Scoreboard chiclet still says 26' while plays already reach 36'
+    tl = build_event_timeline(
+        "ger.1",
+        "401884812",
+        home="Mainz",
+        away="Paderborn",
+        home_id="2950",
+        away_id="3307",
+        clock="26'",
+        fetcher=fake_fetch,
+        use_cache=False,
+    )
+    assert tl["board_minute"] == 26
+    assert tl["play_minute"] == 36
+    assert tl["minute"] == 36
+    assert max(e["minute"] for e in tl["events"]) <= tl["minute"]
+
+
 def test_opponent_scored_context_averages():
     from eeesoc.models import GoalEvent, Match
     from eeesoc.similar import opponent_scored_context
