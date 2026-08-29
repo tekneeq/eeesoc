@@ -12,6 +12,7 @@ from urllib.parse import parse_qs, urlparse
 from eeesoc.data import load_season, previous_season_label
 from eeesoc.live import build_live_situation, build_pitch_track, fetch_live_board
 from eeesoc.models import Match, MatchSnapshot
+from eeesoc.scorelines import build_live_scoreline_eval
 from eeesoc.similar import find_similar, opponent_scored_context
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
@@ -153,7 +154,6 @@ def make_handler(state: DashboardState):
                         window=window,
                         limit=limit,
                     )
-                    # Attach live focal names for the UI
                     concede = {
                         **concede,
                         "live_my_name": latest.get("conceded_by_name"),
@@ -164,6 +164,30 @@ def make_handler(state: DashboardState):
                         "live_opp_sot": latest.get("scorer_sot"),
                         "live_goal_text": latest.get("text"),
                     }
+
+                hs = int(situation.get("home_score", snap.home_goals) or 0)
+                aws = int(situation.get("away_score", snap.away_goals) or 0)
+                prev_h = prev_a = None
+                goals = situation.get("goals") or []
+                if goals:
+                    last = goals[-1]
+                    if last.get("team") == "home":
+                        prev_h, prev_a = max(0, hs - 1), aws
+                    elif last.get("team") == "away":
+                        prev_h, prev_a = hs, max(0, aws - 1)
+
+                scorelines = build_live_scoreline_eval(
+                    state.corpus,
+                    home_name=str(situation.get("home") or ""),
+                    away_name=str(situation.get("away") or ""),
+                    home_score=hs,
+                    away_score=aws,
+                    home_id=str(situation.get("home_id") or (qs.get("home_id") or [""])[0]),
+                    away_id=str(situation.get("away_id") or (qs.get("away_id") or [""])[0]),
+                    prev_home=prev_h,
+                    prev_away=prev_a,
+                    limit_peers=min(8, limit),
+                )
                 return self._send(
                     200,
                     _json_bytes(
@@ -173,11 +197,11 @@ def make_handler(state: DashboardState):
                             "label": situation["label"],
                             "hits": [h.to_dict() for h in hits],
                             "opponent_scored": concede,
+                            "scorelines": scorelines,
                         }
                     ),
                     "application/json",
                 )
-
             if path == "/api/matches":
                 rows = [
                     {

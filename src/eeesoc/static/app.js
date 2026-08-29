@@ -205,8 +205,14 @@
     } catch (err) {
       $("#freezeLabel").textContent = "Could not load live similar situation.";
       $("#goalContext").hidden = true;
+      $("#scorelineEval").hidden = true;
       $("#concedeSummary").hidden = true;
     }
+  }
+
+  function pct(v) {
+    if (v == null) return "—";
+    return `${Math.round(Number(v) * 100)}%`;
   }
 
   function renderGoalContext(situation) {
@@ -218,98 +224,103 @@
       return;
     }
     box.hidden = false;
-    box.innerHTML = "";
-    for (const g of goals) {
-      const row = document.createElement("div");
-      row.className = "goal-event";
-      const myFocal = g.conceded_by === "home" ? "home" : "away";
-      row.innerHTML = `
-        <div class="goal-min">${g.minute}'</div>
-        <div class="goal-body">
-          <div class="goal-headline">${escapeHtml(g.team_name)} scored — ${escapeHtml(g.text || "Goal")}</div>
-          <div class="goal-teams">
-            <span class="team-stat${myFocal === "home" ? " focal" : ""}">${escapeHtml(situation.home)} <b>${g.home_shots}/${g.home_sot}</b> shots/SOT</span>
-            <span class="team-stat${myFocal === "away" ? " focal" : ""}">${escapeHtml(situation.away)} <b>${g.away_shots}/${g.away_sot}</b> shots/SOT</span>
-          </div>
-          <div class="goal-teams">
-            <span class="team-stat focal">When opponent scored · ${escapeHtml(g.conceded_by_name)} <b>${g.my_shots}/${g.my_sot}</b></span>
-          </div>
-        </div>
-      `;
-      box.appendChild(row);
+    const path = ["0-0"].concat(
+      goals.map((g) => `${g.home_goals}-${g.away_goals}`)
+    );
+    box.innerHTML = `
+      <div class="score-path">
+        <span class="score-path-label">Live path</span>
+        <span class="score-path-steps">${path.map((s, i) => {
+          const tip = i === 0 ? "KO" : `${goals[i - 1].minute}' ${escapeHtml(goals[i - 1].team_name || "")}`;
+          return `<span class="score-step${i === path.length - 1 ? " now" : ""}" title="${tip}">${escapeHtml(s)}</span>`;
+        }).join('<span class="score-arrow">→</span>')}</span>
+      </div>
+    `;
+  }
+
+  function distChips(rows, limit = 6) {
+    return (rows || [])
+      .slice(0, limit)
+      .map(
+        (r) =>
+          `<span class="team-stat${r.is_live_branch ? " focal live-branch" : ""}">${escapeHtml(r.score)} <b>${pct(r.pct)}</b> <span class="dim">n=${r.count}</span></span>`
+      )
+      .join("");
+  }
+
+  function renderHistoryBlock(title, evalData, tree) {
+    if (!evalData) {
+      return `<section class="sl-block"><div class="concede-title">${escapeHtml(title)}</div><p class="concede-lede">No mapped EPL history for this club.</p></section>`;
     }
+    const n = evalData.count || 0;
+    const treeHtml =
+      tree && tree.count
+        ? `<div class="concede-when">
+            <div class="concede-when-label">Branch from ${escapeHtml(tree.from)} → now</div>
+            <div class="concede-stats">${distChips(tree.branches, 8)}</div>
+          </div>`
+        : "";
+    const peers = (evalData.peers || [])
+      .slice(0, 6)
+      .map((p) => {
+        const after = (p.path_after || [])
+          .map((x) => `${x.minute}'→${x.score}`)
+          .join(" · ");
+        return `<div class="peer-row peer-row-goals">
+          <span class="min">${p.visit_minute}'</span>
+          <span class="date">${escapeHtml(p.date)}</span>
+          <span class="teams">${escapeHtml(p.home)} vs ${escapeHtml(p.away)} <span class="ft">hit ${escapeHtml(p.scoreline)} · FT ${escapeHtml(p.ft)}</span></span>
+          <span class="meta"><span class="meta-line">${after ? escapeHtml(after) : "ended here"}</span></span>
+        </div>`;
+      })
+      .join("");
+
+    return `<section class="sl-block">
+      <div class="concede-title">${escapeHtml(title)} at ${escapeHtml(evalData.scoreline)}</div>
+      <p class="concede-lede">
+        <b style="color:var(--text)">${n}</b> games ever at this scoreline.
+        Ended ${escapeHtml(evalData.scoreline)}: <b style="color:var(--accent)">${pct(evalData.pct_ended_same)}</b>
+        · more goals: <b style="color:var(--accent)">${pct(evalData.pct_more_goals)}</b>
+        · next for/against: <b>${pct(evalData.pct_next_for)}</b> / <b>${pct(evalData.pct_next_against)}</b>
+      </p>
+      <div class="concede-stats">
+        <span class="score-dist-label">FT from here</span>
+        ${distChips(evalData.ft_distribution)}
+      </div>
+      <div class="concede-stats" style="margin-top:0.45rem">
+        <span class="score-dist-label">Next state</span>
+        ${distChips(evalData.next_distribution)}
+      </div>
+      ${treeHtml}
+      <div class="peer-list">${peers || `<p class="concede-lede">No peer rows.</p>`}</div>
+    </section>`;
   }
 
-  function pct(v) {
-    if (v == null) return "—";
-    return `${Math.round(Number(v) * 100)}%`;
-  }
-
-  function renderConcedeSummary(concede) {
-    const el = $("#concedeSummary");
-    if (!concede || !concede.count) {
+  function renderScorelineEval(scorelines) {
+    const el = $("#scorelineEval");
+    if (!scorelines) {
       el.hidden = true;
       el.innerHTML = "";
       return;
     }
     el.hidden = false;
-    const my = concede.live_my_name || "conceding side";
-    const opp = concede.live_opp_name || "opponent";
-    const liveMy =
-      concede.live_my_shots != null ? `${concede.live_my_shots}/${concede.live_my_sot}` : "—";
-
-    const sideWord = concede.scored_by === "away" ? "away side" : "home side";
-    const whenChips = (concede.when_2h || [])
-      .slice(0, 6)
-      .map((w) => {
-        const who = w.side === "my" ? my : opp;
-        return `<span class="team-stat${w.side === "my" ? " focal" : ""}">${escapeHtml(w.bucket)} ${escapeHtml(who)} <b>×${w.count}</b></span>`;
-      })
-      .join("");
-
-    const peers = (concede.peers || [])
-      .slice(0, 10)
-      .map((p) => {
-        const after = p.after_label || "no more goals";
-        const sh = p.second_half_label || "no 2H goals";
-        return `
-      <div class="peer-row peer-row-goals">
-        <span class="min">${p.goal_minute}'</span>
-        <span class="date">${escapeHtml(p.date)}</span>
-        <span class="teams">${escapeHtml(p.home)} vs ${escapeHtml(p.away)} <span class="ft">FT ${escapeHtml(p.ft)}</span></span>
-        <span class="meta">
-          <span class="meta-line">after: ${escapeHtml(after)}</span>
-          <span class="meta-line">2H: ${escapeHtml(sh)} · +${p.more_goals_2h ?? 0}</span>
-        </span>
-      </div>`;
-      })
-      .join("");
+    const homeLabel = scorelines.home_fd
+      ? `${scorelines.home} (${scorelines.home_fd})`
+      : scorelines.home || "Home";
+    const awayLabel = scorelines.away_fd
+      ? `${scorelines.away} (${scorelines.away_fd})`
+      : scorelines.away || "Away";
+    const trees = scorelines.trees || {};
+    const branchNote = scorelines.prev_scoreline
+      ? `<p class="concede-lede">Followed branch <b style="color:var(--accent);font-family:var(--mono)">${escapeHtml(scorelines.prev_scoreline)} → ${escapeHtml(scorelines.scoreline)}</b> — percentages below were available at the previous state.</p>`
+      : `<p class="concede-lede">Current structure <b style="color:var(--accent);font-family:var(--mono)">${escapeHtml(scorelines.scoreline)}</b> — club history first, then league.</p>`;
 
     el.innerHTML = `
-      <div class="concede-title">${escapeHtml(opp)} scored ${concede.goal_minute}' — what happened next?</div>
-      <p class="concede-lede">
-        Across <b style="color:var(--text)">${concede.count}</b> EPL peers (±${concede.window}')
-        where the ${sideWord} scored around ${concede.goal_minute}′ — goals after that moment, especially 2nd half.
-        Live: ${escapeHtml(my)} was on <b style="color:var(--accent);font-family:var(--mono)">${liveMy}</b> shots/SOT when conceding.
-      </p>
-      <div class="concede-stats">
-        <span class="team-stat focal">More goals avg <b>${concede.avg_more_goals ?? "—"}</b></span>
-        <span class="team-stat focal">2H goals avg <b>${concede.avg_more_goals_2h ?? "—"}</b></span>
-        <span class="team-stat">${escapeHtml(my)} after <b>${concede.avg_my_after ?? "—"}</b></span>
-        <span class="team-stat">${escapeHtml(opp)} after <b>${concede.avg_opp_after ?? "—"}</b></span>
-        <span class="team-stat">${escapeHtml(my)} 2H <b>${concede.avg_my_2h ?? "—"}</b></span>
-        <span class="team-stat">${escapeHtml(opp)} 2H <b>${concede.avg_opp_2h ?? "—"}</b></span>
-        <span class="team-stat">Any 2H goal <b>${pct(concede.pct_any_2h_goals)}</b></span>
-        <span class="team-stat">Equalized <b>${pct(concede.pct_equalized)}</b></span>
-        <span class="team-stat">Next goal ~<b>${concede.avg_next_goal_minute ?? "—"}′</b></span>
-        <span class="team-stat">Next 2H ~<b>${concede.avg_next_2h_minute ?? "—"}′</b></span>
-      </div>
-      ${
-        whenChips
-          ? `<div class="concede-when"><div class="concede-when-label">2nd half — when goals landed</div><div class="concede-stats">${whenChips}</div></div>`
-          : ""
-      }
-      <div class="peer-list">${peers}</div>
+      <div class="concede-title">Scoreline ${escapeHtml(scorelines.scoreline)}</div>
+      ${branchNote}
+      ${renderHistoryBlock(homeLabel + " history", scorelines.home_history, trees.home)}
+      ${renderHistoryBlock(awayLabel + " history", scorelines.away_history, trees.away)}
+      ${renderHistoryBlock("EPL league history", scorelines.league_history, trees.league)}
     `;
   }
 
@@ -317,12 +328,15 @@
     const sit = data.situation || {};
     const snap = sit.snapshot || data.query || {};
     $("#freezeTitle").textContent = `${sit.home || "?"} vs ${sit.away || "?"}`;
-    $("#freezeLabel").textContent = `${sit.minute || snap.minute || "?"}′ · ${data.label || sit.label || "—"}`;
+    $("#freezeLabel").textContent = `${sit.minute || snap.minute || "?"}′ · ${sit.home_score ?? snap.home_goals}-${sit.away_score ?? snap.away_goals}`;
     $("#freezeMeta").textContent =
-      `Live ${sit.clock || ""} · score ${sit.home_score ?? snap.home_goals}-${sit.away_score ?? snap.away_goals}` +
-      ` · ${snap.home_shots ?? 0}/${snap.home_sot ?? 0} vs ${snap.away_shots ?? 0}/${snap.away_sot ?? 0} shots/SOT`;
+      `Live ${sit.clock || ""} · ${snap.home_shots ?? 0}/${snap.home_sot ?? 0} vs ${snap.away_shots ?? 0}/${snap.away_sot ?? 0} shots/SOT`;
     renderGoalContext(sit);
-    renderConcedeSummary(data.opponent_scored);
+    renderScorelineEval(data.scorelines);
+    // Keep goal-minute peers available but collapsed away from primary UX
+    const concede = $("#concedeSummary");
+    concede.hidden = true;
+    concede.innerHTML = "";
     renderSimilar(data.hits || []);
   }
 
@@ -486,6 +500,8 @@
     $("#freezeMeta").textContent = `Frozen snapshot · score ${snap.snapshot.home_goals}-${snap.snapshot.away_goals}`;
     $("#goalContext").hidden = true;
     $("#goalContext").innerHTML = "";
+    $("#scorelineEval").hidden = true;
+    $("#scorelineEval").innerHTML = "";
     $("#concedeSummary").hidden = true;
     $("#concedeSummary").innerHTML = "";
     renderSimilar(sim.hits || []);
