@@ -746,7 +746,12 @@ def build_event_timeline(
             return payload
 
     plays = fetch_all_plays(league_slug, event_id, fetcher=fetcher)
-    minute = parse_clock_minute(clock, default=1)
+    board_minute = parse_clock_minute(clock, default=1)
+    # Play clocks often lead the scoreboard displayClock by a minute or more —
+    # never draw the "now" cursor behind events we are already plotting.
+    play_minutes = [m for p in plays if (m := _play_minute(p)) is not None]
+    latest_play = max(play_minutes) if play_minutes else board_minute
+    minute = max(1, min(90, max(board_minute, latest_play)))
     events: list[dict[str, Any]] = []
     counts = {
         "shot": 0,
@@ -800,6 +805,8 @@ def build_event_timeline(
         "home": home,
         "away": away,
         "minute": minute,
+        "board_minute": board_minute,
+        "play_minute": latest_play,
         "max_minute": 90,
         "events": events,
         "counts": counts,
