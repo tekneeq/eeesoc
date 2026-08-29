@@ -240,6 +240,11 @@
     }
   }
 
+  function pct(v) {
+    if (v == null) return "—";
+    return `${Math.round(Number(v) * 100)}%`;
+  }
+
   function renderConcedeSummary(concede) {
     const el = $("#concedeSummary");
     if (!concede || !concede.count) {
@@ -250,35 +255,60 @@
     el.hidden = false;
     const my = concede.live_my_name || "conceding side";
     const opp = concede.live_opp_name || "opponent";
-    const avgMy = concede.avg_my_shots != null ? `${concede.avg_my_shots}/${concede.avg_my_sot}` : "—";
-    const avgOpp = concede.avg_opp_shots != null ? `${concede.avg_opp_shots}/${concede.avg_opp_sot}` : "—";
     const liveMy =
       concede.live_my_shots != null ? `${concede.live_my_shots}/${concede.live_my_sot}` : "—";
+
+    const sideWord = concede.scored_by === "away" ? "away side" : "home side";
+    const whenChips = (concede.when_2h || [])
+      .slice(0, 6)
+      .map((w) => {
+        const who = w.side === "my" ? my : opp;
+        return `<span class="team-stat${w.side === "my" ? " focal" : ""}">${escapeHtml(w.bucket)} ${escapeHtml(who)} <b>×${w.count}</b></span>`;
+      })
+      .join("");
+
     const peers = (concede.peers || [])
-      .slice(0, 8)
-      .map(
-        (p) => `
-      <div class="peer-row">
+      .slice(0, 10)
+      .map((p) => {
+        const after = p.after_label || "no more goals";
+        const sh = p.second_half_label || "no 2H goals";
+        return `
+      <div class="peer-row peer-row-goals">
         <span class="min">${p.goal_minute}'</span>
         <span class="date">${escapeHtml(p.date)}</span>
-        <span class="teams">${escapeHtml(p.home)} vs ${escapeHtml(p.away)}</span>
-        <span class="meta">${escapeHtml(p.conceded_by_name)} ${p.my_shots}/${p.my_sot} · opp ${p.opp_shots}/${p.opp_sot}</span>
-      </div>`
-      )
+        <span class="teams">${escapeHtml(p.home)} vs ${escapeHtml(p.away)} <span class="ft">FT ${escapeHtml(p.ft)}</span></span>
+        <span class="meta">
+          <span class="meta-line">after: ${escapeHtml(after)}</span>
+          <span class="meta-line">2H: ${escapeHtml(sh)} · +${p.more_goals_2h ?? 0}</span>
+        </span>
+      </div>`;
+      })
       .join("");
 
     el.innerHTML = `
-      <div class="concede-title">${escapeHtml(opp)} scored ${concede.goal_minute}' — what happens then</div>
+      <div class="concede-title">${escapeHtml(opp)} scored ${concede.goal_minute}' — what happened next?</div>
       <p class="concede-lede">
-        Live: ${escapeHtml(my)} had <b style="color:var(--accent);font-family:var(--mono)">${liveMy}</b> shots/SOT
-        when conceding. Across ${concede.count} EPL peers (±${concede.window}') where the same side scored:
+        Across <b style="color:var(--text)">${concede.count}</b> EPL peers (±${concede.window}')
+        where the ${sideWord} scored around ${concede.goal_minute}′ — goals after that moment, especially 2nd half.
+        Live: ${escapeHtml(my)} was on <b style="color:var(--accent);font-family:var(--mono)">${liveMy}</b> shots/SOT when conceding.
       </p>
       <div class="concede-stats">
-        <span class="team-stat focal">${escapeHtml(my)} avg <b>${avgMy}</b></span>
-        <span class="team-stat">${escapeHtml(opp)} avg <b>${avgOpp}</b></span>
-        <span class="team-stat">Home avg <b>${concede.avg_home_shots ?? "—"}/${concede.avg_home_sot ?? "—"}</b></span>
-        <span class="team-stat">Away avg <b>${concede.avg_away_shots ?? "—"}/${concede.avg_away_sot ?? "—"}</b></span>
+        <span class="team-stat focal">More goals avg <b>${concede.avg_more_goals ?? "—"}</b></span>
+        <span class="team-stat focal">2H goals avg <b>${concede.avg_more_goals_2h ?? "—"}</b></span>
+        <span class="team-stat">${escapeHtml(my)} after <b>${concede.avg_my_after ?? "—"}</b></span>
+        <span class="team-stat">${escapeHtml(opp)} after <b>${concede.avg_opp_after ?? "—"}</b></span>
+        <span class="team-stat">${escapeHtml(my)} 2H <b>${concede.avg_my_2h ?? "—"}</b></span>
+        <span class="team-stat">${escapeHtml(opp)} 2H <b>${concede.avg_opp_2h ?? "—"}</b></span>
+        <span class="team-stat">Any 2H goal <b>${pct(concede.pct_any_2h_goals)}</b></span>
+        <span class="team-stat">Equalized <b>${pct(concede.pct_equalized)}</b></span>
+        <span class="team-stat">Next goal ~<b>${concede.avg_next_goal_minute ?? "—"}′</b></span>
+        <span class="team-stat">Next 2H ~<b>${concede.avg_next_2h_minute ?? "—"}′</b></span>
       </div>
+      ${
+        whenChips
+          ? `<div class="concede-when"><div class="concede-when-label">2nd half — when goals landed</div><div class="concede-stats">${whenChips}</div></div>`
+          : ""
+      }
       <div class="peer-list">${peers}</div>
     `;
   }
