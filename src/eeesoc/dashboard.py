@@ -10,9 +10,9 @@ from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 from eeesoc.data import load_season, previous_season_label
-from eeesoc.live import build_pitch_track, fetch_live_board
+from eeesoc.live import build_live_situation, build_pitch_track, fetch_live_board
 from eeesoc.models import Match, MatchSnapshot
-from eeesoc.similar import find_similar
+from eeesoc.similar import find_similar, opponent_scored_context
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 
@@ -109,6 +109,74 @@ def make_handler(state: DashboardState):
                     league_chiclet=(qs.get("chiclet") or [""])[0],
                 )
                 return self._send(200, _json_bytes(track), "application/json")
+
+            if path == "/api/live/similar":
+                league = (qs.get("league") or [None])[0]
+                event_id = (qs.get("event_id") or [None])[0]
+                if not league or not event_id:
+                    return self._send(
+                        400, _json_bytes({"error": "league and event_id required"}), "application/json"
+                    )
+                limit = int((qs.get("limit") or ["12"])[0])
+                window = int((qs.get("window") or ["5"])[0])
+                situation = build_live_situation(
+                    league,
+                    event_id,
+                    home=(qs.get("home") or [""])[0],
+                    away=(qs.get("away") or [""])[0],
+                    home_score=int((qs.get("hs") or ["0"])[0] or 0),
+                    away_score=int((qs.get("as") or ["0"])[0] or 0),
+                    clock=(qs.get("clock") or [""])[0],
+                    league_chiclet=(qs.get("chiclet") or [""])[0],
+                    home_id=(qs.get("home_id") or [""])[0],
+                    away_id=(qs.get("away_id") or [""])[0],
+                )
+                snap_data = situation["snapshot"]
+                snap = MatchSnapshot(
+                    minute=int(snap_data["minute"]),
+                    home_goals=int(snap_data["home_goals"]),
+                    away_goals=int(snap_data["away_goals"]),
+                    home_shots=int(snap_data["home_shots"]),
+                    away_shots=int(snap_data["away_shots"]),
+                    home_sot=int(snap_data["home_sot"]),
+                    away_sot=int(snap_data["away_sot"]),
+                    goal_minutes=tuple(int(m) for m in snap_data.get("goal_minutes") or ()),
+                )
+                hits = find_similar(snap, state.corpus, limit=limit)
+                latest = situation.get("latest_goal")
+                concede = None
+                if latest and latest.get("team") in {"home", "away"}:
+                    concede = opponent_scored_context(
+                        state.corpus,
+                        goal_minute=int(latest["minute"]),
+                        scored_by=str(latest["team"]),
+                        window=window,
+                        limit=limit,
+                    )
+                    # Attach live focal names for the UI
+                    concede = {
+                        **concede,
+                        "live_my_name": latest.get("conceded_by_name"),
+                        "live_opp_name": latest.get("team_name"),
+                        "live_my_shots": latest.get("my_shots"),
+                        "live_my_sot": latest.get("my_sot"),
+                        "live_opp_shots": latest.get("scorer_shots"),
+                        "live_opp_sot": latest.get("scorer_sot"),
+                        "live_goal_text": latest.get("text"),
+                    }
+                return self._send(
+                    200,
+                    _json_bytes(
+                        {
+                            "situation": situation,
+                            "query": snap.to_dict(),
+                            "label": situation["label"],
+                            "hits": [h.to_dict() for h in hits],
+                            "opponent_scored": concede,
+                        }
+                    ),
+                    "application/json",
+                )
 
             if path == "/api/matches":
                 rows = [

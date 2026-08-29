@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Iterable
+from typing import Any, Iterable
 
 from eeesoc.models import Match, MatchSnapshot
 
@@ -72,3 +72,95 @@ def find_similar(
         hits.append(SimilarHit(match=match, snapshot=snap, distance=dist, score=score))
     hits.sort(key=lambda h: (h.distance, h.match.date))
     return hits[:limit]
+
+
+def _avg(values: list[float]) -> float | None:
+    if not values:
+        return None
+    return round(sum(values) / len(values), 2)
+
+
+def opponent_scored_context(
+    corpus: Iterable[Match],
+    *,
+    goal_minute: int,
+    scored_by: str,
+    window: int = 5,
+    limit: int = 12,
+) -> dict[str, Any]:
+    """
+    Historical peers where the same side scored around ``goal_minute``.
+
+    For each peer, report both teams' shots/SOT at that goal — and averages for
+    the conceding side ("my team when the opponent scored").
+    """
+    if scored_by not in {"home", "away"}:
+        raise ValueError("scored_by must be home or away")
+    conceded_by = "away" if scored_by == "home" else "home"
+    lo = max(1, goal_minute - window)
+    hi = min(90, goal_minute + window)
+
+    peers: list[dict[str, Any]] = []
+    for match in corpus:
+        for goal in match.goals:
+            if goal.team != scored_by:
+                continue
+            if goal.minute < lo or goal.minute > hi:
+                continue
+            snap = match.snapshot_at(goal.minute)
+            if conceded_by == "home":
+                my_shots, my_sot = snap.home_shots, snap.home_sot
+                opp_shots, opp_sot = snap.away_shots, snap.away_sot
+                my_name, opp_name = match.home, match.away
+            else:
+                my_shots, my_sot = snap.away_shots, snap.away_sot
+                opp_shots, opp_sot = snap.home_shots, snap.home_sot
+                my_name, opp_name = match.away, match.home
+            peers.append(
+                {
+                    "match_id": match.match_id,
+                    "season": match.season,
+                    "date": match.date,
+                    "home": match.home,
+                    "away": match.away,
+                    "goal_minute": goal.minute,
+                    "scored_by": scored_by,
+                    "scored_by_name": opp_name,
+                    "conceded_by": conceded_by,
+                    "conceded_by_name": my_name,
+                    "my_shots": my_shots,
+                    "my_sot": my_sot,
+                    "opp_shots": opp_shots,
+                    "opp_sot": opp_sot,
+                    "home_shots": snap.home_shots,
+                    "away_shots": snap.away_shots,
+                    "home_sot": snap.home_sot,
+                    "away_sot": snap.away_sot,
+                    "home_goals": snap.home_goals,
+                    "away_goals": snap.away_goals,
+                    "label": snap.label(),
+                    "ft": f"{match.home_goals_ft}-{match.away_goals_ft}",
+                    "minute_delta": abs(goal.minute - goal_minute),
+                }
+            )
+            break  # one peer row per match (first matching goal)
+
+    peers.sort(key=lambda p: (p["minute_delta"], p["date"]))
+    peers = peers[:limit]
+
+    return {
+        "goal_minute": goal_minute,
+        "scored_by": scored_by,
+        "conceded_by": conceded_by,
+        "window": window,
+        "count": len(peers),
+        "avg_my_shots": _avg([float(p["my_shots"]) for p in peers]),
+        "avg_my_sot": _avg([float(p["my_sot"]) for p in peers]),
+        "avg_opp_shots": _avg([float(p["opp_shots"]) for p in peers]),
+        "avg_opp_sot": _avg([float(p["opp_sot"]) for p in peers]),
+        "avg_home_shots": _avg([float(p["home_shots"]) for p in peers]),
+        "avg_home_sot": _avg([float(p["home_sot"]) for p in peers]),
+        "avg_away_shots": _avg([float(p["away_shots"]) for p in peers]),
+        "avg_away_sot": _avg([float(p["away_sot"]) for p in peers]),
+        "peers": peers,
+    }

@@ -269,6 +269,134 @@ main {
   font-size: 0.85rem;
 }
 
+.goal-context {
+  margin-top: 0.85rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.goal-event {
+  display: grid;
+  grid-template-columns: 3.2rem 1fr;
+  gap: 0.55rem;
+  align-items: start;
+  padding: 0.55rem 0;
+  border-top: 1px solid var(--line);
+  animation: rise 280ms ease both;
+}
+
+.goal-min {
+  font-family: var(--mono);
+  color: var(--danger);
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.goal-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.goal-headline {
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+.goal-teams {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.team-stat {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  color: var(--muted);
+  border: 1px solid var(--line);
+  border-radius: 0.22rem;
+  padding: 0.28rem 0.45rem;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.team-stat b {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.team-stat.focal {
+  border-color: rgba(125, 255, 179, 0.35);
+  background: var(--accent-dim);
+  color: var(--text);
+}
+
+.concede-summary {
+  margin: 0 0 1.1rem;
+  padding: 0.85rem 0;
+  border-bottom: 1px solid var(--line);
+  animation: rise 300ms ease both;
+}
+
+.concede-title {
+  font-weight: 700;
+  font-size: 0.95rem;
+  margin-bottom: 0.35rem;
+}
+
+.concede-lede {
+  color: var(--muted);
+  font-size: 0.85rem;
+  margin-bottom: 0.65rem;
+  line-height: 1.4;
+}
+
+.concede-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-bottom: 0.75rem;
+}
+
+.peer-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.peer-row {
+  display: grid;
+  grid-template-columns: 3rem 5.5rem 1fr auto;
+  gap: 0.65rem;
+  align-items: center;
+  font-size: 0.85rem;
+  padding: 0.45rem 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.peer-row .min {
+  font-family: var(--mono);
+  color: var(--danger);
+  font-size: 0.75rem;
+}
+
+.peer-row .date {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+
+.peer-row .teams {
+  font-weight: 600;
+}
+
+.peer-row .meta {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  color: var(--muted);
+  justify-self: end;
+}
+
 .similar-row .score {
   font-family: var(--mono);
   color: var(--accent);
@@ -668,12 +796,14 @@ main {
     margin-left: 0;
   }
   .match-row,
-  .similar-row {
+  .similar-row,
+  .peer-row {
     grid-template-columns: 1fr;
     gap: 0.25rem;
   }
   .match-row .meta,
-  .similar-row .meta {
+  .similar-row .meta,
+  .peer-row .meta {
     justify-self: start;
   }
   .feed-row {
