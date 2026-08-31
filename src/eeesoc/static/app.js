@@ -13,7 +13,11 @@
     trackTimer: null,
     similarTimer: null,
     timelines: {},
+    liveTickTimer: null,
   };
+
+  const LIVE_POLL_MS = 8000;
+  const TIMELINE_FRESH_MS = 5000;
 
   const $ = (sel) => document.querySelector(sel);
 
@@ -102,7 +106,7 @@
     const grid = $(gridEl);
     const rows = flatLiveMatches(filter);
     const withTimeline = !!opts.withTimeline;
-    const soft = !!opts.soft && withTimeline;
+    const soft = !!opts.soft;
 
     if (soft && softPatchLiveChiclets(grid, rows, selected, onSelect, opts)) {
       return;
@@ -141,6 +145,22 @@
     }
   }
 
+  function chicletStatsHtml(tl) {
+    if (!tl) {
+      return `<span class="mc-stat mc-stat-empty">shots · on target · corners · xG</span>`;
+    }
+    const c = tl.counts || {};
+    const xg = tl.xg || {};
+    const pair = (label, h, a) =>
+      `<span class="mc-stat" title="${label} — home vs away"><span class="mc-stat-label">${label}</span><b class="mc-h">${h}</b><span class="mc-stat-sep">–</span><b class="mc-a">${a}</b></span>`;
+    return (
+      pair("Shots", (c.home_shot || 0) + (c.home_shot_on || 0) + (c.home_blocked || 0) + (c.home_goal || 0), (c.away_shot || 0) + (c.away_shot_on || 0) + (c.away_blocked || 0) + (c.away_goal || 0)) +
+      pair("On target", (c.home_shot_on || 0) + (c.home_goal || 0), (c.away_shot_on || 0) + (c.away_goal || 0)) +
+      pair("Corners", c.home_corner || 0, c.away_corner || 0) +
+      pair("xG", Number(xg.home_total || 0).toFixed(2), Number(xg.away_total || 0).toFixed(2))
+    );
+  }
+
   function buildMatchChicletButton(m, selected, onSelect, withTimeline) {
     const btn = document.createElement("button");
     btn.type = "button";
@@ -154,16 +174,19 @@
     btn.__onSelect = onSelect;
     const cached = withTimeline ? state.timelines?.[m.event_id] : null;
     btn.innerHTML = `
-      <span class="mc-clock"><span class="live-dot"></span><span class="mc-clock-text">${escapeHtml(m.clock || "LIVE")}</span></span>
-      <span class="mc-teams">
-        <span class="mc-home">${escapeHtml(shortName(m.home))}</span>
-        <span class="mc-score">${m.home_score}–${m.away_score}</span>
-        <span class="mc-away">${escapeHtml(shortName(m.away))}</span>
+      <span class="mc-top">
+        <span class="mc-live-badge"><span class="live-dot"></span><span class="mc-clock-text">${escapeHtml(m.clock || "LIVE")}</span></span>
+        <span class="mc-league">${escapeHtml(m.league_chiclet)}</span>
       </span>
-      <span class="mc-league">${escapeHtml(m.league_chiclet)}</span>
+      <span class="mc-teams">
+        <span class="mc-home"><span class="mc-name">${escapeHtml(shortName(m.home))}</span><i class="mc-key mc-key-home" title="Home — green in charts"></i></span>
+        <span class="mc-score"><b class="mc-score-h">${m.home_score}</b><span class="mc-score-sep">–</span><b class="mc-score-a">${m.away_score}</b></span>
+        <span class="mc-away"><i class="mc-key mc-key-away" title="Away — blue in charts"></i><span class="mc-name">${escapeHtml(shortName(m.away))}</span></span>
+      </span>
       ${
         withTimeline
-          ? `<div class="mc-charts">
+          ? `<span class="mc-stats" data-stats-for="${escapeHtml(m.event_id)}">${chicletStatsHtml(cached)}</span>
+            <div class="mc-charts">
               <span class="mc-timeline" data-tl-for="${escapeHtml(m.event_id)}" aria-label="Match event timeline">${
                 cached ? timelineSvg(cached) : `<span class="mc-timeline-loading">timeline…</span>`
               }</span>
@@ -180,6 +203,14 @@
     return btn;
   }
 
+  function flashGoal(btn) {
+    btn.classList.remove("mc-goal-flash");
+    // restart the animation
+    void btn.offsetWidth;
+    btn.classList.add("mc-goal-flash");
+    setTimeout(() => btn.classList.remove("mc-goal-flash"), 4200);
+  }
+
   function softPatchLiveChiclets(grid, rows, selected, onSelect, opts = {}) {
     if (!grid) return false;
     const existing = [...grid.querySelectorAll(".match-chiclet[data-event-id]")];
@@ -190,33 +221,33 @@
       if (!byId.has(String(m.event_id))) return false;
     }
 
-    const refreshTimelines = opts.refreshTimelines !== false;
+    const refreshTimelines = opts.refreshTimelines !== false && !!opts.withTimeline;
 
     for (const m of rows) {
       const btn = byId.get(String(m.event_id));
       btn.__match = m;
       btn.__onSelect = onSelect;
       btn.classList.toggle("on", !!(selected && selected.event_id === m.event_id));
+      const tl = state.timelines?.[m.event_id];
       const clockText = btn.querySelector(".mc-clock-text");
-      if (clockText) clockText.textContent = m.clock || "LIVE";
-      else {
-        const clock = btn.querySelector(".mc-clock");
-        if (clock) {
-          const dot = clock.querySelector(".live-dot");
-          clock.textContent = "";
-          if (dot) clock.appendChild(dot);
-          const span = document.createElement("span");
-          span.className = "mc-clock-text";
-          span.textContent = m.clock || "LIVE";
-          clock.appendChild(span);
-        }
+      // The 1s ticker owns the running clock; only overwrite for frozen states (HT/FT)
+      if (clockText && (!tl || tl.frozen || !Number.isFinite(Number(tl.elapsed_seconds)))) {
+        clockText.textContent = m.clock || "LIVE";
       }
-      const score = btn.querySelector(".mc-score");
-      if (score) score.textContent = `${m.home_score}–${m.away_score}`;
-      const home = btn.querySelector(".mc-home");
-      if (home) home.textContent = shortName(m.home);
-      const away = btn.querySelector(".mc-away");
-      if (away) away.textContent = shortName(m.away);
+      const scoreH = btn.querySelector(".mc-score-h");
+      const scoreA = btn.querySelector(".mc-score-a");
+      if (scoreH && scoreA) {
+        const changed =
+          scoreH.textContent !== String(m.home_score) || scoreA.textContent !== String(m.away_score);
+        scoreH.textContent = String(m.home_score);
+        scoreA.textContent = String(m.away_score);
+        if (changed) flashGoal(btn);
+      }
+      const names = btn.querySelectorAll(".mc-teams .mc-name");
+      if (names.length === 2) {
+        names[0].textContent = shortName(m.home);
+        names[1].textContent = shortName(m.away);
+      }
       if (refreshTimelines) {
         loadMatchTimeline(m, btn.querySelector(".mc-timeline"), btn.querySelector(".mc-xg"), {
           quiet: true,
@@ -227,13 +258,32 @@
     return true;
   }
 
+  function liveElapsedSeconds(tl) {
+    const base = Number(tl.elapsed_seconds);
+    const fallback = Math.max(0, (Number(tl.minute) || 1) - 1) * 60;
+    const start = Number.isFinite(base) ? base : fallback;
+    if (tl.frozen) return start;
+    const synced = tl._syncedAt || tl._ts || Date.now();
+    return Math.max(0, Math.min(99 * 60, start + (Date.now() - synced) / 1000));
+  }
+
+  function liveNowMinutes(tl) {
+    const maxM = Math.max(90, Number(tl.max_minute) || 90);
+    return Math.max(0.5, Math.min(maxM, liveElapsedSeconds(tl) / 60));
+  }
+
+  function formatTickClock(seconds) {
+    const s = Math.max(0, Math.floor(seconds));
+    return `${Math.floor(s / 60)}'${String(s % 60).padStart(2, "0")}`;
+  }
+
   function timelineSvg(tl) {
     const W = 320;
     const H = 52;
     const pad = 10;
     const axisY = 26;
     const maxM = Math.max(90, Number(tl.max_minute) || 90);
-    const now = Math.max(1, Math.min(maxM, Number(tl.minute) || 1));
+    const now = liveNowMinutes(tl);
     const xAt = (m) => pad + ((Number(m) / maxM) * (W - pad * 2));
     const marks = [];
     for (const ev of tl.events || []) {
@@ -264,7 +314,7 @@
     }
     const nowX = xAt(now).toFixed(1);
     const htX = xAt(45).toFixed(1);
-    return `<svg class="mc-tl-svg" viewBox="0 0 ${W} ${H}" width="100%" height="${H}" role="img" aria-label="0 to 90 minute event timeline">
+    return `<svg class="mc-tl-svg" viewBox="0 0 ${W} ${H}" width="100%" height="${H}" role="img" aria-label="0 to 90 minute event timeline" data-pad-l="${pad}" data-pad-r="${pad}" data-width="${W}" data-max="${maxM}">
       <line x1="${pad}" y1="${axisY}" x2="${W - pad}" y2="${axisY}" class="tl-axis"/>
       <line x1="${pad}" y1="${axisY}" x2="${nowX}" y2="${axisY}" class="tl-progress"/>
       <line x1="${htX}" y1="${axisY - 5}" x2="${htX}" y2="${axisY + 5}" class="tl-ht"/>
@@ -304,7 +354,7 @@
     const padT = 12;
     const padB = 18;
     const maxM = Math.max(90, Number(tl.max_minute) || 90);
-    const now = Math.max(1, Math.min(maxM, Number(tl.minute) || 1));
+    const now = liveNowMinutes(tl);
     const xg = tl.xg || { home: [], away: [], home_total: 0, away_total: 0 };
     const yMax = Math.max(0.5, xg.home_total || 0, xg.away_total || 0) * 1.15;
     const xAt = (m) => padL + ((Number(m) / maxM) * (W - padL - padR));
@@ -316,7 +366,7 @@
     const y0 = yAt(0).toFixed(1);
     const yMid = yAt(yMax / 2).toFixed(1);
     const yTop = yAt(yMax).toFixed(1);
-    return `<svg class="mc-xg-svg" viewBox="0 0 ${W} ${H}" width="100%" height="${H}" role="img" aria-label="Expected goals versus game time">
+    return `<svg class="mc-xg-svg" viewBox="0 0 ${W} ${H}" width="100%" height="${H}" role="img" aria-label="Expected goals versus game time" data-pad-l="${padL}" data-pad-r="${padR}" data-width="${W}" data-max="${maxM}">
       <text x="4" y="${Number(yTop) + 3}" class="tl-label">${yMax.toFixed(1)}</text>
       <text x="4" y="${Number(yMid) + 3}" class="tl-label">${(yMax / 2).toFixed(1)}</text>
       <text x="4" y="${Number(y0) + 3}" class="tl-label">0</text>
@@ -340,12 +390,14 @@
     const force = Boolean(opts.force);
     const preferCache = Boolean(opts.preferCache);
     const cached = state.timelines?.[m.event_id];
-    const fresh = cached && Date.now() - cached._ts < 12000;
+    const fresh = cached && Date.now() - cached._ts < TIMELINE_FRESH_MS;
     const hasSvg = () => !!mount.querySelector("svg.mc-tl-svg");
 
     const paint = (tl) => {
       if (mount.isConnected) mount.innerHTML = timelineSvg(tl);
       if (xgMount && xgMount.isConnected) xgMount.innerHTML = xgSvg(tl);
+      const stats = document.querySelector(`.mc-stats[data-stats-for="${CSS.escape(String(m.event_id))}"]`);
+      if (stats) stats.innerHTML = chicletStatsHtml(tl);
     };
 
     const chartSig = (tl) =>
@@ -374,10 +426,11 @@
       const qs = liveQuery(m);
       const tl = await (await fetch(`/api/live/timeline?${qs}`)).json();
       tl._ts = Date.now();
+      tl._syncedAt = Date.now();
       state.timelines = state.timelines || {};
       const prev = state.timelines[m.event_id];
       state.timelines[m.event_id] = tl;
-      // Skip DOM rewrite when nothing meaningful changed (avoids a 25s blink).
+      // Skip DOM rewrite when nothing meaningful changed (the ticker keeps the cursor moving).
       if (hasSvg() && prev && chartSig(prev) === chartSig(tl)) return;
       paint(tl);
     } catch (err) {
@@ -392,6 +445,47 @@
     }
   }
 
+  function moveNowCursor(svg, nowMinutes) {
+    const padL = Number(svg.dataset.padL || 10);
+    const padR = Number(svg.dataset.padR || 10);
+    const W = Number(svg.dataset.width || 320);
+    const maxM = Number(svg.dataset.max || 90);
+    const x = (padL + (Math.min(maxM, nowMinutes) / maxM) * (W - padL - padR)).toFixed(1);
+    const progress = svg.querySelector(".tl-progress");
+    if (progress) progress.setAttribute("x2", x);
+    const now = svg.querySelector(".tl-now");
+    if (now) {
+      now.setAttribute("x1", x);
+      now.setAttribute("x2", x);
+    }
+  }
+
+  function tickLiveClocks() {
+    const panel = $("#panel-live");
+    if (!panel || panel.hidden || document.hidden) return;
+    const grid = $("#matchChiclets");
+    if (!grid) return;
+    for (const [eventId, tl] of Object.entries(state.timelines || {})) {
+      const btn = grid.querySelector(`.match-chiclet[data-event-id="${CSS.escape(String(eventId))}"]`);
+      if (!btn || !btn.isConnected) continue;
+      const secs = liveElapsedSeconds(tl);
+      const nowM = Math.max(0.5, secs / 60);
+      if (!tl.frozen) {
+        const clockEl = btn.querySelector(".mc-clock-text");
+        if (clockEl) clockEl.textContent = formatTickClock(secs);
+      }
+      const tlSvg = btn.querySelector(".mc-timeline svg");
+      if (tlSvg) moveNowCursor(tlSvg, nowM);
+      const xgSvgEl = btn.querySelector(".mc-xg svg");
+      if (xgSvgEl) moveNowCursor(xgSvgEl, nowM);
+    }
+  }
+
+  function ensureLiveTicker() {
+    if (state.liveTickTimer) return;
+    state.liveTickTimer = setInterval(tickLiveClocks, 1000);
+  }
+
   function renderLiveTabChiclets(opts = {}) {
     renderLeagueChiclets("#leagueChiclets", "liveFilter", () => {
       renderLiveTabChiclets();
@@ -403,7 +497,7 @@
     });
   }
 
-  function renderSimilarTabChiclets() {
+  function renderSimilarTabChiclets(opts = {}) {
     renderLeagueChiclets("#similarLeagueChiclets", "similarFilter", () => {
       renderSimilarTabChiclets();
     });
@@ -411,7 +505,8 @@
       "#similarMatchChiclets",
       state.similarFilter,
       state.selectedSimilarLive,
-      selectSimilarLive
+      selectSimilarLive,
+      { soft: !!opts.soft }
     );
   }
 
@@ -422,7 +517,7 @@
     $("#pitchTitle").textContent = `${m.home} ${m.home_score}–${m.away_score} ${m.away} · ${m.clock || "LIVE"}`;
     await refreshTrack();
     if (state.trackTimer) clearInterval(state.trackTimer);
-    state.trackTimer = setInterval(refreshTrack, 8000);
+    state.trackTimer = setInterval(refreshTrack, 5000);
   }
 
   function liveQuery(m) {
@@ -434,6 +529,7 @@
       hs: String(m.home_score),
       as: String(m.away_score),
       clock: m.clock || "",
+      clock_s: m.clock_seconds != null ? String(m.clock_seconds) : "",
       chiclet: m.league_chiclet || "",
       home_id: m.home_id || "",
       away_id: m.away_id || "",
@@ -444,7 +540,7 @@
     state.selectedSimilarLive = m;
     state.selectedId = null;
     renderMatches();
-    renderSimilarTabChiclets();
+    renderSimilarTabChiclets({ soft: true });
     await refreshSimilarLive();
     if (state.similarTimer) clearInterval(state.similarTimer);
     state.similarTimer = setInterval(refreshSimilarLive, 20000);
@@ -745,7 +841,7 @@
     if (state.similarTimer) clearInterval(state.similarTimer);
     state.minute = Number($("#cutMinute").value) || 53;
     renderMatches();
-    renderSimilarTabChiclets();
+    renderSimilarTabChiclets({ soft: true });
     const snapRes = await fetch(
       `/api/snapshot?match_id=${encodeURIComponent(matchId)}&minute=${state.minute}`
     );
@@ -842,7 +938,7 @@
       });
 
       renderLiveTabChiclets({ soft: true });
-      renderSimilarTabChiclets();
+      renderSimilarTabChiclets({ soft: true });
 
       if (state.selectedLive) {
         const m = state.selectedLive;
@@ -877,7 +973,14 @@
     $("#evertonPreset").addEventListener("click", loadEvertonPreset);
 
     await refreshLive();
-    state.liveTimer = setInterval(refreshLive, 25000);
+    state.liveTimer = setInterval(() => {
+      if (document.hidden) return;
+      refreshLive();
+    }, LIVE_POLL_MS);
+    document.addEventListener("visibilitychange", () => {
+      if (!document.hidden) refreshLive();
+    });
+    ensureLiveTicker();
   }
 
   boot();

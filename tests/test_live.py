@@ -23,6 +23,7 @@ SAMPLE_SB = {
                         {
                             "status": {
                                 "displayClock": "72'",
+                                "clock": 4335.0,
                                 "type": {
                                     "state": "in",
                                     "detail": "72'",
@@ -91,6 +92,8 @@ def test_parse_scoreboard_extracts_live_and_pre():
     assert live.league_chiclet == "La Liga"
     assert live.home_id == "86"
     assert live.away_id == "89"
+    assert live.clock_seconds == 4335
+    assert matches[1].clock_seconds is None
 
 
 def test_fetch_live_board_filters_and_groups():
@@ -358,6 +361,54 @@ def test_timeline_now_follows_latest_play_not_stale_board_clock():
     assert tl["play_minute"] == 36
     assert tl["minute"] == 36
     assert max(e["minute"] for e in tl["events"]) <= tl["minute"]
+    # elapsed follows the freshest play clock (2133s), not the stale board clock
+    assert tl["elapsed_seconds"] == 2133
+    assert tl["frozen"] is False
+
+
+def test_timeline_elapsed_prefers_board_clock_seconds_and_freezes_at_ht():
+    from eeesoc.live import build_event_timeline, clear_timeline_cache
+
+    clear_timeline_cache()
+    plays = {
+        "pageCount": 1,
+        "items": [
+            {
+                "type": {"type": "shot-on-target"},
+                "shortText": "Early shot",
+                "clock": {"displayValue": "12'", "value": 700.0},
+                "team": {"$ref": ".../teams/86"},
+            }
+        ],
+    }
+
+    tl = build_event_timeline(
+        "esp.1",
+        "9",
+        home="Real Madrid",
+        away="Real Sociedad",
+        home_id="86",
+        away_id="89",
+        clock="45'",
+        clock_seconds=2700,
+        fetcher=lambda url: plays,
+        use_cache=False,
+    )
+    assert tl["elapsed_seconds"] == 2700
+
+    clear_timeline_cache()
+    ht = build_event_timeline(
+        "esp.1",
+        "9",
+        home="Real Madrid",
+        away="Real Sociedad",
+        home_id="86",
+        away_id="89",
+        clock="HT",
+        fetcher=lambda url: plays,
+        use_cache=False,
+    )
+    assert ht["frozen"] is True
 
 
 def test_opponent_scored_context_averages():

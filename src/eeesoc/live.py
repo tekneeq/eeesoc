@@ -34,7 +34,7 @@ LEAGUES: list[tuple[str, str]] = [
     ("arg.1", "Liga ARG"),
 ]
 
-_CACHE_TTL_S = 20.0
+_CACHE_TTL_S = 6.0
 _cache_lock_payload: tuple[float, dict[str, Any]] | None = None
 
 
@@ -54,6 +54,7 @@ class LiveMatch:
     start: str
     home_id: str = ""
     away_id: str = ""
+    clock_seconds: int | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -97,6 +98,13 @@ def parse_scoreboard(payload: dict[str, Any], league_slug: str, chiclet: str) ->
         state = str(stype.get("state") or "pre")
         clock = str(status.get("displayClock") or stype.get("shortDetail") or "")
         detail = str(stype.get("detail") or stype.get("shortDetail") or "")
+        clock_seconds: int | None = None
+        raw_clock = status.get("clock")
+        if raw_clock is not None:
+            try:
+                clock_seconds = max(0, int(float(raw_clock)))
+            except (TypeError, ValueError):
+                clock_seconds = None
 
         home = away = "?"
         home_id = away_id = ""
@@ -127,6 +135,7 @@ def parse_scoreboard(payload: dict[str, Any], league_slug: str, chiclet: str) ->
                 start=str(event.get("date") or ""),
                 home_id=home_id,
                 away_id=away_id,
+                clock_seconds=clock_seconds,
             )
         )
     return out
@@ -270,7 +279,7 @@ BALL_TYPES = SHOT_TYPES | PASS_TYPES | {
 }
 
 _track_cache: dict[str, tuple[float, dict[str, Any]]] = {}
-_TRACK_TTL_S = 8.0
+_TRACK_TTL_S = 5.0
 
 
 def _play_type(play: dict[str, Any]) -> str:
@@ -706,7 +715,7 @@ SHOT_OFF_TYPES = {
 }
 
 _timeline_cache: dict[str, tuple[float, dict[str, Any]]] = {}
-_TIMELINE_TTL_S = 12.0
+_TIMELINE_TTL_S = 5.0
 
 
 def _normalize_play_type(ptype: str) -> str:
@@ -742,6 +751,22 @@ def _safe_float(value: Any) -> float | None:
         return None
 
 
+def _play_elapsed_seconds(play: dict[str, Any]) -> int | None:
+    clock = play.get("clock") or {}
+    if isinstance(clock, dict) and clock.get("value") is not None:
+        try:
+            return max(0, int(float(clock["value"])))
+        except (TypeError, ValueError):
+            return None
+    minute = _play_minute(play)
+    if minute is None:
+        return None
+    return max(0, (minute - 1) * 60)
+
+
+_FROZEN_CLOCK_TOKENS = ("ht", "half", "ft", "end", "sched", "postpon", "delay", "abandon")
+
+
 def _cumulative_xg_series(
     points: list[tuple[int, float]],
 ) -> list[dict[str, Any]]:
@@ -763,6 +788,7 @@ def build_event_timeline(
     home_id: str = "",
     away_id: str = "",
     clock: str = "",
+    clock_seconds: int | None = None,
     fetcher: Callable[[str], dict[str, Any]] | None = None,
     use_cache: bool = True,
 ) -> dict[str, Any]:
@@ -771,6 +797,8 @@ def build_event_timeline(
 
     Markers: shots, blocked, shots on target, goals, corners (home above / away below).
     ``xg`` holds per-side cumulative expected-goals vs minute for the chart.
+    ``elapsed_seconds`` is the best live clock for a client-side 1s cursor tick;
+    ``frozen`` flags HT/FT-style clocks where the tick should pause.
     """
     cache_key = f"tl:{league_slug}:{event_id}"
     if use_cache and cache_key in _timeline_cache:
@@ -782,9 +810,20 @@ def build_event_timeline(
     board_minute = parse_clock_minute(clock, default=1)
     # Play clocks often lead the scoreboard displayClock by a minute or more —
     # never draw the "now" cursor behind events we are already plotting.
-    play_minutes = [m for p in plays if (m := _play_minute(p)) is not None]
-    latest_play = max(play_minutes) if play_minutes else board_minute
+    play_seconds = [s for p in plays if (s := _play_elapsed_seconds(p)) is not None]
+    latest_play_seconds = max(play_seconds) if play_seconds else None
+    latest_play = (
+        (latest_play_seconds // 60) + 1 if latest_play_seconds is not None else board_minute
+    )
     minute = max(1, min(90, max(board_minute, latest_play)))
+
+    board_seconds = clock_seconds
+    if board_seconds is None:
+        board_seconds = max(0, (board_minute - 1) * 60)
+    elapsed_seconds = min(max(board_seconds, latest_play_seconds or 0), 99 * 60)
+
+    clock_l = clock.lower()
+    frozen = any(tok in clock_l for tok in _FROZEN_CLOCK_TOKENS)
     events: list[dict[str, Any]] = []
     counts = {
         "shot": 0,
@@ -844,9 +883,12 @@ def build_event_timeline(
         "league_slug": league_slug,
         "home": home,
         "away": away,
+        "clock": clock,
         "minute": minute,
         "board_minute": board_minute,
         "play_minute": latest_play,
+        "elapsed_seconds": elapsed_seconds,
+        "frozen": frozen,
         "max_minute": 90,
         "events": events,
         "counts": counts,
