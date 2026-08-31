@@ -51,6 +51,17 @@ def first_visit(
     return None
 
 
+def state_index_at(path: list[tuple[int, int, int]], minute: int) -> int:
+    """Index of the scoreline state in effect at ``minute`` (last change ≤ minute)."""
+    idx = 0
+    for i, (m, _, _) in enumerate(path):
+        if m <= minute:
+            idx = i
+        else:
+            break
+    return idx
+
+
 def _pct(count: int, total: int) -> float | None:
     if total <= 0:
         return None
@@ -68,9 +79,15 @@ def scoreline_outcomes(
     against_goals: int,
     team: str | None = None,
     limit_peers: int = 12,
+    at_minute: int | None = None,
 ) -> dict[str, Any]:
     """
-    Among matches that ever hit ``for_goals–against_goals``, summarise what followed.
+    Summarise what followed the scoreline ``for_goals–against_goals``.
+
+    When ``at_minute`` is set, only matches whose score *at that minute* was
+    the given scoreline count, and "next" is the first change after that
+    minute — so percentages respect the time left in the match. Otherwise,
+    matches that ever hit the scoreline count from their first visit.
 
     If ``team`` is set (FD canonical), scorelines are from that club's perspective
     (for/against) across home and away games. Otherwise absolute home–away.
@@ -81,6 +98,7 @@ def scoreline_outcomes(
     ended_same = 0
     more_goals = 0
     next_for = next_against = 0  # / home / away when league
+    perspective = "team" if team else "league"
 
     for match in corpus:
         if team:
@@ -90,17 +108,21 @@ def scoreline_outcomes(
             path = team_score_path(match, side)
             ft_for = match.home_goals_ft if side == "home" else match.away_goals_ft
             ft_ag = match.away_goals_ft if side == "home" else match.home_goals_ft
-            perspective = "team"
         else:
             side = None
             path = score_path(match)
             ft_for, ft_ag = match.home_goals_ft, match.away_goals_ft
-            perspective = "league"
 
-        hit = first_visit(path, for_goals, against_goals)
-        if hit is None:
-            continue
-        idx, minute = hit
+        if at_minute is None:
+            hit = first_visit(path, for_goals, against_goals)
+            if hit is None:
+                continue
+            idx, visit_minute = hit
+        else:
+            idx = state_index_at(path, at_minute)
+            visit_minute, cur_for, cur_against = path[idx]
+            if (cur_for, cur_against) != (for_goals, against_goals):
+                continue
         ft = _ft_key(ft_for, ft_ag)
         ft_counts[ft] += 1
         same = ft_for == for_goals and ft_ag == against_goals
@@ -133,7 +155,7 @@ def scoreline_outcomes(
                 "home": match.home,
                 "away": match.away,
                 "side": side,
-                "visit_minute": minute,
+                "visit_minute": visit_minute,
                 "scoreline": _ft_key(for_goals, against_goals),
                 "ft": ft,
                 "ft_for": ft_for,
@@ -167,6 +189,7 @@ def scoreline_outcomes(
         "scoreline": _ft_key(for_goals, against_goals),
         "for_goals": for_goals,
         "against_goals": against_goals,
+        "at_minute": at_minute,
         "count": n,
         "pct_ended_same": _pct(ended_same, n),
         "pct_more_goals": _pct(more_goals, n),
@@ -185,11 +208,13 @@ def transition_tree(
     from_against: int,
     team: str | None = None,
     live_to: tuple[int, int] | None = None,
+    at_minute: int | None = None,
 ) -> dict[str, Any]:
     """
     From scoreline A–B, % of next states (the branch tree).
 
     ``live_to`` marks the branch the live match actually followed.
+    ``at_minute`` conditions on games at that scoreline at that minute.
     """
     base = scoreline_outcomes(
         corpus,
@@ -197,6 +222,7 @@ def transition_tree(
         against_goals=from_against,
         team=team,
         limit_peers=0,
+        at_minute=at_minute,
     )
     live_key = _ft_key(*live_to) if live_to else None
     branches = []
@@ -211,6 +237,7 @@ def transition_tree(
         "perspective": base["perspective"],
         "team": team,
         "from": base["scoreline"],
+        "at_minute": at_minute,
         "count": base["count"],
         "branches": branches,
         "live_to": live_key,
@@ -231,18 +258,26 @@ def build_live_scoreline_eval(
     away_id: str = "",
     prev_home: int | None = None,
     prev_away: int | None = None,
+    minute: int | None = None,
+    prev_minute: int | None = None,
     limit_peers: int = 8,
 ) -> dict[str, Any]:
     """
     Full live evaluation: home-team history, away-team history, then league.
 
     Scorelines for each club use for/against. League uses absolute home–away.
+    When ``minute`` is set, everything conditions on games at this scoreline
+    at that minute — so a 60' 0-1 only compares against games that were 0-1
+    at the 60th, and branches respect the time remaining.
     Always attaches forward transition trees from the current scoreline.
     When ``prev_*`` is provided (score before the latest goal), also attaches
-    retrospective trees with the live branch highlighted.
+    retrospective trees with the live branch highlighted, conditioned at
+    ``prev_minute`` (just before the goal) when available.
     """
     home_fd = resolve_team(home_name, espn_id=home_id or None)
     away_fd = resolve_team(away_name, espn_id=away_id or None)
+    at_minute = max(0, min(90, minute)) if minute is not None else None
+    prev_at = max(0, min(90, prev_minute)) if prev_minute is not None else None
 
     home_eval = (
         scoreline_outcomes(
@@ -251,6 +286,7 @@ def build_live_scoreline_eval(
             against_goals=away_score,
             team=home_fd,
             limit_peers=limit_peers,
+            at_minute=at_minute,
         )
         if home_fd
         else None
@@ -262,6 +298,7 @@ def build_live_scoreline_eval(
             against_goals=home_score,
             team=away_fd,
             limit_peers=limit_peers,
+            at_minute=at_minute,
         )
         if away_fd
         else None
@@ -272,6 +309,7 @@ def build_live_scoreline_eval(
         against_goals=away_score,
         team=None,
         limit_peers=limit_peers,
+        at_minute=at_minute,
     )
 
     # Forward trees from the *current* scoreline — always shown on Similar.
@@ -282,6 +320,7 @@ def build_live_scoreline_eval(
                 from_for=home_score,
                 from_against=away_score,
                 team=home_fd,
+                at_minute=at_minute,
             )
             if home_fd
             else None
@@ -292,6 +331,7 @@ def build_live_scoreline_eval(
                 from_for=away_score,
                 from_against=home_score,
                 team=away_fd,
+                at_minute=at_minute,
             )
             if away_fd
             else None
@@ -301,6 +341,7 @@ def build_live_scoreline_eval(
             from_for=home_score,
             from_against=away_score,
             team=None,
+            at_minute=at_minute,
         ),
     }
 
@@ -319,6 +360,7 @@ def build_live_scoreline_eval(
                 from_against=prev_away,
                 team=home_fd,
                 live_to=(home_score, away_score),
+                at_minute=prev_at,
             )
             if home_fd
             else None
@@ -330,6 +372,7 @@ def build_live_scoreline_eval(
                 from_against=prev_home,
                 team=away_fd,
                 live_to=(away_score, home_score),
+                at_minute=prev_at,
             )
             if away_fd
             else None
@@ -340,6 +383,7 @@ def build_live_scoreline_eval(
             from_against=prev_away,
             team=None,
             live_to=(home_score, away_score),
+            at_minute=prev_at,
         )
 
     return {
@@ -350,6 +394,8 @@ def build_live_scoreline_eval(
         "away_fd": away_fd,
         "home_score": home_score,
         "away_score": away_score,
+        "minute": at_minute,
+        "prev_minute": prev_at,
         "prev_scoreline": (
             _ft_key(prev_home, prev_away)
             if prev_home is not None

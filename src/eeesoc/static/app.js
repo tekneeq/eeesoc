@@ -685,17 +685,23 @@
       return `<section class="sl-block"><div class="concede-title">${escapeHtml(title)}</div><p class="concede-lede">No mapped EPL history for this club.</p></section>`;
     }
     const n = evalData.count || 0;
+    const atMin = evalData.at_minute != null ? Number(evalData.at_minute) : null;
+    const atLabel = atMin != null ? ` @ ${atMin}′` : "";
     const forwardTree =
       tree && tree.count
         ? `<div class="concede-when sl-tree">
-            <div class="concede-when-label">Branch tree from ${escapeHtml(tree.from)}</div>
+            <div class="concede-when-label">Branch tree from ${escapeHtml(tree.from)}${
+              tree.at_minute != null ? ` @ ${Number(tree.at_minute)}′` : ""
+            }</div>
             <div class="concede-stats">${distChips(tree.branches, 8)}</div>
           </div>`
         : "";
     const takenTree =
       fromPrev && fromPrev.count
         ? `<div class="concede-when sl-tree-taken">
-            <div class="concede-when-label">Took branch ${escapeHtml(fromPrev.from)} → ${escapeHtml(fromPrev.live_to || "now")}</div>
+            <div class="concede-when-label">Took branch ${escapeHtml(fromPrev.from)}${
+              fromPrev.at_minute != null ? ` @ ${Number(fromPrev.at_minute)}′` : ""
+            } → ${escapeHtml(fromPrev.live_to || "now")}</div>
             <div class="concede-stats">${distChips(fromPrev.branches, 8)}</div>
           </div>`
         : "";
@@ -708,16 +714,23 @@
         return `<div class="peer-row peer-row-goals">
           <span class="min">${p.visit_minute}'</span>
           <span class="date">${escapeHtml(p.date)}</span>
-          <span class="teams">${escapeHtml(p.home)} vs ${escapeHtml(p.away)} <span class="ft">hit ${escapeHtml(p.scoreline)} · FT ${escapeHtml(p.ft)}</span></span>
+          <span class="teams">${escapeHtml(p.home)} vs ${escapeHtml(p.away)} <span class="ft">${
+            atMin != null ? `${escapeHtml(p.scoreline)} at ${atMin}′` : `hit ${escapeHtml(p.scoreline)}`
+          } · FT ${escapeHtml(p.ft)}</span></span>
           <span class="meta"><span class="meta-line">${after ? escapeHtml(after) : "ended here"}</span></span>
         </div>`;
       })
       .join("");
 
+    const sample =
+      atMin != null
+        ? `<b style="color:var(--text)">${n}</b> games were ${escapeHtml(evalData.scoreline)} at the ${atMin}′ mark.`
+        : `<b style="color:var(--text)">${n}</b> games ever at this scoreline.`;
+
     return `<section class="sl-block">
-      <div class="concede-title">${escapeHtml(title)} at ${escapeHtml(evalData.scoreline)}</div>
+      <div class="concede-title">${escapeHtml(title)} at ${escapeHtml(evalData.scoreline)}${atLabel}</div>
       <p class="concede-lede">
-        <b style="color:var(--text)">${n}</b> games ever at this scoreline.
+        ${sample}
         Ended ${escapeHtml(evalData.scoreline)}: <b style="color:var(--accent)">${pct(evalData.pct_ended_same)}</b>
         · more goals: <b style="color:var(--accent)">${pct(evalData.pct_more_goals)}</b>
         · next for/against: <b>${pct(evalData.pct_next_for)}</b> / <b>${pct(evalData.pct_next_against)}</b>
@@ -748,12 +761,16 @@
       : scorelines.away || "Away";
     const trees = scorelines.trees || {};
     const fromPrev = scorelines.trees_from_prev || {};
+    const minuteBit =
+      scorelines.minute != null
+        ? ` — only games at this score at the <b style="color:var(--accent)">${Number(scorelines.minute)}′</b> mark count, so time left is priced in`
+        : "";
     const branchNote = scorelines.prev_scoreline
-      ? `<p class="concede-lede">Live path reached <b style="color:var(--accent);font-family:var(--mono)">${escapeHtml(scorelines.scoreline)}</b> from <b style="color:var(--accent);font-family:var(--mono)">${escapeHtml(scorelines.prev_scoreline)}</b>. Branch trees below show what usually happens next — and which branch this match took.</p>`
-      : `<p class="concede-lede">Current structure <b style="color:var(--accent);font-family:var(--mono)">${escapeHtml(scorelines.scoreline)}</b> — club history first, then league. Branch trees show the next scoreline states.</p>`;
+      ? `<p class="concede-lede">Live path reached <b style="color:var(--accent);font-family:var(--mono)">${escapeHtml(scorelines.scoreline)}</b> from <b style="color:var(--accent);font-family:var(--mono)">${escapeHtml(scorelines.prev_scoreline)}</b>${minuteBit}. Branch trees below show what usually happens next — and which branch this match took.</p>`
+      : `<p class="concede-lede">Current structure <b style="color:var(--accent);font-family:var(--mono)">${escapeHtml(scorelines.scoreline)}</b>${minuteBit} — club history first, then league. Branch trees show the next scoreline states.</p>`;
 
     el.innerHTML = `
-      <div class="concede-title">Scoreline ${escapeHtml(scorelines.scoreline)}</div>
+      <div class="concede-title">Scoreline ${escapeHtml(scorelines.scoreline)}${scorelines.minute != null ? ` @ ${Number(scorelines.minute)}′` : ""}</div>
       ${branchNote}
       ${renderHistoryBlock(homeLabel + " history", scorelines.home_history, trees.home, fromPrev.home)}
       ${renderHistoryBlock(awayLabel + " history", scorelines.away_history, trees.away, fromPrev.away)}
