@@ -184,6 +184,36 @@ def test_build_live_scoreline_eval_time_aware():
     assert ev["trees_from_prev"]["home"]["from"] == "0-0"
 
 
+def test_stoppage_conditions_at_90_and_flags_late_risk():
+    corpus = [
+        # 0-0 at 85' and 90', then a 90th-minute winner
+        _match("last-kick", "Atalanta", "Bologna", [(90, "home")], (1, 0)),
+        # 0-0 the whole way
+        _match("nil-nil", "Roma", "Lazio", [], (0, 0)),
+        # Already 1-0 by 80' — not in the 0-0 @ 85/90 samples
+        _match("early-lead", "Inter", "Milan", [(20, "home")], (1, 0)),
+    ]
+    ev = build_live_scoreline_eval(
+        corpus,
+        home_name="Atalanta",
+        away_name="Bologna",
+        home_score=0,
+        away_score=0,
+        minute=94,
+        added_minutes=4,
+        in_stoppage=True,
+    )
+    assert ev["minute"] == 90  # regulation, not 94
+    assert ev["in_stoppage"] is True
+    assert ev["added_minutes"] == 4
+    assert ev["league_history"]["count"] == 1  # only nil-nil still 0-0 at 90
+    assert ev["late_risk"] is not None
+    assert ev["late_risk"]["from_minute"] == 85
+    # last-kick was 0-0 at 85' then scored; nil-nil stayed 0-0
+    assert ev["late_risk"]["league"]["count"] == 2
+    assert ev["late_risk"]["league"]["pct_more_goals"] == 0.5
+
+
 def test_forward_tree_at_kickoff():
     corpus = [
         _match("a", "Liverpool", "Chelsea", [(20, "home")], (1, 0)),

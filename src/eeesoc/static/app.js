@@ -346,7 +346,7 @@
     const start = Number.isFinite(base) ? base : fallback;
     if (tl.frozen) return start;
     const synced = tl._syncedAt || tl._ts || Date.now();
-    return Math.max(0, Math.min(99 * 60, start + (Date.now() - synced) / 1000));
+    return Math.max(0, Math.min(120 * 60, start + (Date.now() - synced) / 1000));
   }
 
   function liveNowMinutes(tl) {
@@ -354,8 +354,16 @@
     return Math.max(0.5, Math.min(maxM, liveElapsedSeconds(tl) / 60));
   }
 
-  function formatTickClock(seconds) {
+  function formatTickClock(seconds, tl) {
     const s = Math.max(0, Math.floor(seconds));
+    const reg = Number(tl && tl.regulation_minute);
+    const stop = tl && (tl.in_stoppage || (reg >= 90 && s >= 90 * 60) || (reg === 45 && s >= 45 * 60 && s < 46 * 60));
+    if (stop && reg >= 90) {
+      return `90'+${Math.floor(Math.max(0, s - 90 * 60) / 60)}`;
+    }
+    if (stop && reg === 45) {
+      return `45'+${Math.floor(Math.max(0, s - 45 * 60) / 60)}`;
+    }
     return `${Math.floor(s / 60)}'${String(s % 60).padStart(2, "0")}`;
   }
 
@@ -396,13 +404,22 @@
     }
     const nowX = xAt(now).toFixed(1);
     const htX = xAt(45).toFixed(1);
-    return `<svg class="mc-tl-svg" viewBox="0 0 ${W} ${H}" width="100%" height="${H}" role="img" aria-label="0 to 90 minute event timeline" data-pad-l="${pad}" data-pad-r="${pad}" data-width="${W}" data-max="${maxM}">
+    const ftX = xAt(90).toFixed(1);
+    const endLabel = maxM > 90 ? `${maxM}'` : "90'";
+    const stoppage =
+      maxM > 90
+        ? `<rect x="${ftX}" y="4" width="${(Number(xAt(maxM)) - Number(ftX)).toFixed(1)}" height="${H - 16}" class="tl-stoppage"/>`
+        : "";
+    return `<svg class="mc-tl-svg" viewBox="0 0 ${W} ${H}" width="100%" height="${H}" role="img" aria-label="0 to ${maxM} minute event timeline" data-pad-l="${pad}" data-pad-r="${pad}" data-width="${W}" data-max="${maxM}">
+      ${stoppage}
       <line x1="${pad}" y1="${axisY}" x2="${W - pad}" y2="${axisY}" class="tl-axis"/>
       <line x1="${pad}" y1="${axisY}" x2="${nowX}" y2="${axisY}" class="tl-progress"/>
       <line x1="${htX}" y1="${axisY - 5}" x2="${htX}" y2="${axisY + 5}" class="tl-ht"/>
+      ${maxM > 90 ? `<line x1="${ftX}" y1="${axisY - 5}" x2="${ftX}" y2="${axisY + 5}" class="tl-ht"/>` : ""}
       <text x="${pad}" y="${H - 4}" class="tl-label">0'</text>
       <text x="${htX}" y="${H - 4}" class="tl-label" text-anchor="middle">45'</text>
-      <text x="${W - pad}" y="${H - 4}" class="tl-label" text-anchor="end">90'</text>
+      ${maxM > 90 ? `<text x="${ftX}" y="${H - 4}" class="tl-label" text-anchor="middle">90'</text>` : ""}
+      <text x="${W - pad}" y="${H - 4}" class="tl-label" text-anchor="end">${endLabel}</text>
       <line x1="${nowX}" y1="4" x2="${nowX}" y2="${H - 12}" class="tl-now"/>
       ${marks.join("")}
     </svg>`;
@@ -445,10 +462,17 @@
     const awayPath = xgSeriesPath(xg.away, xAt, yAt, now);
     const nowX = xAt(now).toFixed(1);
     const htX = xAt(45).toFixed(1);
+    const ftX = xAt(90).toFixed(1);
     const y0 = yAt(0).toFixed(1);
     const yMid = yAt(yMax / 2).toFixed(1);
     const yTop = yAt(yMax).toFixed(1);
+    const endLabel = maxM > 90 ? `${maxM}'` : "90'";
+    const stoppage =
+      maxM > 90
+        ? `<rect x="${ftX}" y="${padT}" width="${(Number(xAt(maxM)) - Number(ftX)).toFixed(1)}" height="${(Number(y0) - padT).toFixed(1)}" class="tl-stoppage"/>`
+        : "";
     return `<svg class="mc-xg-svg" viewBox="0 0 ${W} ${H}" width="100%" height="${H}" role="img" aria-label="Expected goals versus game time" data-pad-l="${padL}" data-pad-r="${padR}" data-width="${W}" data-max="${maxM}">
+      ${stoppage}
       <text x="4" y="${Number(yTop) + 3}" class="tl-label">${yMax.toFixed(1)}</text>
       <text x="4" y="${Number(yMid) + 3}" class="tl-label">${(yMax / 2).toFixed(1)}</text>
       <text x="4" y="${Number(y0) + 3}" class="tl-label">0</text>
@@ -456,12 +480,14 @@
       <line x1="${padL}" y1="${yMid}" x2="${W - padR}" y2="${yMid}" class="tl-grid"/>
       <line x1="${padL}" y1="${y0}" x2="${W - padR}" y2="${y0}" class="tl-axis"/>
       <line x1="${htX}" y1="${padT}" x2="${htX}" y2="${y0}" class="tl-ht"/>
+      ${maxM > 90 ? `<line x1="${ftX}" y1="${padT}" x2="${ftX}" y2="${y0}" class="tl-ht"/>` : ""}
       <line x1="${nowX}" y1="${padT}" x2="${nowX}" y2="${y0}" class="tl-now"/>
       ${homePath ? `<path d="${homePath}" class="xg-home" fill="none"/>` : ""}
       ${awayPath ? `<path d="${awayPath}" class="xg-away" fill="none"/>` : ""}
       <text x="${padL}" y="${H - 4}" class="tl-label">0'</text>
       <text x="${htX}" y="${H - 4}" class="tl-label" text-anchor="middle">45'</text>
-      <text x="${W - padR}" y="${H - 4}" class="tl-label" text-anchor="end">90'</text>
+      ${maxM > 90 ? `<text x="${ftX}" y="${H - 4}" class="tl-label" text-anchor="middle">90'</text>` : ""}
+      <text x="${W - padR}" y="${H - 4}" class="tl-label" text-anchor="end">${endLabel}</text>
       <text x="${W - padR}" y="10" class="tl-label" text-anchor="end">xG ${Number(xg.home_total || 0).toFixed(2)}–${Number(xg.away_total || 0).toFixed(2)}</text>
     </svg>`;
   }
@@ -554,7 +580,9 @@
       const nowM = Math.max(0.5, secs / 60);
       if (!tl.frozen) {
         const clockEl = btn.querySelector(".mc-clock-text");
-        if (clockEl) clockEl.textContent = formatTickClock(secs);
+        if (clockEl) clockEl.textContent = formatTickClock(secs, tl);
+        const badge = btn.querySelector(".mc-live-badge");
+        if (badge) badge.classList.toggle("stoppage", !!tl.in_stoppage);
       }
       const tlSvg = btn.querySelector(".mc-timeline svg");
       if (tlSvg) moveNowCursor(tlSvg, nowM);
@@ -765,12 +793,24 @@
       scorelines.minute != null
         ? ` — only games at this score at the <b style="color:var(--accent)">${Number(scorelines.minute)}′</b> mark count, so time left is priced in`
         : "";
+    const late = scorelines.late_risk && scorelines.late_risk.league;
+    const added = Number(scorelines.added_minutes || 0);
+    const stoppageNote = scorelines.in_stoppage
+      ? `<p class="concede-lede sl-stoppage-note"><b style="color:var(--warn)">Stoppage ${added ? added + "′ added" : "live"}</b> — this is not full time. ${
+          late
+            ? `Of games still ${escapeHtml(scorelines.scoreline)} at 85′, <b style="color:var(--warn)">${pct(late.pct_more_goals)}</b> saw another goal by FT (n=${late.count}).`
+            : "Late goals happen."
+        }</p>`
+      : late
+        ? `<p class="concede-lede sl-stoppage-note">Last-kick risk: of games still ${escapeHtml(scorelines.scoreline)} at 85′, <b style="color:var(--warn)">${pct(late.pct_more_goals)}</b> produced another goal (n=${late.count}).</p>`
+        : "";
     const branchNote = scorelines.prev_scoreline
       ? `<p class="concede-lede">Live path reached <b style="color:var(--accent);font-family:var(--mono)">${escapeHtml(scorelines.scoreline)}</b> from <b style="color:var(--accent);font-family:var(--mono)">${escapeHtml(scorelines.prev_scoreline)}</b>${minuteBit}. Branch trees below show what usually happens next — and which branch this match took.</p>`
       : `<p class="concede-lede">Current structure <b style="color:var(--accent);font-family:var(--mono)">${escapeHtml(scorelines.scoreline)}</b>${minuteBit} — club history first, then league. Branch trees show the next scoreline states.</p>`;
 
     el.innerHTML = `
-      <div class="concede-title">Scoreline ${escapeHtml(scorelines.scoreline)}${scorelines.minute != null ? ` @ ${Number(scorelines.minute)}′` : ""}</div>
+      <div class="concede-title">Scoreline ${escapeHtml(scorelines.scoreline)}${scorelines.minute != null ? ` @ ${Number(scorelines.minute)}′` : ""}${scorelines.in_stoppage ? ` · ${added}' added` : ""}</div>
+      ${stoppageNote}
       ${branchNote}
       ${renderHistoryBlock(homeLabel + " history", scorelines.home_history, trees.home, fromPrev.home)}
       ${renderHistoryBlock(awayLabel + " history", scorelines.away_history, trees.away, fromPrev.away)}

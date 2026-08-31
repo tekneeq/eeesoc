@@ -191,6 +191,8 @@ def make_handler(state: DashboardState):
                 hs = int(situation.get("home_score", snap.home_goals) or 0)
                 aws = int(situation.get("away_score", snap.away_goals) or 0)
                 live_minute = int(situation.get("minute") or 1)
+                if situation.get("in_stoppage"):
+                    live_minute = int(situation.get("regulation_minute") or live_minute)
                 prev_h = prev_a = None
                 prev_minute = None
                 goals = situation.get("goals") or []
@@ -229,6 +231,8 @@ def make_handler(state: DashboardState):
                     prev_away=prev_a,
                     minute=live_minute,
                     prev_minute=prev_minute,
+                    added_minutes=int(situation.get("added_minutes") or 0),
+                    in_stoppage=bool(situation.get("in_stoppage")),
                     limit_peers=min(8, limit),
                 )
                 return self._send(
