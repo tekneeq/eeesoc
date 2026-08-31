@@ -237,8 +237,9 @@ def build_live_scoreline_eval(
     Full live evaluation: home-team history, away-team history, then league.
 
     Scorelines for each club use for/against. League uses absolute home–away.
-    When ``prev_*`` is provided (score before the latest goal), attach the
-    transition tree with the live branch highlighted.
+    Always attaches forward transition trees from the current scoreline.
+    When ``prev_*`` is provided (score before the latest goal), also attaches
+    retrospective trees with the live branch highlighted.
     """
     home_fd = resolve_team(home_name, espn_id=home_id or None)
     away_fd = resolve_team(away_name, espn_id=away_id or None)
@@ -273,38 +274,73 @@ def build_live_scoreline_eval(
         limit_peers=limit_peers,
     )
 
-    trees: dict[str, Any] = {}
-    if prev_home is not None and prev_away is not None:
-        if (prev_home, prev_away) != (home_score, away_score):
-            trees["home"] = (
-                transition_tree(
-                    corpus,
-                    from_for=prev_home,
-                    from_against=prev_away,
-                    team=home_fd,
-                    live_to=(home_score, away_score),
-                )
-                if home_fd
-                else None
+    # Forward trees from the *current* scoreline — always shown on Similar.
+    trees: dict[str, Any] = {
+        "home": (
+            transition_tree(
+                corpus,
+                from_for=home_score,
+                from_against=away_score,
+                team=home_fd,
             )
-            trees["away"] = (
-                transition_tree(
-                    corpus,
-                    from_for=prev_away,
-                    from_against=prev_home,
-                    team=away_fd,
-                    live_to=(away_score, home_score),
-                )
-                if away_fd
-                else None
+            if home_fd
+            else None
+        ),
+        "away": (
+            transition_tree(
+                corpus,
+                from_for=away_score,
+                from_against=home_score,
+                team=away_fd,
             )
-            trees["league"] = transition_tree(
+            if away_fd
+            else None
+        ),
+        "league": transition_tree(
+            corpus,
+            from_for=home_score,
+            from_against=away_score,
+            team=None,
+        ),
+    }
+
+    # Retrospective trees: branches available at the previous score, with the
+    # live path highlighted (only once the score has actually moved).
+    from_prev: dict[str, Any] = {}
+    if (
+        prev_home is not None
+        and prev_away is not None
+        and (prev_home, prev_away) != (home_score, away_score)
+    ):
+        from_prev["home"] = (
+            transition_tree(
                 corpus,
                 from_for=prev_home,
                 from_against=prev_away,
-                team=None,
+                team=home_fd,
                 live_to=(home_score, away_score),
             )
+            if home_fd
+            else None
+        )
+        from_prev["away"] = (
+            transition_tree(
+                corpus,
+                from_for=prev_away,
+                from_against=prev_home,
+                team=away_fd,
+                live_to=(away_score, home_score),
+            )
+            if away_fd
+            else None
+        )
+        from_prev["league"] = transition_tree(
+            corpus,
+            from_for=prev_home,
+            from_against=prev_away,
+            team=None,
+            live_to=(home_score, away_score),
+        )
 
     return {
         "scoreline": _ft_key(home_score, away_score),
@@ -315,10 +351,15 @@ def build_live_scoreline_eval(
         "home_score": home_score,
         "away_score": away_score,
         "prev_scoreline": (
-            _ft_key(prev_home, prev_away) if prev_home is not None and prev_away is not None else None
+            _ft_key(prev_home, prev_away)
+            if prev_home is not None
+            and prev_away is not None
+            and (prev_home, prev_away) != (home_score, away_score)
+            else None
         ),
         "home_history": home_eval,
         "away_history": away_eval,
         "league_history": league_eval,
         "trees": trees,
+        "trees_from_prev": from_prev,
     }

@@ -427,6 +427,18 @@ main {
   margin-bottom: 0.4rem;
 }
 
+.sl-tree {
+  margin: 0.55rem 0 0.75rem;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid rgba(125, 255, 179, 0.18);
+  border-radius: 0.35rem;
+  background: rgba(125, 255, 179, 0.04);
+}
+
+.sl-tree-taken {
+  margin: 0.35rem 0 0.75rem;
+}
+
 .scoreline-eval {
   margin: 0 0 1.25rem;
   animation: rise 300ms ease both;

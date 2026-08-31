@@ -502,16 +502,23 @@
       .join("");
   }
 
-  function renderHistoryBlock(title, evalData, tree) {
+  function renderHistoryBlock(title, evalData, tree, fromPrev) {
     if (!evalData) {
       return `<section class="sl-block"><div class="concede-title">${escapeHtml(title)}</div><p class="concede-lede">No mapped EPL history for this club.</p></section>`;
     }
     const n = evalData.count || 0;
-    const treeHtml =
+    const forwardTree =
       tree && tree.count
-        ? `<div class="concede-when">
-            <div class="concede-when-label">Branch from ${escapeHtml(tree.from)} → now</div>
+        ? `<div class="concede-when sl-tree">
+            <div class="concede-when-label">Branch tree from ${escapeHtml(tree.from)}</div>
             <div class="concede-stats">${distChips(tree.branches, 8)}</div>
+          </div>`
+        : "";
+    const takenTree =
+      fromPrev && fromPrev.count
+        ? `<div class="concede-when sl-tree-taken">
+            <div class="concede-when-label">Took branch ${escapeHtml(fromPrev.from)} → ${escapeHtml(fromPrev.live_to || "now")}</div>
+            <div class="concede-stats">${distChips(fromPrev.branches, 8)}</div>
           </div>`
         : "";
     const peers = (evalData.peers || [])
@@ -537,15 +544,12 @@
         · more goals: <b style="color:var(--accent)">${pct(evalData.pct_more_goals)}</b>
         · next for/against: <b>${pct(evalData.pct_next_for)}</b> / <b>${pct(evalData.pct_next_against)}</b>
       </p>
+      ${forwardTree}
+      ${takenTree}
       <div class="concede-stats">
         <span class="score-dist-label">FT from here</span>
         ${distChips(evalData.ft_distribution)}
       </div>
-      <div class="concede-stats" style="margin-top:0.45rem">
-        <span class="score-dist-label">Next state</span>
-        ${distChips(evalData.next_distribution)}
-      </div>
-      ${treeHtml}
       <div class="peer-list">${peers || `<p class="concede-lede">No peer rows.</p>`}</div>
     </section>`;
   }
@@ -565,16 +569,17 @@
       ? `${scorelines.away} (${scorelines.away_fd})`
       : scorelines.away || "Away";
     const trees = scorelines.trees || {};
+    const fromPrev = scorelines.trees_from_prev || {};
     const branchNote = scorelines.prev_scoreline
-      ? `<p class="concede-lede">Followed branch <b style="color:var(--accent);font-family:var(--mono)">${escapeHtml(scorelines.prev_scoreline)} → ${escapeHtml(scorelines.scoreline)}</b> — percentages below were available at the previous state.</p>`
-      : `<p class="concede-lede">Current structure <b style="color:var(--accent);font-family:var(--mono)">${escapeHtml(scorelines.scoreline)}</b> — club history first, then league.</p>`;
+      ? `<p class="concede-lede">Live path reached <b style="color:var(--accent);font-family:var(--mono)">${escapeHtml(scorelines.scoreline)}</b> from <b style="color:var(--accent);font-family:var(--mono)">${escapeHtml(scorelines.prev_scoreline)}</b>. Branch trees below show what usually happens next — and which branch this match took.</p>`
+      : `<p class="concede-lede">Current structure <b style="color:var(--accent);font-family:var(--mono)">${escapeHtml(scorelines.scoreline)}</b> — club history first, then league. Branch trees show the next scoreline states.</p>`;
 
     el.innerHTML = `
       <div class="concede-title">Scoreline ${escapeHtml(scorelines.scoreline)}</div>
       ${branchNote}
-      ${renderHistoryBlock(homeLabel + " history", scorelines.home_history, trees.home)}
-      ${renderHistoryBlock(awayLabel + " history", scorelines.away_history, trees.away)}
-      ${renderHistoryBlock("EPL league history", scorelines.league_history, trees.league)}
+      ${renderHistoryBlock(homeLabel + " history", scorelines.home_history, trees.home, fromPrev.home)}
+      ${renderHistoryBlock(awayLabel + " history", scorelines.away_history, trees.away, fromPrev.away)}
+      ${renderHistoryBlock("EPL league history", scorelines.league_history, trees.league, fromPrev.league)}
     `;
   }
 
@@ -752,10 +757,8 @@
     $("#freezeTitle").textContent = `${snap.home} vs ${snap.away}`;
     $("#freezeLabel").textContent = `${state.minute}' · ${snap.label}`;
     $("#freezeMeta").textContent = `Frozen snapshot · score ${snap.snapshot.home_goals}-${snap.snapshot.away_goals}`;
-    $("#goalContext").hidden = true;
-    $("#goalContext").innerHTML = "";
-    $("#scorelineEval").hidden = true;
-    $("#scorelineEval").innerHTML = "";
+    renderGoalContext(sim.situation || { goals: [] });
+    renderScorelineEval(sim.scorelines);
     $("#concedeSummary").hidden = true;
     $("#concedeSummary").innerHTML = "";
     renderSimilar(sim.hits || []);
