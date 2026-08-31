@@ -14,10 +14,41 @@
     similarTimer: null,
     timelines: {},
     liveTickTimer: null,
+    chicletOrder: [],
   };
 
   const LIVE_POLL_MS = 8000;
   const TIMELINE_FRESH_MS = 5000;
+  const ORDER_KEY = "eeesoc:chicletOrder";
+
+  function loadChicletOrder() {
+    try {
+      const raw = JSON.parse(localStorage.getItem(ORDER_KEY) || "[]");
+      return Array.isArray(raw) ? raw.map(String) : [];
+    } catch (err) {
+      return [];
+    }
+  }
+
+  function persistChicletOrder(order) {
+    state.chicletOrder = order;
+    try {
+      localStorage.setItem(ORDER_KEY, JSON.stringify(order));
+    } catch (err) {
+      /* private mode — order lives for the session only */
+    }
+  }
+
+  function orderRows(rows) {
+    const order = state.chicletOrder || [];
+    if (!order.length) return rows;
+    const idx = new Map(order.map((id, i) => [String(id), i]));
+    return [...rows].sort((a, b) => {
+      const ia = idx.has(String(a.event_id)) ? idx.get(String(a.event_id)) : order.length;
+      const ib = idx.has(String(b.event_id)) ? idx.get(String(b.event_id)) : order.length;
+      return ia - ib;
+    });
+  }
 
   const $ = (sel) => document.querySelector(sel);
 
@@ -118,6 +149,23 @@
       return;
     }
 
+    if (withTimeline) {
+      // Flat, user-orderable list — each chiclet carries its own league tag.
+      const wrap = document.createElement("div");
+      wrap.className = "match-chiclet-row match-chiclet-row-tl";
+      makeChicletDropZone(wrap);
+      for (const m of orderRows(rows)) {
+        const btn = buildMatchChicletButton(m, selected, onSelect, withTimeline);
+        makeChicletDraggable(btn, wrap);
+        wrap.appendChild(btn);
+        loadMatchTimeline(m, btn.querySelector(".mc-timeline"), btn.querySelector(".mc-xg"), {
+          preferCache: true,
+        });
+      }
+      grid.appendChild(wrap);
+      return;
+    }
+
     const byLeague = new Map();
     for (const m of rows) {
       const key = m.league_slug;
@@ -130,19 +178,50 @@
       block.className = "match-chiclet-league";
       block.innerHTML = `<div class="match-chiclet-league-label"><span class="league-chiclet-tag">${escapeHtml(group.chiclet)}</span> ${escapeHtml(group.name)}</div>`;
       const wrap = document.createElement("div");
-      wrap.className = "match-chiclet-row" + (withTimeline ? " match-chiclet-row-tl" : "");
+      wrap.className = "match-chiclet-row";
       for (const m of group.matches) {
         const btn = buildMatchChicletButton(m, selected, onSelect, withTimeline);
         wrap.appendChild(btn);
-        if (withTimeline) {
-          loadMatchTimeline(m, btn.querySelector(".mc-timeline"), btn.querySelector(".mc-xg"), {
-            preferCache: true,
-          });
-        }
       }
       block.appendChild(wrap);
       grid.appendChild(block);
     }
+  }
+
+  function makeChicletDraggable(btn, wrap) {
+    btn.draggable = true;
+    btn.addEventListener("dragstart", (e) => {
+      btn.classList.add("dragging");
+      e.dataTransfer.effectAllowed = "move";
+      e.dataTransfer.setData("text/plain", btn.dataset.eventId || "");
+    });
+    btn.addEventListener("dragend", () => {
+      btn.classList.remove("dragging");
+      const ids = [...wrap.querySelectorAll(".match-chiclet[data-event-id]")].map(
+        (el) => String(el.dataset.eventId)
+      );
+      persistChicletOrder(ids);
+    });
+  }
+
+  function makeChicletDropZone(wrap) {
+    wrap.addEventListener("dragover", (e) => {
+      const dragging = wrap.querySelector(".match-chiclet.dragging");
+      if (!dragging) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "move";
+      const siblings = [...wrap.querySelectorAll(".match-chiclet:not(.dragging)")];
+      const next = siblings.find((el) => {
+        const r = el.getBoundingClientRect();
+        return e.clientY < r.top + r.height / 2;
+      });
+      if (next) {
+        if (next.previousElementSibling !== dragging) wrap.insertBefore(dragging, next);
+      } else if (wrap.lastElementChild !== dragging) {
+        wrap.appendChild(dragging);
+      }
+    });
+    wrap.addEventListener("drop", (e) => e.preventDefault());
   }
 
   function chicletStatsHtml(tl) {
@@ -175,7 +254,10 @@
     const cached = withTimeline ? state.timelines?.[m.event_id] : null;
     btn.innerHTML = `
       <span class="mc-top">
-        <span class="mc-live-badge"><span class="live-dot"></span><span class="mc-clock-text">${escapeHtml(m.clock || "LIVE")}</span></span>
+        <span class="mc-top-left">
+          ${withTimeline ? `<span class="mc-grip" title="Drag to reorder" aria-hidden="true">⠿</span>` : ""}
+          <span class="mc-live-badge"><span class="live-dot"></span><span class="mc-clock-text">${escapeHtml(m.clock || "LIVE")}</span></span>
+        </span>
         <span class="mc-league">${escapeHtml(m.league_chiclet)}</span>
       </span>
       <span class="mc-teams">
@@ -956,6 +1038,7 @@
   }
 
   async function boot() {
+    state.chicletOrder = loadChicletOrder();
     const meta = await (await fetch("/api/meta")).json();
     state.meta = meta;
     $("#seasonLabel").textContent = `${meta.season} · ${meta.match_count} matches · ${meta.history_count} history`;
