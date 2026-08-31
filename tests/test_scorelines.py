@@ -79,6 +79,36 @@ def test_scoreline_outcomes_team_and_league():
     assert league["pct_ended_same"] == 0.5  # a ended 2-2; b ended 2-3
 
 
+def test_scoreline_outcomes_at_minute_conditions_on_time():
+    corpus = [
+        # 0-1 at 60': conceded 20', still 0-1 at 60', equalized 75' → FT 1-1
+        _match("late-eq", "Liverpool", "Chelsea", [(20, "away"), (75, "home")], (1, 1)),
+        # 0-1 at 60': conceded 55', stayed 0-1 → FT 0-1
+        _match("stay", "Liverpool", "Arsenal", [(55, "away")], (0, 1)),
+        # Hit 0-1 early but was 1-1 by 40' → NOT 0-1 at 60', must be excluded
+        _match("early", "Liverpool", "Everton", [(10, "away"), (40, "home")], (1, 1)),
+        # Never behind
+        _match("cruise", "Liverpool", "Fulham", [(30, "home")], (1, 0)),
+    ]
+
+    # Old behavior: every game that ever hit 0-1 counts (3 of them)
+    anytime = scoreline_outcomes(corpus, for_goals=0, against_goals=1, team="Liverpool")
+    assert anytime["count"] == 3
+
+    # Time-aware: only games that were 0-1 AT the 60th minute
+    at60 = scoreline_outcomes(
+        corpus, for_goals=0, against_goals=1, team="Liverpool", at_minute=60
+    )
+    assert at60["count"] == 2
+    ids = {p["match_id"] for p in at60["peers"]}
+    assert ids == {"late-eq", "stay"}
+    assert at60["at_minute"] == 60
+    assert at60["pct_ended_same"] == 0.5
+    # Branches: one went 1-1 (after 60'), one reached FT unchanged
+    next_scores = {r["score"]: r["count"] for r in at60["next_distribution"]}
+    assert next_scores == {"1-1": 1, "FT": 1}
+
+
 def test_transition_tree_marks_live_branch():
     corpus = [
         _match("a", "Liverpool", "Chelsea", [(20, "away"), (40, "home")], (1, 1)),  # 0-1 → 1-1
@@ -125,6 +155,33 @@ def test_build_live_scoreline_eval_liv_nfo():
     # Retrospective tree highlights the live branch from previous score
     assert ev["trees_from_prev"]["league"]["live_to"] == "1-1"
     assert any(b["is_live_branch"] for b in ev["trees_from_prev"]["league"]["branches"])
+
+
+def test_build_live_scoreline_eval_time_aware():
+    corpus = [
+        _match("late-eq", "Liverpool", "Chelsea", [(20, "away"), (75, "home")], (1, 1)),
+        _match("stay", "Liverpool", "Arsenal", [(55, "away")], (0, 1)),
+        _match("early", "Liverpool", "Everton", [(10, "away"), (40, "home")], (1, 1)),
+    ]
+    # Live: Liverpool 0-1 down at the 60th (goal just scored at 60')
+    ev = build_live_scoreline_eval(
+        corpus,
+        home_name="Liverpool",
+        away_name="Chelsea",
+        home_score=0,
+        away_score=1,
+        prev_home=0,
+        prev_away=0,
+        minute=60,
+        prev_minute=59,
+    )
+    assert ev["minute"] == 60
+    assert ev["home_history"]["at_minute"] == 60
+    assert ev["home_history"]["count"] == 2  # 'early' was 1-1 by 60'
+    assert ev["trees"]["home"]["at_minute"] == 60
+    # Retrospective tree conditioned just before the goal (0-0 at 59')
+    assert ev["trees_from_prev"]["home"]["at_minute"] == 59
+    assert ev["trees_from_prev"]["home"]["from"] == "0-0"
 
 
 def test_forward_tree_at_kickoff():

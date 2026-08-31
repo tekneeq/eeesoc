@@ -190,10 +190,16 @@ def make_handler(state: DashboardState):
 
                 hs = int(situation.get("home_score", snap.home_goals) or 0)
                 aws = int(situation.get("away_score", snap.away_goals) or 0)
+                live_minute = int(situation.get("minute") or 1)
                 prev_h = prev_a = None
+                prev_minute = None
                 goals = situation.get("goals") or []
                 if goals:
                     last = goals[-1]
+                    try:
+                        prev_minute = max(0, int(last.get("minute")) - 1)
+                    except (TypeError, ValueError):
+                        prev_minute = None
                     # Prefer cumulative scores on the goal event (robust to board lag).
                     try:
                         gh = int(last.get("home_goals"))
@@ -221,6 +227,8 @@ def make_handler(state: DashboardState):
                     away_id=str(situation.get("away_id") or (qs.get("away_id") or [""])[0]),
                     prev_home=prev_h,
                     prev_away=prev_a,
+                    minute=live_minute,
+                    prev_minute=prev_minute,
                     limit_peers=min(8, limit),
                 )
                 return self._send(
@@ -307,10 +315,12 @@ def make_handler(state: DashboardState):
                     visits = [(m, h, a) for m, h, a in score_path(match) if m <= minute]
                     if not visits:
                         visits = [(0, 0, 0)]
-                    _, hs, aws = visits[-1]
+                    cur_start, hs, aws = visits[-1]
                     prev_h = prev_a = None
+                    prev_minute = None
                     if len(visits) >= 2:
                         _, prev_h, prev_a = visits[-2]
+                        prev_minute = max(0, cur_start - 1)
                     scorelines = build_live_scoreline_eval(
                         state.corpus,
                         home_name=match.home,
@@ -319,6 +329,8 @@ def make_handler(state: DashboardState):
                         away_score=aws,
                         prev_home=prev_h,
                         prev_away=prev_a,
+                        minute=minute,
+                        prev_minute=prev_minute,
                         limit_peers=min(8, limit),
                     )
                     goal_rows = []
