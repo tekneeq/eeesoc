@@ -202,7 +202,17 @@ def test_build_live_situation_goal_and_team_shots():
 
     clear_situation_cache()
     assert parse_clock_minute("24'") == 24
-    assert parse_clock_minute("45'+2") == 45
+    assert parse_clock_minute("45'+2") == 47
+    assert parse_clock_minute("90'+4") == 94
+
+    from eeesoc.live import parse_display_clock
+
+    stop = parse_display_clock("90'+4")
+    assert stop.regulation == 90
+    assert stop.added == 4
+    assert stop.elapsed == 94
+    assert stop.in_stoppage is True
+    assert stop.half == 2
 
     def fake_fetch(url: str):
         return SAMPLE_PLAYS
@@ -409,6 +419,43 @@ def test_timeline_elapsed_prefers_board_clock_seconds_and_freezes_at_ht():
         use_cache=False,
     )
     assert ht["frozen"] is True
+
+
+def test_timeline_extends_into_stoppage():
+    from eeesoc.live import build_event_timeline, clear_timeline_cache
+
+    clear_timeline_cache()
+    plays = {
+        "pageCount": 1,
+        "items": [
+            {
+                "type": {"type": "goal"},
+                "scoringPlay": True,
+                "shortText": "95th minute",
+                "clock": {"displayValue": "90'+5", "value": 5700.0},
+                "team": {"$ref": ".../teams/86"},
+                "expectedGoals": 0.4,
+            }
+        ],
+    }
+    tl = build_event_timeline(
+        "ita.1",
+        "1",
+        home="Atalanta",
+        away="Bologna",
+        home_id="86",
+        away_id="107",
+        clock="90'+4",
+        fetcher=lambda url: plays,
+        use_cache=False,
+    )
+    assert tl["in_stoppage"] is True
+    assert tl["added_minutes"] == 4
+    assert tl["regulation_minute"] == 90
+    assert tl["frozen"] is False
+    assert tl["max_minute"] >= 94
+    assert tl["events"][0]["minute"] == 95
+    assert tl["events"][0]["kind"] == "goal"
 
 
 def test_opponent_scored_context_averages():

@@ -55,6 +55,9 @@ class LiveMatch:
     home_id: str = ""
     away_id: str = ""
     clock_seconds: int | None = None
+    added_minutes: int = 0
+    regulation_minute: int | None = None
+    in_stoppage: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -79,6 +82,56 @@ def _safe_int(value: Any, default: int = 0) -> int:
         return default
 
 
+@dataclass(frozen=True)
+class ClockParse:
+    """ESPN soccer clocks: ``72'``, ``45'+2``, ``90'+4``."""
+
+    regulation: int
+    added: int
+    elapsed: int
+    in_stoppage: bool
+    half: int  # 1 or 2
+
+
+_STOPPAGE_CLOCK_RE = re.compile(r"(?P<reg>\d+)\s*'?\s*\+\s*(?P<add>\d+)")
+_PLAIN_CLOCK_RE = re.compile(r"(?P<reg>\d+)")
+
+
+def parse_display_clock(clock: str | None, *, default: int = 1) -> ClockParse:
+    """
+    Parse a display clock into regulation / added / elapsed minutes.
+
+    ``90'+4`` → regulation 90, added 4, elapsed 94 (2H stoppage).
+    ``45'+2`` → regulation 45, added 2, elapsed 47 (1H stoppage).
+    ``72'``   → regulation 72, added 0, elapsed 72.
+    """
+    text = str(clock or "").strip()
+    stop = _STOPPAGE_CLOCK_RE.search(text)
+    if stop:
+        reg = max(1, int(stop.group("reg")))
+        added = max(0, int(stop.group("add")))
+        half = 2 if reg >= 46 else 1
+        elapsed = min(120, reg + added)
+        return ClockParse(regulation=min(90, reg), added=added, elapsed=elapsed, in_stoppage=True, half=half)
+    plain = _PLAIN_CLOCK_RE.search(text)
+    if not plain:
+        return ClockParse(regulation=default, added=0, elapsed=default, in_stoppage=False, half=2 if default >= 46 else 1)
+    reg = max(1, int(plain.group("reg")))
+    half = 2 if reg >= 46 else 1
+    return ClockParse(
+        regulation=min(90, reg),
+        added=0,
+        elapsed=min(120, reg),
+        in_stoppage=False,
+        half=half,
+    )
+
+
+def parse_clock_minute(clock: str | None, *, default: int = 1) -> int:
+    """Elapsed minute, including stoppage (``90'+4`` → 94)."""
+    return parse_display_clock(clock, default=default).elapsed
+
+
 def parse_scoreboard(payload: dict[str, Any], league_slug: str, chiclet: str) -> list[LiveMatch]:
     content = payload.get("content") or {}
     sb = content.get("sbData") or {}
@@ -98,6 +151,7 @@ def parse_scoreboard(payload: dict[str, Any], league_slug: str, chiclet: str) ->
         state = str(stype.get("state") or "pre")
         clock = str(status.get("displayClock") or stype.get("shortDetail") or "")
         detail = str(stype.get("detail") or stype.get("shortDetail") or "")
+        parsed_clock = parse_display_clock(clock)
         clock_seconds: int | None = None
         raw_clock = status.get("clock")
         if raw_clock is not None:
@@ -105,6 +159,8 @@ def parse_scoreboard(payload: dict[str, Any], league_slug: str, chiclet: str) ->
                 clock_seconds = max(0, int(float(raw_clock)))
             except (TypeError, ValueError):
                 clock_seconds = None
+        if clock_seconds is None and parsed_clock.in_stoppage:
+            clock_seconds = parsed_clock.regulation * 60 + parsed_clock.added * 60
 
         home = away = "?"
         home_id = away_id = ""
@@ -136,6 +192,9 @@ def parse_scoreboard(payload: dict[str, Any], league_slug: str, chiclet: str) ->
                 home_id=home_id,
                 away_id=away_id,
                 clock_seconds=clock_seconds,
+                added_minutes=parsed_clock.added,
+                regulation_minute=parsed_clock.regulation,
+                in_stoppage=parsed_clock.in_stoppage,
             )
         )
     return out
@@ -467,19 +526,8 @@ def clear_track_cache() -> None:
 # —— Live situation for Similar (goals + per-team shots/SOT) ——
 
 _TEAM_ID_RE = re.compile(r"/teams/(\d+)")
-_CLOCK_MIN_RE = re.compile(r"(\d+)")
 _sit_cache: dict[str, tuple[float, dict[str, Any]]] = {}
 _SIT_TTL_S = 12.0
-
-
-def parse_clock_minute(clock: str | None, *, default: int = 1) -> int:
-    """Parse ESPN display clocks like \"24'\" / \"45'+2\" / \"90'+4\" into a 1–90 minute."""
-    if not clock:
-        return default
-    m = _CLOCK_MIN_RE.search(str(clock))
-    if not m:
-        return default
-    return max(1, min(90, int(m.group(1))))
 
 
 def _team_id_from_play(play: dict[str, Any]) -> str | None:
@@ -504,8 +552,8 @@ def _play_minute(play: dict[str, Any]) -> int | None:
         val = clock.get("value")
         if val is not None:
             try:
-                # ESPN clock.value is seconds elapsed in the match
-                return max(1, min(90, int(float(val) // 60) + 1))
+                # ESPN clock.value is seconds elapsed in the match (can exceed 90')
+                return max(1, min(120, int(float(val) // 60) + 1))
             except (TypeError, ValueError):
                 return None
     return None
@@ -598,7 +646,8 @@ def build_live_situation(
             return payload
 
     plays = fetch_all_plays(league_slug, event_id, fetcher=fetcher)
-    minute = parse_clock_minute(clock, default=1)
+    parsed_clock = parse_display_clock(clock, default=1)
+    minute = parsed_clock.elapsed
 
     home_shots = away_shots = home_sot = away_sot = 0
     home_goals = away_goals = 0
@@ -686,6 +735,9 @@ def build_live_situation(
         "away_score": away_score,
         "clock": clock,
         "minute": minute,
+        "regulation_minute": parsed_clock.regulation,
+        "added_minutes": parsed_clock.added,
+        "in_stoppage": parsed_clock.in_stoppage,
         "snapshot": snapshot,
         "label": f"{goals_label} · {home_shots}/{home_sot} vs {away_shots}/{away_sot}",
         "goals": goals,
@@ -753,11 +805,17 @@ def _safe_float(value: Any) -> float | None:
 
 def _play_elapsed_seconds(play: dict[str, Any]) -> int | None:
     clock = play.get("clock") or {}
-    if isinstance(clock, dict) and clock.get("value") is not None:
-        try:
-            return max(0, int(float(clock["value"])))
-        except (TypeError, ValueError):
-            return None
+    if isinstance(clock, dict):
+        display = clock.get("displayValue")
+        if display:
+            parsed = parse_display_clock(str(display), default=0)
+            if parsed.in_stoppage:
+                return max(0, parsed.regulation * 60 + parsed.added * 60)
+        if clock.get("value") is not None:
+            try:
+                return max(0, int(float(clock["value"])))
+            except (TypeError, ValueError):
+                return None
     minute = _play_minute(play)
     if minute is None:
         return None
@@ -807,7 +865,8 @@ def build_event_timeline(
             return payload
 
     plays = fetch_all_plays(league_slug, event_id, fetcher=fetcher)
-    board_minute = parse_clock_minute(clock, default=1)
+    parsed = parse_display_clock(clock, default=1)
+    board_minute = parsed.elapsed
     # Play clocks often lead the scoreboard displayClock by a minute or more —
     # never draw the "now" cursor behind events we are already plotting.
     play_seconds = [s for p in plays if (s := _play_elapsed_seconds(p)) is not None]
@@ -815,15 +874,20 @@ def build_event_timeline(
     latest_play = (
         (latest_play_seconds // 60) + 1 if latest_play_seconds is not None else board_minute
     )
-    minute = max(1, min(90, max(board_minute, latest_play)))
+    minute = max(1, min(120, max(board_minute, latest_play)))
 
     board_seconds = clock_seconds
+    if parsed.in_stoppage:
+        display_seconds = parsed.regulation * 60 + parsed.added * 60
+        if board_seconds is None or board_seconds < parsed.regulation * 60:
+            board_seconds = display_seconds
     if board_seconds is None:
         board_seconds = max(0, (board_minute - 1) * 60)
-    elapsed_seconds = min(max(board_seconds, latest_play_seconds or 0), 99 * 60)
+    elapsed_seconds = min(max(board_seconds, latest_play_seconds or 0), 120 * 60)
 
     clock_l = clock.lower()
-    frozen = any(tok in clock_l for tok in _FROZEN_CLOCK_TOKENS)
+    # Stoppage clocks like 90'+4 are still live — don't freeze on "half" inside "2nd Half"
+    frozen = (not parsed.in_stoppage) and any(tok in clock_l for tok in _FROZEN_CLOCK_TOKENS)
     events: list[dict[str, Any]] = []
     counts = {
         "shot": 0,
@@ -876,6 +940,12 @@ def build_event_timeline(
             counts[f"{side}_{kind}"] = counts.get(f"{side}_{kind}", 0) + 1
 
     events.sort(key=lambda e: (e["minute"], e["kind"]))
+    event_max = max((int(e["minute"]) for e in events), default=0)
+    max_minute = 90
+    if parsed.in_stoppage and parsed.half == 2:
+        max_minute = max(90, minute, event_max, 90 + parsed.added)
+    elif minute > 90 or event_max > 90:
+        max_minute = max(90, minute, event_max)
     home_series = _cumulative_xg_series(home_xg_pts)
     away_series = _cumulative_xg_series(away_xg_pts)
     payload = {
@@ -889,7 +959,10 @@ def build_event_timeline(
         "play_minute": latest_play,
         "elapsed_seconds": elapsed_seconds,
         "frozen": frozen,
-        "max_minute": 90,
+        "added_minutes": parsed.added,
+        "regulation_minute": parsed.regulation,
+        "in_stoppage": parsed.in_stoppage,
+        "max_minute": max_minute,
         "events": events,
         "counts": counts,
         "xg": {

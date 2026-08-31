@@ -439,6 +439,11 @@ main {
   margin: 0.35rem 0 0.75rem;
 }
 
+.sl-stoppage-note {
+  border-left: 3px solid var(--warn);
+  padding-left: 0.65rem;
+}
+
 .scoreline-eval {
   margin: 0 0 1.25rem;
   animation: rise 300ms ease both;
@@ -855,6 +860,10 @@ main {
   stroke-width: 1;
 }
 
+.tl-stoppage {
+  fill: rgba(255, 200, 87, 0.1);
+}
+
 .tl-now {
   stroke: var(--danger);
   stroke-width: 1;
@@ -990,6 +999,12 @@ main {
   font-variant-numeric: tabular-nums;
   min-width: 4.2rem;
   justify-content: center;
+}
+
+.mc-live-badge.stoppage {
+  color: var(--warn);
+  border-color: rgba(255, 200, 87, 0.4);
+  background: rgba(255, 200, 87, 0.1);
 }
 
 .mc-teams {

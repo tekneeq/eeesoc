@@ -260,6 +260,8 @@ def build_live_scoreline_eval(
     prev_away: int | None = None,
     minute: int | None = None,
     prev_minute: int | None = None,
+    added_minutes: int = 0,
+    in_stoppage: bool = False,
     limit_peers: int = 8,
 ) -> dict[str, Any]:
     """
@@ -278,6 +280,44 @@ def build_live_scoreline_eval(
     away_fd = resolve_team(away_name, espn_id=away_id or None)
     at_minute = max(0, min(90, minute)) if minute is not None else None
     prev_at = max(0, min(90, prev_minute)) if prev_minute is not None else None
+    late_from = 85
+    late_risk: dict[str, Any] | None = None
+    if at_minute is not None and (at_minute >= late_from or in_stoppage):
+        late_risk = {
+            "from_minute": late_from,
+            "home": (
+                scoreline_outcomes(
+                    corpus,
+                    for_goals=home_score,
+                    against_goals=away_score,
+                    team=home_fd,
+                    limit_peers=0,
+                    at_minute=late_from,
+                )
+                if home_fd
+                else None
+            ),
+            "away": (
+                scoreline_outcomes(
+                    corpus,
+                    for_goals=away_score,
+                    against_goals=home_score,
+                    team=away_fd,
+                    limit_peers=0,
+                    at_minute=late_from,
+                )
+                if away_fd
+                else None
+            ),
+            "league": scoreline_outcomes(
+                corpus,
+                for_goals=home_score,
+                against_goals=away_score,
+                team=None,
+                limit_peers=0,
+                at_minute=late_from,
+            ),
+        }
 
     home_eval = (
         scoreline_outcomes(
@@ -396,6 +436,9 @@ def build_live_scoreline_eval(
         "away_score": away_score,
         "minute": at_minute,
         "prev_minute": prev_at,
+        "added_minutes": max(0, int(added_minutes or 0)),
+        "in_stoppage": bool(in_stoppage),
+        "late_risk": late_risk,
         "prev_scoreline": (
             _ft_key(prev_home, prev_away)
             if prev_home is not None
