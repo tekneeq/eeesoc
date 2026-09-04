@@ -318,6 +318,47 @@ def test_build_event_timeline_kinds():
     assert tl["xg"]["home_total"] == 0.2
     assert tl["xg"]["away"][-1]["minute"] == 24
     assert tl["xg"]["home"][-1]["cumulative"] == 0.2
+    # Scoreboard can still say 0-0 after a play-by-play goal
+    assert tl["play_away_score"] == 1
+    assert tl["play_home_score"] == 0
+    assert tl["home_score"] == 0
+    assert tl["away_score"] == 1
+
+
+def test_timeline_score_prefers_plays_over_stale_board():
+    from eeesoc.live import build_event_timeline, clear_timeline_cache
+
+    clear_timeline_cache()
+    plays = {
+        "pageCount": 1,
+        "items": [
+            {
+                "type": {"type": "goal"},
+                "scoringPlay": True,
+                "shortText": "Stuttgart Goal",
+                "text": "Undav (Stuttgart) Goal at 12'",
+                "clock": {"displayValue": "12'"},
+                "team": {"$ref": ".../teams/134"},
+            }
+        ],
+    }
+    tl = build_event_timeline(
+        "ger.1",
+        "1",
+        home="Stuttgart",
+        away="Cologne",
+        home_id="134",
+        away_id="122",
+        clock="14'",
+        home_score=0,
+        away_score=0,
+        fetcher=lambda url: plays,
+        use_cache=False,
+    )
+    assert tl["counts"]["home_goal"] == 1
+    assert tl["board_home_score"] == 0
+    assert tl["home_score"] == 1
+    assert tl["away_score"] == 0
 
 
 def test_timeline_now_follows_latest_play_not_stale_board_clock():

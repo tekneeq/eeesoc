@@ -252,6 +252,7 @@
     btn.__match = m;
     btn.__onSelect = onSelect;
     const cached = withTimeline ? state.timelines?.[m.event_id] : null;
+    const shown = displayedScore(m, cached);
     btn.innerHTML = `
       <span class="mc-top">
         <span class="mc-top-left">
@@ -262,7 +263,7 @@
       </span>
       <span class="mc-teams">
         <span class="mc-home"><span class="mc-name">${escapeHtml(shortName(m.home))}</span><i class="mc-key mc-key-home" title="Home — green in charts"></i></span>
-        <span class="mc-score"><b class="mc-score-h">${m.home_score}</b><span class="mc-score-sep">–</span><b class="mc-score-a">${m.away_score}</b></span>
+        <span class="mc-score"><b class="mc-score-h">${shown.home}</b><span class="mc-score-sep">–</span><b class="mc-score-a">${shown.away}</b></span>
         <span class="mc-away"><i class="mc-key mc-key-away" title="Away — blue in charts"></i><span class="mc-name">${escapeHtml(shortName(m.away))}</span></span>
       </span>
       ${
@@ -283,6 +284,39 @@
       if (btn.__onSelect) btn.__onSelect(btn.__match);
     });
     return btn;
+  }
+
+  function displayedScore(m, tl) {
+    const boardH = Number(m?.home_score) || 0;
+    const boardA = Number(m?.away_score) || 0;
+    const playH = Number(tl?.home_score);
+    const playA = Number(tl?.away_score);
+    return {
+      home: Math.max(boardH, Number.isFinite(playH) ? playH : 0),
+      away: Math.max(boardA, Number.isFinite(playA) ? playA : 0),
+    };
+  }
+
+  function applyChicletScore(btn, home, away) {
+    if (!btn) return;
+    const scoreH = btn.querySelector(".mc-score-h");
+    const scoreA = btn.querySelector(".mc-score-a");
+    if (!scoreH || !scoreA) return;
+    const changed = scoreH.textContent !== String(home) || scoreA.textContent !== String(away);
+    scoreH.textContent = String(home);
+    scoreA.textContent = String(away);
+    if (btn.__match) {
+      btn.__match = { ...btn.__match, home_score: home, away_score: away };
+    }
+    if (state.selectedLive && String(state.selectedLive.event_id) === String(btn.dataset.eventId)) {
+      state.selectedLive = { ...state.selectedLive, home_score: home, away_score: away };
+      const title = $("#pitchTitle");
+      if (title && !$("#pitchPanel")?.hidden) {
+        const m = state.selectedLive;
+        title.textContent = `${m.home} ${home}–${away} ${m.away} · ${m.clock || "LIVE"}`;
+      }
+    }
+    if (changed) flashGoal(btn);
   }
 
   function flashGoal(btn) {
@@ -316,15 +350,8 @@
       if (clockText && (!tl || tl.frozen || !Number.isFinite(Number(tl.elapsed_seconds)))) {
         clockText.textContent = m.clock || "LIVE";
       }
-      const scoreH = btn.querySelector(".mc-score-h");
-      const scoreA = btn.querySelector(".mc-score-a");
-      if (scoreH && scoreA) {
-        const changed =
-          scoreH.textContent !== String(m.home_score) || scoreA.textContent !== String(m.away_score);
-        scoreH.textContent = String(m.home_score);
-        scoreA.textContent = String(m.away_score);
-        if (changed) flashGoal(btn);
-      }
+      const shown = displayedScore(m, tl);
+      applyChicletScore(btn, shown.home, shown.away);
       const names = btn.querySelectorAll(".mc-teams .mc-name");
       if (names.length === 2) {
         names[0].textContent = shortName(m.home);
@@ -480,6 +507,11 @@
       if (xgMount && xgMount.isConnected) xgMount.innerHTML = xgSvg(tl);
       const stats = document.querySelector(`.mc-stats[data-stats-for="${CSS.escape(String(m.event_id))}"]`);
       if (stats) stats.innerHTML = chicletStatsHtml(tl);
+      const card = mount.closest(".match-chiclet");
+      if (card) {
+        const shown = displayedScore(m, tl);
+        applyChicletScore(card, shown.home, shown.away);
+      }
     };
 
     const chartSig = (tl) =>
@@ -512,7 +544,13 @@
       state.timelines = state.timelines || {};
       const prev = state.timelines[m.event_id];
       state.timelines[m.event_id] = tl;
-      // Skip DOM rewrite when nothing meaningful changed (the ticker keeps the cursor moving).
+      // Always push the play-derived score — a stale 0-0 board must not win.
+      const card = mount.closest(".match-chiclet");
+      if (card) {
+        const shown = displayedScore(m, tl);
+        applyChicletScore(card, shown.home, shown.away);
+      }
+      // Skip SVG rewrite when nothing meaningful changed (the ticker keeps the cursor moving).
       if (hasSvg() && prev && chartSig(prev) === chartSig(tl)) return;
       paint(tl);
     } catch (err) {

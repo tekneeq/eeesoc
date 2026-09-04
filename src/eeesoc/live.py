@@ -561,12 +561,20 @@ def _side_for_team(
         return "home"
     if team_id and away_id and team_id == away_id:
         return "away"
-    text = str(play.get("text") or "")
+    text = " ".join(
+        str(play.get(k) or "") for k in ("text", "shortText", "alternativeText")
+    )
     # "Dan Ndoye (Nottingham Forest) Goal at 24'"
     if home and f"({home})" in text:
         return "home"
     if away and f"({away})" in text:
         return "away"
+    for side, name in (("home", home), ("away", away)):
+        if name and name in text:
+            return side
+        token = name.split()[-1] if name else ""
+        if token and len(token) > 3 and token in text:
+            return side
     return None
 
 
@@ -789,6 +797,8 @@ def build_event_timeline(
     away_id: str = "",
     clock: str = "",
     clock_seconds: int | None = None,
+    home_score: int = 0,
+    away_score: int = 0,
     fetcher: Callable[[str], dict[str, Any]] | None = None,
     use_cache: bool = True,
 ) -> dict[str, Any]:
@@ -876,6 +886,12 @@ def build_event_timeline(
             counts[f"{side}_{kind}"] = counts.get(f"{side}_{kind}", 0) + 1
 
     events.sort(key=lambda e: (e["minute"], e["kind"]))
+    play_home = int(counts.get("home_goal") or 0)
+    play_away = int(counts.get("away_goal") or 0)
+    # Plays often land a goal before the scoreboard tick — never show a
+    # chiclet score behind bars already drawn on the strip.
+    resolved_home = max(int(home_score or 0), play_home)
+    resolved_away = max(int(away_score or 0), play_away)
     home_series = _cumulative_xg_series(home_xg_pts)
     away_series = _cumulative_xg_series(away_xg_pts)
     payload = {
@@ -890,6 +906,12 @@ def build_event_timeline(
         "elapsed_seconds": elapsed_seconds,
         "frozen": frozen,
         "max_minute": 90,
+        "board_home_score": int(home_score or 0),
+        "board_away_score": int(away_score or 0),
+        "play_home_score": play_home,
+        "play_away_score": play_away,
+        "home_score": resolved_home,
+        "away_score": resolved_away,
         "events": events,
         "counts": counts,
         "xg": {
