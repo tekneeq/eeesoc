@@ -122,6 +122,13 @@ def make_handler(state: DashboardState):
                 raw_cs = (qs.get("clock_s") or [""])[0]
                 if raw_cs.strip().isdigit():
                     clock_seconds = int(raw_cs)
+                def _qint(key: str, default: int = 0) -> int:
+                    raw = (qs.get(key) or [""])[0]
+                    try:
+                        return int(raw)
+                    except (TypeError, ValueError):
+                        return default
+
                 timeline = build_event_timeline(
                     league,
                     event_id,
@@ -131,6 +138,8 @@ def make_handler(state: DashboardState):
                     away_id=(qs.get("away_id") or [""])[0],
                     clock=(qs.get("clock") or [""])[0],
                     clock_seconds=clock_seconds,
+                    home_score=_qint("hs"),
+                    away_score=_qint("as"),
                 )
                 return self._send(200, _json_bytes(timeline), "application/json")
 
