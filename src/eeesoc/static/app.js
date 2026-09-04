@@ -236,6 +236,7 @@
       pair("Shots", (c.home_shot || 0) + (c.home_shot_on || 0) + (c.home_blocked || 0) + (c.home_goal || 0), (c.away_shot || 0) + (c.away_shot_on || 0) + (c.away_blocked || 0) + (c.away_goal || 0)) +
       pair("On target", (c.home_shot_on || 0) + (c.home_goal || 0), (c.away_shot_on || 0) + (c.away_goal || 0)) +
       pair("Corners", c.home_corner || 0, c.away_corner || 0) +
+      pair("Fouls", c.home_foul || 0, c.away_foul || 0) +
       pair("xG", Number(xg.home_total || 0).toFixed(2), Number(xg.away_total || 0).toFixed(2))
     );
   }
@@ -275,6 +276,9 @@
               }</span>
               <span class="mc-xg" data-xg-for="${escapeHtml(m.event_id)}" aria-label="Expected goals versus time">${
                 cached ? xgSvg(cached) : `<span class="mc-timeline-loading">xG…</span>`
+              }</span>
+              <span class="mc-territory" data-terr-for="${escapeHtml(m.event_id)}" aria-label="Territory map">${
+                cached ? territorySvg(cached) : `<span class="mc-timeline-loading">territory…</span>`
               }</span>
             </div>`
           : ""
@@ -386,36 +390,56 @@
     return `${Math.floor(s / 60)}'${String(s % 60).padStart(2, "0")}`;
   }
 
+  // Per-kind lanes (distance from axis) so a busy minute stays readable:
+  // shots hug the axis, corners sit furthest out, goals span the lane stack.
+  const TL_LANES = { shot: 6, shot_on: 11, blocked: 16, corner: 21 };
+
   function timelineSvg(tl) {
     const W = 320;
-    const H = 52;
+    const H = 68;
     const pad = 10;
-    const axisY = 26;
+    const axisY = 32;
     const maxM = Math.max(90, Number(tl.max_minute) || 90);
     const now = liveNowMinutes(tl);
     const xAt = (m) => pad + ((Number(m) / maxM) * (W - pad * 2));
     const marks = [];
+    // Same minute + side + kind → nudge horizontally instead of stacking.
+    const seen = new Map();
+    const nudge = (ev) => {
+      const key = `${ev.minute}:${ev.team}:${ev.kind}`;
+      const n = seen.get(key) || 0;
+      seen.set(key, n + 1);
+      return n * 3.2;
+    };
     for (const ev of tl.events || []) {
-      const x = xAt(ev.minute).toFixed(1);
+      const x = (Number(xAt(ev.minute)) + nudge(ev)).toFixed(1);
       const home = ev.team !== "away";
-      const y = home ? axisY - 8 : axisY + 8;
+      const dir = home ? -1 : 1;
+      const laneY = (kind) => axisY + dir * (TL_LANES[kind] || 8);
       const xgBit = ev.xg != null ? ` · xG ${Number(ev.xg).toFixed(2)}` : "";
       const title = `${ev.clock || ev.minute + "'"} ${ev.kind}${xgBit} — ${ev.text || ""}`;
       if (ev.kind === "goal") {
-        const y1 = home ? axisY - 16 : axisY + 2;
-        const y2 = home ? axisY - 2 : axisY + 16;
+        const y1 = home ? axisY - 24 : axisY + 2;
+        const y2 = home ? axisY - 2 : axisY + 24;
+        const cy = axisY + dir * 13;
         marks.push(
-          `<g class="tl-goal"><title>${escapeHtml(title)}</title><line x1="${x}" y1="${y1}" x2="${x}" y2="${y2}"/><circle cx="${x}" cy="${y}" r="3.5"/></g>`
+          `<g class="tl-goal"><title>${escapeHtml(title)}</title><line x1="${x}" y1="${y1}" x2="${x}" y2="${y2}"/><circle cx="${x}" cy="${cy}" r="4"/></g>`
         );
       } else if (ev.kind === "shot_on") {
-        marks.push(`<g class="tl-sot"><title>${escapeHtml(title)}</title><circle cx="${x}" cy="${y}" r="3.2"/></g>`);
+        marks.push(
+          `<g class="tl-sot"><title>${escapeHtml(title)}</title><circle cx="${x}" cy="${laneY("shot_on")}" r="3"/></g>`
+        );
       } else if (ev.kind === "blocked") {
+        const y = laneY("blocked");
         marks.push(
           `<g class="tl-blocked"><title>${escapeHtml(title)}</title><rect x="${(Number(x) - 2).toFixed(1)}" y="${(y - 2).toFixed(1)}" width="4" height="4"/></g>`
         );
       } else if (ev.kind === "shot") {
-        marks.push(`<g class="tl-shot"><title>${escapeHtml(title)}</title><circle cx="${x}" cy="${y}" r="2.2"/></g>`);
+        marks.push(
+          `<g class="tl-shot"><title>${escapeHtml(title)}</title><circle cx="${x}" cy="${laneY("shot")}" r="2.4"/></g>`
+        );
       } else if (ev.kind === "corner") {
+        const y = laneY("corner");
         marks.push(
           `<g class="tl-corner"><title>${escapeHtml(title)}</title><rect x="${(Number(x) - 2.2).toFixed(1)}" y="${(y - 2.2).toFixed(1)}" width="4.4" height="4.4" transform="rotate(45 ${x} ${y})"/></g>`
         );
@@ -426,11 +450,11 @@
     return `<svg class="mc-tl-svg" viewBox="0 0 ${W} ${H}" width="100%" height="${H}" role="img" aria-label="0 to 90 minute event timeline" data-pad-l="${pad}" data-pad-r="${pad}" data-width="${W}" data-max="${maxM}">
       <line x1="${pad}" y1="${axisY}" x2="${W - pad}" y2="${axisY}" class="tl-axis"/>
       <line x1="${pad}" y1="${axisY}" x2="${nowX}" y2="${axisY}" class="tl-progress"/>
-      <line x1="${htX}" y1="${axisY - 5}" x2="${htX}" y2="${axisY + 5}" class="tl-ht"/>
+      <line x1="${htX}" y1="${axisY - 6}" x2="${htX}" y2="${axisY + 6}" class="tl-ht"/>
       <text x="${pad}" y="${H - 4}" class="tl-label">0'</text>
       <text x="${htX}" y="${H - 4}" class="tl-label" text-anchor="middle">45'</text>
       <text x="${W - pad}" y="${H - 4}" class="tl-label" text-anchor="end">90'</text>
-      <line x1="${nowX}" y1="4" x2="${nowX}" y2="${H - 12}" class="tl-now"/>
+      <line x1="${nowX}" y1="4" x2="${nowX}" y2="${H - 14}" class="tl-now"/>
       ${marks.join("")}
     </svg>`;
   }
@@ -489,7 +513,80 @@
       <text x="${padL}" y="${H - 4}" class="tl-label">0'</text>
       <text x="${htX}" y="${H - 4}" class="tl-label" text-anchor="middle">45'</text>
       <text x="${W - padR}" y="${H - 4}" class="tl-label" text-anchor="end">90'</text>
-      <text x="${W - padR}" y="10" class="tl-label" text-anchor="end">xG ${Number(xg.home_total || 0).toFixed(2)}–${Number(xg.away_total || 0).toFixed(2)}</text>
+      <text x="${W - padR}" y="11" class="tl-xg-total" text-anchor="end">xG <tspan class="tl-xg-h">${Number(xg.home_total || 0).toFixed(2)}</tspan>–<tspan class="tl-xg-a">${Number(xg.away_total || 0).toFixed(2)}</tspan></text>
+    </svg>`;
+  }
+
+  function territoryLabel(tl) {
+    const terr = tl.territory;
+    if (!terr) return "";
+    const homeName = shortName(tl.home || "Home");
+    const awayName = shortName(tl.away || "Away");
+    switch (terr.label) {
+      case "warming_up":
+        return "Reading the game…";
+      case "midfield":
+        return "Midfield battle";
+      case "home_attacking":
+        return `${homeName} camped forward — ${awayName} pinned back`;
+      case "away_attacking":
+        return `${awayName} camped forward — ${homeName} pinned back`;
+      default:
+        return "Even territory";
+    }
+  }
+
+  function territorySvg(tl) {
+    const terr = tl.territory;
+    if (!terr || !terr.total) {
+      return `<span class="mc-timeline-loading">territory…</span>`;
+    }
+    const W = 320;
+    const H = 148;
+    const padX = 10;
+    const padT = 8;
+    const padB = 26;
+    const pw = W - padX * 2;
+    const ph = H - padT - padB;
+    const cols = terr.cols || 6;
+    const rows = terr.rows || 4;
+    const cw = pw / cols;
+    const ch = ph / rows;
+    const maxCell = Math.max(1, Number(terr.max) || 1);
+    const cells = [];
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const v = ((terr.cells || [])[r] || [])[c] || 0;
+        if (!v) continue;
+        const heat = Math.pow(v / maxCell, 0.7);
+        cells.push(
+          `<rect x="${(padX + c * cw).toFixed(1)}" y="${(padT + r * ch).toFixed(1)}" width="${cw.toFixed(1)}" height="${ch.toFixed(1)}" class="terr-cell" style="fill-opacity:${(heat * 0.6).toFixed(3)}"><title>${v} actions</title></rect>`
+        );
+      }
+    }
+    const thirds = terr.thirds || {};
+    const pctText = (v) => (v == null ? "—" : `${Math.round(v * 100)}%`);
+    const midX = padX + pw / 2;
+    const t1 = padX + pw / 6;
+    const t3 = padX + (5 * pw) / 6;
+    const boxH = ph * 0.55;
+    const boxW = pw * 0.16;
+    const goalY = padT + (ph - boxH) / 2;
+    return `<svg class="mc-terr-svg" viewBox="0 0 ${W} ${H}" width="100%" height="${H}" role="img" aria-label="Territory map — where the game is being played">
+      ${cells.join("")}
+      <rect x="${padX}" y="${padT}" width="${pw}" height="${ph}" class="terr-line" fill="none"/>
+      <line x1="${midX}" y1="${padT}" x2="${midX}" y2="${padT + ph}" class="terr-line"/>
+      <circle cx="${midX}" cy="${padT + ph / 2}" r="${ph * 0.18}" class="terr-line" fill="none"/>
+      <rect x="${padX}" y="${goalY}" width="${boxW}" height="${boxH}" class="terr-line" fill="none"/>
+      <rect x="${padX + pw - boxW}" y="${goalY}" width="${boxW}" height="${boxH}" class="terr-line" fill="none"/>
+      <line x1="${(padX + pw / 3).toFixed(1)}" y1="${padT}" x2="${(padX + pw / 3).toFixed(1)}" y2="${padT + ph}" class="terr-third"/>
+      <line x1="${(padX + (2 * pw) / 3).toFixed(1)}" y1="${padT}" x2="${(padX + (2 * pw) / 3).toFixed(1)}" y2="${padT + ph}" class="terr-third"/>
+      <text x="${t1}" y="${padT + 12}" class="terr-pct" text-anchor="middle">${pctText(thirds.home_def)}</text>
+      <text x="${midX}" y="${padT + 12}" class="terr-pct" text-anchor="middle">${pctText(thirds.mid)}</text>
+      <text x="${t3}" y="${padT + 12}" class="terr-pct" text-anchor="middle">${pctText(thirds.home_att)}</text>
+      <text x="${padX}" y="${H - 14}" class="tl-label"><tspan class="tl-xg-h">◀ ${escapeHtml(shortName(tl.home || "Home"))}</tspan> defend</text>
+      <text x="${W - padX}" y="${H - 14}" class="tl-label" text-anchor="end"><tspan class="tl-xg-a">${escapeHtml(shortName(tl.away || "Away"))} ▶</tspan> defend</text>
+      <text x="${midX}" y="${H - 3}" class="terr-headline" text-anchor="middle">${escapeHtml(territoryLabel(tl))}</text>
     </svg>`;
   }
 
@@ -507,6 +604,8 @@
       if (xgMount && xgMount.isConnected) xgMount.innerHTML = xgSvg(tl);
       const stats = document.querySelector(`.mc-stats[data-stats-for="${CSS.escape(String(m.event_id))}"]`);
       if (stats) stats.innerHTML = chicletStatsHtml(tl);
+      const terr = document.querySelector(`.mc-territory[data-terr-for="${CSS.escape(String(m.event_id))}"]`);
+      if (terr) terr.innerHTML = territorySvg(tl);
       const card = mount.closest(".match-chiclet");
       if (card) {
         const shown = displayedScore(m, tl);
@@ -521,6 +620,8 @@
         events: (tl.events || []).map((e) => [e.minute, e.kind, e.team, e.xg]),
         xh: tl.xg?.home_total,
         xa: tl.xg?.away_total,
+        fouls: [tl.counts?.home_foul, tl.counts?.away_foul],
+        terr: tl.territory?.total,
       });
 
     // Keep existing pictograms visible while refetching — only fill empty mounts from cache.
