@@ -325,6 +325,75 @@ def test_build_event_timeline_kinds():
     assert tl["away_score"] == 1
 
 
+def test_timeline_fouls_and_territory():
+    from eeesoc.live import build_event_timeline, clear_timeline_cache
+
+    clear_timeline_cache()
+    items = [
+        # Home fouls twice, away once
+        {"type": {"type": "foul"}, "clock": {"displayValue": "5'"}, "team": {"$ref": ".../teams/1"}},
+        {"type": {"type": "foul"}, "clock": {"displayValue": "9'"}, "team": {"$ref": ".../teams/1"}},
+        {"type": {"type": "foul"}, "clock": {"displayValue": "12'"}, "team": {"$ref": ".../teams/2"}},
+    ]
+    # Home plays in its attacking third (team-relative x≈80);
+    # away plays also team-relative x≈80 — mirrored to home-defensive third.
+    for i in range(12):
+        items.append(
+            {
+                "type": {"type": "pass"},
+                "clock": {"displayValue": f"{15 + i}'"},
+                "team": {"$ref": ".../teams/1"},
+                "fieldPositionX": 80.0,
+                "fieldPositionY": 50.0,
+            }
+        )
+    for i in range(4):
+        items.append(
+            {
+                "type": {"type": "pass"},
+                "clock": {"displayValue": f"{30 + i}'"},
+                "team": {"$ref": ".../teams/2"},
+                "fieldPositionX": 80.0,
+                "fieldPositionY": 30.0,
+            }
+        )
+    plays = {"pageCount": 1, "items": items}
+
+    tl = build_event_timeline(
+        "ger.1",
+        "7",
+        home="Stuttgart",
+        away="Cologne",
+        home_id="1",
+        away_id="2",
+        clock="40'",
+        fetcher=lambda url: plays,
+        use_cache=False,
+    )
+    assert tl["counts"]["home_foul"] == 2
+    assert tl["counts"]["away_foul"] == 1
+    terr = tl["territory"]
+    assert terr["total"] == 16
+    # All home passes at x=80 land in the home-attacking third; away passes
+    # mirror to x=20 (home-defensive third).
+    assert terr["thirds"]["home_att"] == round(12 / 16, 3)
+    assert terr["thirds"]["home_def"] == round(4 / 16, 3)
+    assert terr["ball_share"]["home"] == round(12 / 16, 3)
+    # Grid: home passes at (80,50) → col 4, row 2; away mirrored (20,70) → col 1, row 2
+    assert terr["cells"][2][4] == 12
+    assert terr["cells"][2][1] == 4
+    assert terr["label"] == "home_attacking"
+
+
+def test_territory_midfield_battle_label():
+    from eeesoc.live import _build_territory
+
+    pts = [(50.0, 50.0, "home") for _ in range(10)] + [(55.0, 40.0, "away") for _ in range(10)]
+    terr = _build_territory(pts)
+    assert terr["label"] == "midfield"
+    assert terr["thirds"]["mid"] == 1.0
+
+
 def test_timeline_score_prefers_plays_over_stale_board():
     from eeesoc.live import build_event_timeline, clear_timeline_cache
 

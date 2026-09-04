@@ -774,6 +774,63 @@ def _play_elapsed_seconds(play: dict[str, Any]) -> int | None:
 
 _FROZEN_CLOCK_TOKENS = ("ht", "half", "ft", "end", "sched", "postpon", "delay", "abandon")
 
+_TERRITORY_COLS = 6
+_TERRITORY_ROWS = 4
+
+
+def _build_territory(points: list[tuple[float, float, str]]) -> dict[str, Any]:
+    """
+    Aggregate positioned plays into a pitch-occupancy map.
+
+    ESPN play coordinates are team-relative (each side attacks x→100), so away
+    events are mirrored onto one absolute pitch with HOME attacking right.
+    ``points`` is (x, y, side) with side in {"home", "away"}.
+    """
+    cells = [[0] * _TERRITORY_COLS for _ in range(_TERRITORY_ROWS)]
+    thirds = [0, 0, 0]  # home-defensive | middle | home-attacking
+    side_counts = {"home": 0, "away": 0}
+
+    for x, y, side in points:
+        if side == "away":
+            x, y = 100.0 - x, 100.0 - y
+        x = min(99.99, max(0.0, x))
+        y = min(99.99, max(0.0, y))
+        col = int(x / 100.0 * _TERRITORY_COLS)
+        row = int(y / 100.0 * _TERRITORY_ROWS)
+        cells[row][col] += 1
+        thirds[0 if x < 100 / 3 else (1 if x < 200 / 3 else 2)] += 1
+        side_counts[side] += 1
+
+    total = len(points)
+    max_cell = max((max(r) for r in cells), default=0)
+    pct = [round(t / total, 3) if total else None for t in thirds]
+
+    label = "balanced"
+    if total < 15:
+        label = "warming_up"
+    elif pct[1] is not None and pct[1] >= 0.42:
+        label = "midfield"
+    elif pct[2] is not None and pct[0] is not None:
+        if pct[2] >= 0.40 and pct[2] - pct[0] >= 0.08:
+            label = "home_attacking"
+        elif pct[0] >= 0.40 and pct[0] - pct[2] >= 0.08:
+            label = "away_attacking"
+
+    ball_total = side_counts["home"] + side_counts["away"]
+    return {
+        "cols": _TERRITORY_COLS,
+        "rows": _TERRITORY_ROWS,
+        "cells": cells,
+        "max": max_cell,
+        "total": total,
+        "thirds": {"home_def": pct[0], "mid": pct[1], "home_att": pct[2]},
+        "ball_share": {
+            "home": round(side_counts["home"] / ball_total, 3) if ball_total else None,
+            "away": round(side_counts["away"] / ball_total, 3) if ball_total else None,
+        },
+        "label": label,
+    }
+
 
 def _cumulative_xg_series(
     points: list[tuple[int, float]],
@@ -851,9 +908,13 @@ def build_event_timeline(
         "away_goal": 0,
         "home_corner": 0,
         "away_corner": 0,
+        "foul": 0,
+        "home_foul": 0,
+        "away_foul": 0,
     }
     home_xg_pts: list[tuple[int, float]] = []
     away_xg_pts: list[tuple[int, float]] = []
+    territory_pts: list[tuple[float, float, str]] = []
 
     for play in plays:
         ptype = _normalize_play_type(_play_type(play))
@@ -865,6 +926,16 @@ def build_event_timeline(
         xg = _safe_float(play.get("expectedGoals"))
         if xg is not None and pmin is not None and side in {"home", "away"} and xg > 0:
             (home_xg_pts if side == "home" else away_xg_pts).append((pmin, xg))
+
+        if side in {"home", "away"}:
+            px = _coord(play, "fieldPositionX")
+            py = _coord(play, "fieldPositionY")
+            if px is not None and py is not None and (px or py):
+                territory_pts.append((px, py, side))
+
+        if "foul" in ptype and side in {"home", "away"}:
+            counts["foul"] += 1
+            counts[f"{side}_foul"] += 1
 
         kind = _event_kind(ptype, scoring=bool(play.get("scoringPlay")))
         if not kind or pmin is None:
@@ -914,6 +985,7 @@ def build_event_timeline(
         "away_score": resolved_away,
         "events": events,
         "counts": counts,
+        "territory": _build_territory(territory_pts),
         "xg": {
             "home": home_series,
             "away": away_series,
