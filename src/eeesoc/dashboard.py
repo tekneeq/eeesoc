@@ -14,6 +14,7 @@ from eeesoc.live import build_event_timeline, build_live_situation, build_pitch_
 from eeesoc.models import Match, MatchSnapshot
 from eeesoc.scorelines import build_live_scoreline_eval, score_path
 from eeesoc.similar import find_similar, opponent_scored_context
+from eeesoc.winprob import build_fixture_detail, build_winprob_board
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 
@@ -86,6 +87,29 @@ def make_handler(state: DashboardState):
 
             if path == "/health":
                 return self._send(200, b"ok\n", "text/plain; charset=utf-8")
+
+            if path == "/api/winprob":
+                days = int((qs.get("days") or ["8"])[0])
+                board = build_winprob_board(state.matches, state.history, days=days)
+                return self._send(200, _json_bytes(board), "application/json")
+
+            if path == "/api/winprob/detail":
+                home = (qs.get("home") or [None])[0]
+                away = (qs.get("away") or [None])[0]
+                if not home or not away:
+                    return self._send(
+                        400, _json_bytes({"error": "home and away required"}), "application/json"
+                    )
+                detail = build_fixture_detail(
+                    home,
+                    away,
+                    state.matches,
+                    state.history,
+                    home_id=(qs.get("home_id") or [""])[0],
+                    away_id=(qs.get("away_id") or [""])[0],
+                )
+                code = 404 if detail.get("error") else 200
+                return self._send(code, _json_bytes(detail), "application/json")
 
             if path == "/api/live":
                 live_only = (qs.get("live_only") or ["1"])[0] not in ("0", "false", "no")

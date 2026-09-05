@@ -21,6 +21,7 @@
       </div>
       <nav class="tabs" role="tablist">
         <button class="tab active" data-tab="live" role="tab" aria-selected="true">Live</button>
+        <button class="tab" data-tab="winprob" role="tab" aria-selected="false">WinProb</button>
         <button class="tab" data-tab="matches" role="tab" aria-selected="false">Matches</button>
         <button class="tab" data-tab="similar" role="tab" aria-selected="false">Similar</button>
       </nav>
@@ -69,6 +70,28 @@
           </div>
           <div class="pitch-feed" id="pitchFeed"></div>
         </div>
+      </section>
+
+      <section id="panel-winprob" class="panel" role="tabpanel" hidden>
+        <div class="panel-head live-head">
+          <div>
+            <h1>WinProb</h1>
+            <p class="lede">
+              Scheduled EPL fixtures as chiclets — <span class="lede-home">home</span> /
+              draw / <span class="lede-away">away</span> win probability from a Poisson
+              attack–defence model over the cached seasons.
+              <b>Double-click a chiclet</b> for each club’s last five games and head-to-head.
+            </p>
+          </div>
+          <div class="live-status">
+            <span class="pulse" aria-hidden="true"></span>
+            <span id="winprobStamp">loading…</span>
+          </div>
+        </div>
+        <div class="wp-record-row" id="wpRecord"></div>
+        <div class="match-chiclet-grid" id="wpFixtures" role="list"></div>
+        <div class="wp-detail" id="wpDetail" hidden></div>
+        <div class="wp-results" id="wpResults"></div>
       </section>
 
       <section id="panel-matches" class="panel" role="tabpanel" hidden>

@@ -1412,3 +1412,310 @@ main {
     grid-area: text;
   }
 }
+
+/* —— WinProb tab —— */
+
+.wp-record-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  margin: 0 0 1.25rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--line);
+  animation: rise 280ms ease both;
+}
+
+.wp-record-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-width: 11rem;
+  padding: 0.7rem 0.9rem;
+  border: 1px solid var(--line);
+  border-radius: 0.45rem;
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.045), rgba(255, 255, 255, 0.012) 55%);
+}
+
+.wp-record-label {
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.wp-record-main {
+  font-family: var(--mono);
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+
+.wp-record-sub {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+
+.wp-chiclet {
+  min-width: 15rem;
+  max-width: 18rem;
+}
+
+.wp-kick {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  color: var(--warn);
+  letter-spacing: 0.03em;
+}
+
+.wp-vs {
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  color: var(--muted);
+  text-transform: uppercase;
+}
+
+.wp-bar {
+  display: flex;
+  width: 100%;
+  height: 0.5rem;
+  border-radius: 0.25rem;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.wp-seg {
+  display: block;
+  height: 100%;
+}
+
+.wp-seg-h {
+  background: var(--accent);
+  box-shadow: 0 0 8px rgba(125, 255, 179, 0.35);
+}
+
+.wp-seg-d {
+  background: rgba(200, 210, 205, 0.35);
+}
+
+.wp-seg-a {
+  background: rgba(125, 200, 255, 0.95);
+  box-shadow: 0 0 8px rgba(125, 200, 255, 0.3);
+}
+
+.wp-pcts {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.4rem;
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.wp-pct-h {
+  color: var(--accent);
+}
+
+.wp-pct-d {
+  color: var(--muted);
+}
+
+.wp-pct-a {
+  color: rgba(125, 200, 255, 0.95);
+}
+
+.wp-pick {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+
+.wp-pick b {
+  color: var(--text);
+}
+
+.wp-pick .wp-pick-home {
+  color: var(--accent);
+}
+
+.wp-pick .wp-pick-away {
+  color: rgba(125, 200, 255, 0.95);
+}
+
+.wp-nomodel {
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  color: var(--muted);
+  opacity: 0.7;
+}
+
+.wp-detail {
+  margin: 0 0 1.25rem;
+  padding: 1rem 1.1rem;
+  border: 1px solid rgba(125, 255, 179, 0.28);
+  border-radius: 0.55rem;
+  background: linear-gradient(160deg, rgba(125, 255, 179, 0.06), rgba(255, 255, 255, 0.012) 60%);
+  animation: rise 240ms ease both;
+}
+
+.wp-detail-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.6rem;
+}
+
+.wp-detail-close {
+  appearance: none;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--muted);
+  border-radius: 0.3rem;
+  padding: 0.2rem 0.5rem;
+  cursor: pointer;
+  font: inherit;
+}
+
+.wp-detail-close:hover {
+  color: var(--text);
+  border-color: rgba(125, 255, 179, 0.35);
+}
+
+.wp-detail .wp-bar {
+  margin: 0.6rem 0 0.3rem;
+}
+
+.wp-form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+  margin-top: 0.9rem;
+}
+
+.wp-form-title {
+  font-weight: 700;
+  margin-bottom: 0.2rem;
+}
+
+.wp-form-season {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  color: var(--muted);
+  margin-bottom: 0.45rem;
+}
+
+.wp-form-row {
+  display: grid;
+  grid-template-columns: auto 5.5rem 1fr;
+  gap: 0.55rem;
+  align-items: center;
+  padding: 0.35rem 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 0.85rem;
+}
+
+.wp-form-row .date {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+
+.wp-form-row .teams {
+  font-family: var(--mono);
+  font-size: 0.78rem;
+}
+
+.wp-h2h-row {
+  grid-template-columns: 5.5rem 1fr;
+}
+
+.wp-form-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.35rem;
+  height: 1.35rem;
+  border-radius: 0.28rem;
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.wp-form-badge.w {
+  color: #07110b;
+  background: var(--accent);
+}
+
+.wp-form-badge.d {
+  color: var(--text);
+  background: rgba(200, 210, 205, 0.25);
+}
+
+.wp-form-badge.l {
+  color: #16090a;
+  background: var(--danger);
+}
+
+.wp-results {
+  margin-top: 0.5rem;
+}
+
+.wp-result-row {
+  display: grid;
+  grid-template-columns: auto 5.5rem 1fr auto;
+  gap: 0.7rem;
+  align-items: center;
+  padding: 0.5rem 0.35rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.wp-result-row .date {
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.wp-result-row .teams {
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.wp-result-row .meta {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  color: var(--muted);
+  justify-self: end;
+}
+
+.wp-mark {
+  font-family: var(--mono);
+  font-weight: 700;
+}
+
+.wp-mark.hit {
+  color: var(--accent);
+}
+
+.wp-mark.miss {
+  color: var(--danger);
+}
+
+@media (max-width: 720px) {
+  .wp-form-grid {
+    grid-template-columns: 1fr;
+  }
+  .wp-result-row {
+    grid-template-columns: auto 1fr;
+  }
+  .wp-result-row .meta {
+    justify-self: start;
+    grid-column: 2;
+  }
+  .wp-chiclet {
+    min-width: 100%;
+    max-width: 100%;
+  }
+}
