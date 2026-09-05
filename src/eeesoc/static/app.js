@@ -15,6 +15,8 @@
     timelines: {},
     liveTickTimer: null,
     chicletOrder: [],
+    winprob: null,
+    selectedWpId: null,
   };
 
   const LIVE_POLL_MS = 8000;
@@ -64,6 +66,7 @@
       panel.hidden = !on;
     });
     if (name === "live" || name === "similar") refreshLive();
+    if (name === "winprob") refreshWinprob();
   }
 
   function escapeHtml(s) {
@@ -1045,6 +1048,243 @@
       renderPitch(track);
     } catch (err) {
       $("#pitchFeed").innerHTML = `<p class="lede">Could not load pitch tracking.</p>`;
+    }
+  }
+
+  // —— WinProb tab ——
+
+  function wpPct(v) {
+    if (v == null) return "—";
+    return `${Math.round(Number(v) * 100)}%`;
+  }
+
+  async function refreshWinprob() {
+    const stamp = $("#winprobStamp");
+    try {
+      const data = await (await fetch("/api/winprob")).json();
+      state.winprob = data;
+      stamp.textContent = `${(data.fixtures || []).length} scheduled · updated ${new Date().toLocaleTimeString()}`;
+      renderWinprob();
+    } catch (err) {
+      stamp.textContent = "winprob feed error";
+    }
+  }
+
+  function wpRecordCard(label, rec) {
+    if (!rec || !rec.total) {
+      return `<div class="wp-record-card">
+        <span class="wp-record-label">${escapeHtml(label)}</span>
+        <span class="wp-record-main">—</span>
+        <span class="wp-record-sub">no graded picks yet</span>
+      </div>`;
+    }
+    return `<div class="wp-record-card">
+      <span class="wp-record-label">${escapeHtml(label)}</span>
+      <span class="wp-record-main">${rec.correct}–${rec.wrong}</span>
+      <span class="wp-record-sub">${wpPct(rec.pct)} of ${rec.total} picks</span>
+    </div>`;
+  }
+
+  function wpProbBarHtml(probs) {
+    if (!probs) {
+      return `<span class="wp-nomodel">No EPL model mapping for this fixture.</span>`;
+    }
+    const h = Math.round(probs.home * 100);
+    const d = Math.round(probs.draw * 100);
+    const a = Math.max(0, 100 - h - d);
+    return `
+      <span class="wp-bar" aria-hidden="true">
+        <i class="wp-seg wp-seg-h" style="width:${h}%"></i>
+        <i class="wp-seg wp-seg-d" style="width:${d}%"></i>
+        <i class="wp-seg wp-seg-a" style="width:${a}%"></i>
+      </span>
+      <span class="wp-pcts">
+        <span class="wp-pct-h" title="Home win">H ${wpPct(probs.home)}</span>
+        <span class="wp-pct-d" title="Draw">D ${wpPct(probs.draw)}</span>
+        <span class="wp-pct-a" title="Away win">A ${wpPct(probs.away)}</span>
+      </span>
+    `;
+  }
+
+  function buildWpChiclet(f) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className =
+      "match-chiclet wp-chiclet" + (state.selectedWpId === f.event_id ? " on" : "");
+    btn.setAttribute("role", "listitem");
+    btn.dataset.eventId = f.event_id;
+    btn.title = "Double-click for last five games + head-to-head";
+    const kick = f.start
+      ? new Date(f.start).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
+      : "TBD";
+    const pickBit =
+      f.pick && f.probs
+        ? `<span class="wp-pick">Pick <b class="wp-pick-${f.pick}">${escapeHtml(
+            f.pick === "draw" ? "Draw" : shortName(f.pick_team || "")
+          )}</b> ${wpPct(f.pick_prob)}</span>`
+        : "";
+    btn.innerHTML = `
+      <span class="mc-top">
+        <span class="wp-kick">${escapeHtml(kick)}</span>
+        <span class="mc-league">${escapeHtml(f.league_chiclet || "EPL")}</span>
+      </span>
+      <span class="mc-teams">
+        <span class="mc-home"><span class="mc-name">${escapeHtml(shortName(f.home))}</span><i class="mc-key mc-key-home" title="Home"></i></span>
+        <span class="wp-vs">vs</span>
+        <span class="mc-away"><i class="mc-key mc-key-away" title="Away"></i><span class="mc-name">${escapeHtml(shortName(f.away))}</span></span>
+      </span>
+      ${wpProbBarHtml(f.probs)}
+      ${pickBit}
+    `;
+    btn.addEventListener("click", () => {
+      state.selectedWpId = f.event_id;
+      document
+        .querySelectorAll("#wpFixtures .wp-chiclet")
+        .forEach((el) => el.classList.toggle("on", el.dataset.eventId === String(f.event_id)));
+    });
+    btn.addEventListener("dblclick", () => openWpDetail(f));
+    return btn;
+  }
+
+  function renderWinprob() {
+    const data = state.winprob;
+    if (!data) return;
+
+    const rec = data.record || {};
+    $("#wpRecord").innerHTML =
+      wpRecordCard(`Past ${rec.window_days || 30} days`, rec.last30) +
+      wpRecordCard("Season", rec.season);
+
+    const grid = $("#wpFixtures");
+    grid.innerHTML = "";
+    const fixtures = data.fixtures || [];
+    if (!fixtures.length) {
+      grid.innerHTML = `<p class="lede empty-live">No scheduled EPL fixtures in the next ${data.days || 8} days.</p>`;
+    }
+    const byDay = new Map();
+    for (const f of fixtures) {
+      const d = f.start ? new Date(f.start) : null;
+      const key = d
+        ? d.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" })
+        : "Date TBD";
+      if (!byDay.has(key)) byDay.set(key, []);
+      byDay.get(key).push(f);
+    }
+    for (const [day, list] of byDay) {
+      const block = document.createElement("div");
+      block.className = "match-chiclet-league";
+      block.innerHTML = `<div class="match-chiclet-league-label"><span class="league-chiclet-tag">${escapeHtml(day)}</span> ${list.length} scheduled</div>`;
+      const wrap = document.createElement("div");
+      wrap.className = "match-chiclet-row";
+      for (const f of list) wrap.appendChild(buildWpChiclet(f));
+      block.appendChild(wrap);
+      grid.appendChild(block);
+    }
+
+    renderWpResults(data.recent_results || []);
+  }
+
+  function renderWpResults(rows) {
+    const box = $("#wpResults");
+    if (!rows.length) {
+      box.innerHTML = "";
+      return;
+    }
+    const items = rows
+      .map((r) => {
+        const mark = r.correct
+          ? `<span class="wp-mark hit" title="Pick was right">✓</span>`
+          : `<span class="wp-mark miss" title="Pick was wrong">✗</span>`;
+        return `<div class="wp-result-row${r.correct ? " hit" : " miss"}">
+          ${mark}
+          <span class="date">${escapeHtml(r.date)}</span>
+          <span class="teams">${escapeHtml(r.home)} vs ${escapeHtml(r.away)}</span>
+          <span class="meta">picked <b>${escapeHtml(r.pick === "draw" ? "Draw" : r.pick_team)}</b> ${wpPct(r.pick_prob)} · FT ${escapeHtml(r.ft)}</span>
+        </div>`;
+      })
+      .join("");
+    box.innerHTML = `<div class="concede-title">Recent graded picks</div>${items}`;
+  }
+
+  function wpFormRows(form) {
+    const rows = (form.last5 || [])
+      .map(
+        (g) => `<div class="wp-form-row">
+          <span class="wp-form-badge ${g.result.toLowerCase()}">${g.result}</span>
+          <span class="date">${escapeHtml(g.date)}</span>
+          <span class="teams">${escapeHtml(g.venue)} · ${escapeHtml(g.home)} ${escapeHtml(g.ft)} ${escapeHtml(g.away)}</span>
+        </div>`
+      )
+      .join("");
+    const s = form.season || {};
+    const seasonLine = s.played
+      ? `P${s.played} · W${s.wins} D${s.draws} L${s.losses} · GF ${s.gf} GA ${s.ga}`
+      : "No season games yet";
+    return `<div class="wp-form-col">
+      <div class="wp-form-title">${escapeHtml(form.team)}</div>
+      <div class="wp-form-season">${escapeHtml(seasonLine)}</div>
+      ${rows || `<p class="concede-lede">No mapped games.</p>`}
+    </div>`;
+  }
+
+  async function openWpDetail(f) {
+    const box = $("#wpDetail");
+    box.hidden = false;
+    box.innerHTML = `<p class="lede">Loading ${escapeHtml(f.home)} vs ${escapeHtml(f.away)}…</p>`;
+    const qs = new URLSearchParams({
+      home: f.home,
+      away: f.away,
+      home_id: f.home_id || "",
+      away_id: f.away_id || "",
+    });
+    try {
+      const d = await (await fetch(`/api/winprob/detail?${qs}`)).json();
+      if (d.error) {
+        box.innerHTML = `<p class="lede">${escapeHtml(d.error)}</p>`;
+        return;
+      }
+      const p = d.prediction || {};
+      const kick = f.start
+        ? new Date(f.start).toLocaleString([], {
+            weekday: "short",
+            month: "short",
+            day: "numeric",
+            hour: "numeric",
+            minute: "2-digit",
+          })
+        : "TBD";
+      const h2h = (d.h2h || [])
+        .map(
+          (g) => `<div class="wp-form-row">
+            <span class="date">${escapeHtml(g.date)}</span>
+            <span class="teams">${escapeHtml(g.home)} ${escapeHtml(g.ft)} ${escapeHtml(g.away)}</span>
+          </div>`
+        )
+        .join("");
+      box.innerHTML = `
+        <div class="wp-detail-head">
+          <div class="concede-title">${escapeHtml(d.home_fd)} vs ${escapeHtml(d.away_fd)} · ${escapeHtml(kick)}</div>
+          <button type="button" class="wp-detail-close" id="wpDetailClose" title="Close">✕</button>
+        </div>
+        <p class="concede-lede">
+          Model pick <b style="color:var(--accent)">${escapeHtml(p.pick === "draw" ? "Draw" : p.pick_team || "—")}</b>
+          at <b>${wpPct(p.pick_prob)}</b>
+          · expected goals <b class="wp-pct-h">${Number(p.lambda_home || 0).toFixed(2)}</b>–<b class="wp-pct-a">${Number(p.lambda_away || 0).toFixed(2)}</b>
+        </p>
+        ${wpProbBarHtml(p.probs)}
+        <div class="wp-form-grid">
+          ${wpFormRows(d.home_form || { team: d.home_fd, last5: [] })}
+          ${wpFormRows(d.away_form || { team: d.away_fd, last5: [] })}
+        </div>
+        ${h2h ? `<div class="wp-form-title" style="margin-top:0.9rem">Head-to-head</div>${h2h}` : ""}
+      `;
+      $("#wpDetailClose").addEventListener("click", () => {
+        box.hidden = true;
+        box.innerHTML = "";
+      });
+      box.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    } catch (err) {
+      box.innerHTML = `<p class="lede">Could not load fixture detail.</p>`;
     }
   }
 
