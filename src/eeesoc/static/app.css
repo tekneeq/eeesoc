@@ -637,6 +637,31 @@ main {
   opacity: 0.85;
 }
 
+.chiclet-tools {
+  display: inline-flex;
+  gap: 0.35rem;
+  margin-left: 0.35rem;
+}
+
+.chiclet-tool {
+  appearance: none;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 0.22rem 0.45rem;
+  border-radius: 0.22rem;
+  cursor: pointer;
+}
+
+.chiclet-tool:hover {
+  color: var(--text);
+  border-color: rgba(125, 255, 179, 0.35);
+}
+
 .match-chiclet-grid {
   display: flex;
   flex-direction: column;
@@ -1054,6 +1079,49 @@ main {
   align-items: center;
   justify-content: space-between;
   gap: 0.5rem;
+}
+
+.mc-top-right {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.mc-collapse {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 1.35rem;
+  height: 1.35rem;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 0.22rem;
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--muted);
+  font-size: 0.72rem;
+  line-height: 1;
+  cursor: pointer;
+  user-select: none;
+}
+
+.mc-collapse:hover {
+  color: var(--accent);
+  border-color: rgba(125, 255, 179, 0.4);
+}
+
+.match-chiclet.collapsed .mc-stats,
+.match-chiclet.collapsed .mc-charts,
+.match-chiclet.collapsed .wp-bar,
+.match-chiclet.collapsed .wp-pcts,
+.match-chiclet.collapsed .wp-pick {
+  display: none;
+}
+
+.match-chiclet.collapsed.match-chiclet-tl {
+  min-width: min(100%, 18rem);
+  max-width: 28rem;
 }
 
 .mc-live-badge {

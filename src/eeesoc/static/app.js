@@ -15,6 +15,7 @@
     timelines: {},
     liveTickTimer: null,
     chicletOrder: [],
+    collapsed: new Set(),
     winprob: null,
     selectedWpId: null,
   };
@@ -22,6 +23,7 @@
   const LIVE_POLL_MS = 8000;
   const TIMELINE_FRESH_MS = 5000;
   const ORDER_KEY = "eeesoc:chicletOrder";
+  const COLLAPSE_KEY = "eeesoc:chicletCollapsed";
 
   function loadChicletOrder() {
     try {
@@ -39,6 +41,82 @@
     } catch (err) {
       /* private mode — order lives for the session only */
     }
+  }
+
+  function loadCollapsed() {
+    try {
+      const raw = JSON.parse(localStorage.getItem(COLLAPSE_KEY) || "[]");
+      return new Set(Array.isArray(raw) ? raw.map(String) : []);
+    } catch (err) {
+      return new Set();
+    }
+  }
+
+  function persistCollapsed() {
+    try {
+      localStorage.setItem(COLLAPSE_KEY, JSON.stringify([...state.collapsed]));
+    } catch (err) {
+      /* private mode — collapse lives for the session only */
+    }
+  }
+
+  function isCollapsed(id) {
+    return state.collapsed.has(String(id));
+  }
+
+  function applyCollapsed(el, collapsed) {
+    if (!el) return;
+    el.classList.toggle("collapsed", collapsed);
+    const chev = el.querySelector(".mc-collapse");
+    if (chev) {
+      chev.setAttribute("aria-expanded", collapsed ? "false" : "true");
+      chev.title = collapsed ? "Expand chiclet" : "Collapse chiclet";
+      chev.textContent = collapsed ? "▸" : "▾";
+    }
+  }
+
+  function toggleCollapsed(id) {
+    const key = String(id);
+    if (state.collapsed.has(key)) state.collapsed.delete(key);
+    else state.collapsed.add(key);
+    persistCollapsed();
+    document.querySelectorAll(`.match-chiclet[data-event-id="${CSS.escape(key)}"]`).forEach((el) => {
+      applyCollapsed(el, state.collapsed.has(key));
+    });
+  }
+
+  function setAllCollapsed(ids, collapsed) {
+    for (const id of ids) {
+      if (collapsed) state.collapsed.add(String(id));
+      else state.collapsed.delete(String(id));
+    }
+    persistCollapsed();
+    document.querySelectorAll(".match-chiclet[data-event-id]").forEach((el) => {
+      applyCollapsed(el, isCollapsed(el.dataset.eventId));
+    });
+  }
+
+  function bindCollapse(btn) {
+    applyCollapsed(btn, isCollapsed(btn.dataset.eventId));
+    const chev = btn.querySelector(".mc-collapse");
+    if (!chev || chev.dataset.bound === "1") return;
+    chev.dataset.bound = "1";
+    const onToggle = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      toggleCollapsed(btn.dataset.eventId);
+    };
+    chev.addEventListener("click", onToggle);
+    chev.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") onToggle(e);
+    });
+  }
+
+  function collapseToggleHtml(id) {
+    const collapsed = isCollapsed(id);
+    return `<span class="mc-collapse" role="button" tabindex="0" aria-expanded="${
+      collapsed ? "false" : "true"
+    }" title="${collapsed ? "Expand chiclet" : "Collapse chiclet"}">${collapsed ? "▸" : "▾"}</span>`;
   }
 
   function orderRows(rows) {
@@ -263,7 +341,10 @@
           ${withTimeline ? `<span class="mc-grip" title="Drag to reorder" aria-hidden="true">⠿</span>` : ""}
           <span class="mc-live-badge"><span class="live-dot"></span><span class="mc-clock-text">${escapeHtml(m.clock || "LIVE")}</span></span>
         </span>
-        <span class="mc-league">${escapeHtml(m.league_chiclet)}</span>
+        <span class="mc-top-right">
+          <span class="mc-league">${escapeHtml(m.league_chiclet)}</span>
+          ${collapseToggleHtml(m.event_id)}
+        </span>
       </span>
       <span class="mc-teams">
         <span class="mc-home"><span class="mc-name">${escapeHtml(shortName(m.home))}</span><i class="mc-key mc-key-home" title="Home — green in charts"></i></span>
@@ -290,6 +371,7 @@
     btn.addEventListener("click", () => {
       if (btn.__onSelect) btn.__onSelect(btn.__match);
     });
+    bindCollapse(btn);
     return btn;
   }
 
@@ -370,6 +452,7 @@
           force: true,
         });
       }
+      bindCollapse(btn);
     }
     return true;
   }
@@ -684,24 +767,45 @@
     }
   }
 
+  function kickoffElapsedSeconds(m) {
+    if (!m) return null;
+    if (m.start) {
+      const t = Date.parse(m.start);
+      if (Number.isFinite(t)) {
+        const elapsed = (Date.now() - t) / 1000;
+        // First-half window only — after HT, start-based clocks run fast.
+        if (elapsed >= 0 && elapsed <= 50 * 60) return elapsed;
+      }
+    }
+    const cs = Number(m.clock_seconds);
+    return Number.isFinite(cs) ? cs : null;
+  }
+
   function tickLiveClocks() {
     const panel = $("#panel-live");
     if (!panel || panel.hidden || document.hidden) return;
     const grid = $("#matchChiclets");
     if (!grid) return;
-    for (const [eventId, tl] of Object.entries(state.timelines || {})) {
-      const btn = grid.querySelector(`.match-chiclet[data-event-id="${CSS.escape(String(eventId))}"]`);
-      if (!btn || !btn.isConnected) continue;
-      const secs = liveElapsedSeconds(tl);
-      const nowM = Math.max(0.5, secs / 60);
-      if (!tl.frozen) {
-        const clockEl = btn.querySelector(".mc-clock-text");
-        if (clockEl) clockEl.textContent = formatTickClock(secs);
+    for (const btn of grid.querySelectorAll(".match-chiclet[data-event-id]")) {
+      const eventId = btn.dataset.eventId;
+      const tl = state.timelines?.[eventId];
+      if (tl) {
+        const secs = liveElapsedSeconds(tl);
+        const nowM = Math.max(0.5, secs / 60);
+        if (!tl.frozen) {
+          const clockEl = btn.querySelector(".mc-clock-text");
+          if (clockEl) clockEl.textContent = formatTickClock(secs);
+        }
+        const tlSvg = btn.querySelector(".mc-timeline svg");
+        if (tlSvg) moveNowCursor(tlSvg, nowM);
+        const xgSvgEl = btn.querySelector(".mc-xg svg");
+        if (xgSvgEl) moveNowCursor(xgSvgEl, nowM);
+        continue;
       }
-      const tlSvg = btn.querySelector(".mc-timeline svg");
-      if (tlSvg) moveNowCursor(tlSvg, nowM);
-      const xgSvgEl = btn.querySelector(".mc-xg svg");
-      if (xgSvgEl) moveNowCursor(xgSvgEl, nowM);
+      const secs = kickoffElapsedSeconds(btn.__match);
+      if (secs == null) continue;
+      const clockEl = btn.querySelector(".mc-clock-text");
+      if (clockEl) clockEl.textContent = formatTickClock(secs);
     }
   }
 
@@ -1126,7 +1230,10 @@
     btn.innerHTML = `
       <span class="mc-top">
         <span class="wp-kick">${escapeHtml(kick)}</span>
-        <span class="mc-league">${escapeHtml(f.league_chiclet || "EPL")}</span>
+        <span class="mc-top-right">
+          <span class="mc-league">${escapeHtml(f.league_chiclet || "EPL")}</span>
+          ${collapseToggleHtml(f.event_id)}
+        </span>
       </span>
       <span class="mc-teams">
         <span class="mc-home"><span class="mc-name">${escapeHtml(shortName(f.home))}</span><i class="mc-key mc-key-home" title="Home"></i></span>
@@ -1143,6 +1250,7 @@
         .forEach((el) => el.classList.toggle("on", el.dataset.eventId === String(f.event_id)));
     });
     btn.addEventListener("dblclick", () => openWpDetail(f));
+    bindCollapse(btn);
     return btn;
   }
 
@@ -1439,6 +1547,7 @@
 
   async function boot() {
     state.chicletOrder = loadChicletOrder();
+    state.collapsed = loadCollapsed();
     const meta = await (await fetch("/api/meta")).json();
     state.meta = meta;
     $("#seasonLabel").textContent = `${meta.season} · ${meta.match_count} matches · ${meta.history_count} history`;
@@ -1454,6 +1563,14 @@
       if (state.selectedId) selectMatch(state.selectedId, false);
     });
     $("#evertonPreset").addEventListener("click", loadEvertonPreset);
+    $("#collapseAll")?.addEventListener("click", () => {
+      const ids = flatLiveMatches(state.liveFilter).map((m) => m.event_id);
+      setAllCollapsed(ids, true);
+    });
+    $("#expandAll")?.addEventListener("click", () => {
+      const ids = flatLiveMatches(state.liveFilter).map((m) => m.event_id);
+      setAllCollapsed(ids, false);
+    });
 
     await refreshLive();
     state.liveTimer = setInterval(() => {
