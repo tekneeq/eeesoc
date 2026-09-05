@@ -677,6 +677,22 @@ main {
   margin-bottom: 0.45rem;
   font-size: 0.85rem;
   color: var(--muted);
+  cursor: pointer;
+  user-select: none;
+}
+
+.match-chiclet-league-label .mc-collapse {
+  margin-left: auto;
+}
+
+.match-chiclet-league.collapsed .match-chiclet-row {
+  display: none;
+}
+
+.league-count {
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  color: var(--muted);
 }
 
 .league-chiclet-tag {
@@ -1122,6 +1138,29 @@ main {
 .match-chiclet.collapsed.match-chiclet-tl {
   min-width: min(100%, 18rem);
   max-width: 28rem;
+}
+
+.match-chiclet:not(.match-chiclet-tl):not(.wp-chiclet) {
+  min-width: 12rem;
+  max-width: 15.5rem;
+}
+
+#similarMatchChiclets .match-chiclet.collapsed {
+  flex-direction: row;
+  align-items: center;
+  gap: 0.55rem;
+  min-width: 13.5rem;
+  max-width: 19rem;
+  padding: 0.4rem 0.55rem;
+}
+
+#similarMatchChiclets .match-chiclet.collapsed .mc-top {
+  flex: none;
+}
+
+#similarMatchChiclets .match-chiclet.collapsed .mc-teams {
+  flex: 1;
+  min-width: 0;
 }
 
 .mc-live-badge {

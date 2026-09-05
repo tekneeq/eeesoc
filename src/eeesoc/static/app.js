@@ -83,6 +83,9 @@
     document.querySelectorAll(`.match-chiclet[data-event-id="${CSS.escape(key)}"]`).forEach((el) => {
       applyCollapsed(el, state.collapsed.has(key));
     });
+    document.querySelectorAll(`.match-chiclet-league[data-group-key="${CSS.escape(key)}"]`).forEach((el) => {
+      applyGroupCollapsed(el, key);
+    });
   }
 
   function setAllCollapsed(ids, collapsed) {
@@ -93,6 +96,37 @@
     persistCollapsed();
     document.querySelectorAll(".match-chiclet[data-event-id]").forEach((el) => {
       applyCollapsed(el, isCollapsed(el.dataset.eventId));
+    });
+    document.querySelectorAll(".match-chiclet-league[data-group-key]").forEach((el) => {
+      applyGroupCollapsed(el, el.dataset.groupKey);
+    });
+  }
+
+  function applyGroupCollapsed(block, groupKey) {
+    if (!block) return;
+    const collapsed = isCollapsed(groupKey);
+    block.classList.toggle("collapsed", collapsed);
+    const chev = block.querySelector(".match-chiclet-league-label .mc-collapse");
+    if (chev) {
+      chev.setAttribute("aria-expanded", collapsed ? "false" : "true");
+      chev.title = collapsed ? "Expand group" : "Collapse group";
+      chev.textContent = collapsed ? "▸" : "▾";
+    }
+  }
+
+  function bindGroupCollapse(block, groupKey) {
+    applyGroupCollapsed(block, groupKey);
+    const label = block.querySelector(".match-chiclet-league-label");
+    if (!label || label.dataset.bound === "1") return;
+    label.dataset.bound = "1";
+    const onToggle = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      toggleCollapsed(groupKey);
+    };
+    label.addEventListener("click", onToggle);
+    label.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") onToggle(e);
     });
   }
 
@@ -254,10 +288,12 @@
       byLeague.get(key).matches.push(m);
     }
 
-    for (const [, group] of byLeague) {
+    for (const [slug, group] of byLeague) {
+      const groupKey = `group:league:${slug}`;
       const block = document.createElement("div");
       block.className = "match-chiclet-league";
-      block.innerHTML = `<div class="match-chiclet-league-label"><span class="league-chiclet-tag">${escapeHtml(group.chiclet)}</span> ${escapeHtml(group.name)}</div>`;
+      block.dataset.groupKey = groupKey;
+      block.innerHTML = `<div class="match-chiclet-league-label" role="button" tabindex="0" title="Collapse or expand this league"><span class="league-chiclet-tag">${escapeHtml(group.chiclet)}</span> ${escapeHtml(group.name)} <span class="league-count">${group.matches.length}</span>${collapseToggleHtml(groupKey)}</div>`;
       const wrap = document.createElement("div");
       wrap.className = "match-chiclet-row";
       for (const m of group.matches) {
@@ -265,6 +301,7 @@
         wrap.appendChild(btn);
       }
       block.appendChild(wrap);
+      bindGroupCollapse(block, groupKey);
       grid.appendChild(block);
     }
   }
@@ -1283,13 +1320,16 @@
       byDay.get(key).push(f);
     }
     for (const [day, list] of byDay) {
+      const groupKey = `group:wp:${day}`;
       const block = document.createElement("div");
       block.className = "match-chiclet-league";
-      block.innerHTML = `<div class="match-chiclet-league-label"><span class="league-chiclet-tag">${escapeHtml(day)}</span> ${list.length} scheduled</div>`;
+      block.dataset.groupKey = groupKey;
+      block.innerHTML = `<div class="match-chiclet-league-label" role="button" tabindex="0" title="Collapse or expand this day"><span class="league-chiclet-tag">${escapeHtml(day)}</span> ${list.length} scheduled${collapseToggleHtml(groupKey)}</div>`;
       const wrap = document.createElement("div");
       wrap.className = "match-chiclet-row";
       for (const f of list) wrap.appendChild(buildWpChiclet(f));
       block.appendChild(wrap);
+      bindGroupCollapse(block, groupKey);
       grid.appendChild(block);
     }
 
@@ -1571,6 +1611,16 @@
       const ids = flatLiveMatches(state.liveFilter).map((m) => m.event_id);
       setAllCollapsed(ids, false);
     });
+    const similarGroupIds = () => {
+      const rows = flatLiveMatches(state.similarFilter);
+      const slugs = new Set(rows.map((m) => m.league_slug).filter(Boolean));
+      return [
+        ...rows.map((m) => m.event_id),
+        ...[...slugs].map((slug) => `group:league:${slug}`),
+      ];
+    };
+    $("#similarCollapseAll")?.addEventListener("click", () => setAllCollapsed(similarGroupIds(), true));
+    $("#similarExpandAll")?.addEventListener("click", () => setAllCollapsed(similarGroupIds(), false));
 
     await refreshLive();
     state.liveTimer = setInterval(() => {
