@@ -39,12 +39,16 @@
               Every in-play game, ticking in realtime — <span class="lede-home">green = home</span>,
               <span class="lede-away">blue = away</span>. Minute markers for shots (incl. blocked),
               SOT, goals, corners, plus an xG vs time chart. Tap a chiclet for the pitch graphic,
-              or drag <span class="lede-grip">⠿</span> to reorder the board.
+              ▾ to collapse, or drag <span class="lede-grip">⠿</span> to reorder the board.
             </p>
           </div>
           <div class="live-status">
             <span class="pulse" aria-hidden="true"></span>
             <span id="liveStamp">loading…</span>
+            <span class="chiclet-tools">
+              <button type="button" class="chiclet-tool" id="collapseAll">Collapse all</button>
+              <button type="button" class="chiclet-tool" id="expandAll">Expand all</button>
+            </span>
           </div>
         </div>
         <div class="chiclet-row" id="leagueChiclets" role="toolbar" aria-label="League filters"></div>
@@ -124,6 +128,10 @@
           <div class="live-status">
             <span class="pulse" aria-hidden="true"></span>
             <span id="similarLiveStamp">loading…</span>
+            <span class="chiclet-tools">
+              <button type="button" class="chiclet-tool" id="similarCollapseAll">Collapse all</button>
+              <button type="button" class="chiclet-tool" id="similarExpandAll">Expand all</button>
+            </span>
           </div>
         </div>
         <div class="chiclet-row" id="similarLeagueChiclets" role="toolbar" aria-label="Similar league filters"></div>

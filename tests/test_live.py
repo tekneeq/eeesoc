@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
+
 from eeesoc.live import (
     build_pitch_track,
     clear_live_cache,
     clear_track_cache,
     fetch_live_board,
+    match_is_live,
     parse_scoreboard,
+    promote_started_match,
 )
 
 
@@ -118,6 +122,96 @@ def test_fetch_live_board_filters_and_groups():
     chic = {c["slug"]: c["live_count"] for c in board["chiclets"]}
     assert chic["esp.1"] == 1
     assert chic["eng.1"] == 0
+
+
+def _event(eid: str, state: str, start: str, *, clock: str = "0'", detail: str = "Scheduled") -> dict:
+    return {
+        "id": eid,
+        "date": start,
+        "competitions": [
+            {
+                "status": {
+                    "displayClock": clock,
+                    "type": {"state": state, "detail": detail, "shortDetail": detail},
+                },
+                "competitors": [
+                    {"homeAway": "home", "score": "0", "team": {"displayName": "Home FC"}},
+                    {"homeAway": "away", "score": "0", "team": {"displayName": "Away FC"}},
+                ],
+            }
+        ],
+    }
+
+
+def test_parse_site_api_scoreboard_shape():
+    payload = {
+        "leagues": [{"name": "English Premier League", "slug": "eng.1"}],
+        "events": [_event("7", "in", "2026-09-05T14:00Z", clock="8'", detail="8'")],
+    }
+    matches = parse_scoreboard(payload, "eng.1", "EPL")
+    assert len(matches) == 1
+    assert matches[0].league_name == "English Premier League"
+    assert matches[0].state == "in"
+    assert matches[0].clock == "8'"
+
+
+def test_kickoff_passed_pre_match_counts_as_live():
+    now = datetime(2026, 9, 5, 14, 10, tzinfo=timezone.utc)
+    payload = {
+        "leagues": [{"name": "English Premier League"}],
+        "events": [
+            _event("ko-live", "pre", "2026-09-05T14:00Z", detail="Sat, September 5th at 10:00 AM EDT"),
+            _event("later", "pre", "2026-09-05T16:30Z", detail="Sat, September 5th at 12:30 PM EDT"),
+            _event("done", "post", "2026-09-05T11:30Z", clock="FT", detail="FT"),
+            _event("ppd", "pre", "2026-09-05T14:00Z", detail="Postponed"),
+        ],
+    }
+    matches = parse_scoreboard(payload, "eng.1", "EPL")
+    by_id = {m.event_id: m for m in matches}
+    assert match_is_live(by_id["ko-live"], now) is True
+    assert match_is_live(by_id["later"], now) is False
+    assert match_is_live(by_id["done"], now) is False
+    assert match_is_live(by_id["ppd"], now) is False
+
+    promoted = promote_started_match(by_id["ko-live"], now)
+    assert promoted.state == "in"
+    assert promoted.clock == "10'"
+    assert promoted.clock_seconds == 600
+    assert promote_started_match(by_id["later"], now).state == "pre"
+
+
+def test_fetch_live_board_includes_kickoff_passed_pre_epl():
+    clear_live_cache()
+    now = datetime.now(timezone.utc)
+    started = (now.replace(microsecond=0) - timedelta(minutes=10)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    later = (now.replace(microsecond=0) + timedelta(hours=2)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    payload = {
+        "content": {
+            "sbData": {
+                "leagues": [{"name": "English Premier League"}],
+                "events": [
+                    _event("epl-1", "pre", started, detail="Scheduled"),
+                    _event("epl-later", "pre", later, detail="Scheduled"),
+                ],
+            }
+        }
+    }
+
+    def fake_fetch(url: str):
+        if "eng.1" in url:
+            return payload
+        return {"content": {"sbData": {"leagues": [{"name": "X"}], "events": []}}}
+
+    board = fetch_live_board(
+        live_only=True,
+        leagues=[("eng.1", "EPL")],
+        fetcher=fake_fetch,
+        use_cache=False,
+    )
+    assert board["live_total"] == 1
+    assert board["leagues"][0]["matches"][0]["home"] == "Home FC"
+    assert board["leagues"][0]["matches"][0]["state"] == "in"
+    assert board["chiclets"][0]["live_count"] == 1
 
 
 SAMPLE_PLAYS = {

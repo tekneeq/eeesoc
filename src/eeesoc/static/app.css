@@ -637,6 +637,31 @@ main {
   opacity: 0.85;
 }
 
+.chiclet-tools {
+  display: inline-flex;
+  gap: 0.35rem;
+  margin-left: 0.35rem;
+}
+
+.chiclet-tool {
+  appearance: none;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 0.22rem 0.45rem;
+  border-radius: 0.22rem;
+  cursor: pointer;
+}
+
+.chiclet-tool:hover {
+  color: var(--text);
+  border-color: rgba(125, 255, 179, 0.35);
+}
+
 .match-chiclet-grid {
   display: flex;
   flex-direction: column;
@@ -651,6 +676,22 @@ main {
   gap: 0.5rem;
   margin-bottom: 0.45rem;
   font-size: 0.85rem;
+  color: var(--muted);
+  cursor: pointer;
+  user-select: none;
+}
+
+.match-chiclet-league-label .mc-collapse {
+  margin-left: auto;
+}
+
+.match-chiclet-league.collapsed .match-chiclet-row {
+  display: none;
+}
+
+.league-count {
+  font-family: var(--mono);
+  font-size: 0.68rem;
   color: var(--muted);
 }
 
@@ -1054,6 +1095,72 @@ main {
   align-items: center;
   justify-content: space-between;
   gap: 0.5rem;
+}
+
+.mc-top-right {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.mc-collapse {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 1.35rem;
+  height: 1.35rem;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 0.22rem;
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--muted);
+  font-size: 0.72rem;
+  line-height: 1;
+  cursor: pointer;
+  user-select: none;
+}
+
+.mc-collapse:hover {
+  color: var(--accent);
+  border-color: rgba(125, 255, 179, 0.4);
+}
+
+.match-chiclet.collapsed .mc-stats,
+.match-chiclet.collapsed .mc-charts,
+.match-chiclet.collapsed .wp-bar,
+.match-chiclet.collapsed .wp-pcts,
+.match-chiclet.collapsed .wp-pick {
+  display: none;
+}
+
+.match-chiclet.collapsed.match-chiclet-tl {
+  min-width: min(100%, 18rem);
+  max-width: 28rem;
+}
+
+.match-chiclet:not(.match-chiclet-tl):not(.wp-chiclet) {
+  min-width: 12rem;
+  max-width: 15.5rem;
+}
+
+#similarMatchChiclets .match-chiclet.collapsed {
+  flex-direction: row;
+  align-items: center;
+  gap: 0.55rem;
+  min-width: 13.5rem;
+  max-width: 19rem;
+  padding: 0.4rem 0.55rem;
+}
+
+#similarMatchChiclets .match-chiclet.collapsed .mc-top {
+  flex: none;
+}
+
+#similarMatchChiclets .match-chiclet.collapsed .mc-teams {
+  flex: 1;
+  min-width: 0;
 }
 
 .mc-live-badge {

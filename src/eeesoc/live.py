@@ -9,11 +9,19 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
+from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 
 USER_AGENT = "eeesoc/0.1 (+https://github.com/tekneeq/eeesoc)"
 CDN_SCOREBOARD = "https://cdn.espn.com/core/soccer/scoreboard?xhr=1&league={league}"
+SITE_SCOREBOARD = "https://site.api.espn.com/apis/site/v2/sports/soccer/{league}/scoreboard"
+
+# ESPN often leaves Saturday 15:00 EPL kickoffs as `pre` for several minutes.
+# Treat kickoff-passed (and imminent) fixtures as live so chiclets appear at KO.
+_KO_AHEAD_S = 45
+_KO_STALE_PRE_S = 3 * 3600
+_DEAD_STATUS = ("postponed", "canceled", "cancelled", "suspended", "abandoned", "forfeit")
 
 # Major leagues shown as chiclets (slug → short label).
 LEAGUES: list[tuple[str, str]] = [
@@ -79,9 +87,69 @@ def _safe_int(value: Any, default: int = 0) -> int:
         return default
 
 
+def parse_start(iso: str) -> datetime | None:
+    if not iso:
+        return None
+    try:
+        return datetime.fromisoformat(str(iso).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def _scoreboard_body(payload: dict[str, Any]) -> dict[str, Any]:
+    """Normalize CDN (`content.sbData`) and site.api (top-level events) payloads."""
+    content = payload.get("content")
+    if isinstance(content, dict) and isinstance(content.get("sbData"), dict):
+        return content["sbData"]
+    if payload.get("events") is not None or payload.get("leagues") is not None:
+        return payload
+    return {}
+
+
+def _status_blob(match: LiveMatch) -> str:
+    return f"{match.detail} {match.clock} {match.state}".lower()
+
+
+def match_is_live(match: LiveMatch, now: datetime | None = None) -> bool:
+    """True when ESPN says in-play, or kickoff has arrived while state is still `pre`."""
+    if match.state == "in":
+        return True
+    if match.state != "pre":
+        return False
+    if any(word in _status_blob(match) for word in _DEAD_STATUS):
+        return False
+    start = parse_start(match.start)
+    if start is None:
+        return False
+    now = now or datetime.now(timezone.utc)
+    elapsed = (now - start).total_seconds()
+    return -_KO_AHEAD_S <= elapsed <= _KO_STALE_PRE_S
+
+
+_CLOCK_RE = re.compile(r"^\d{1,3}(\+\d+)?'?$")
+
+
+def _usable_clock(clock: str) -> bool:
+    c = (clock or "").strip()
+    if not c or c in {"0'", "0"}:
+        return False
+    return bool(_CLOCK_RE.match(c) or c.upper() in {"HT", "FT", "LIVE"})
+
+
+def promote_started_match(match: LiveMatch, now: datetime | None = None) -> LiveMatch:
+    """Flip a kickoff-passed `pre` row to `in` and synthesize a running clock."""
+    now = now or datetime.now(timezone.utc)
+    if match.state == "in" or not match_is_live(match, now):
+        return match
+    start = parse_start(match.start)
+    elapsed = max(0, int((now - start).total_seconds())) if start else 0
+    clock = match.clock if _usable_clock(match.clock) else f"{elapsed // 60}'"
+    clock_seconds = match.clock_seconds if match.clock_seconds is not None else elapsed
+    return replace(match, state="in", clock=clock, clock_seconds=clock_seconds, detail=clock)
+
+
 def parse_scoreboard(payload: dict[str, Any], league_slug: str, chiclet: str) -> list[LiveMatch]:
-    content = payload.get("content") or {}
-    sb = content.get("sbData") or {}
+    sb = _scoreboard_body(payload)
     leagues = sb.get("leagues") or []
     league_name = chiclet
     if leagues and isinstance(leagues[0], dict):
@@ -141,6 +209,24 @@ def parse_scoreboard(payload: dict[str, Any], league_slug: str, chiclet: str) ->
     return out
 
 
+def _scoreboard_dates(now: datetime | None = None) -> str:
+    now = now or datetime.now(timezone.utc)
+    start = now - timedelta(days=1) if now.hour < 8 else now
+    end = now + timedelta(days=1) if now.hour >= 20 else now
+    if start.date() == end.date():
+        return start.strftime("%Y%m%d")
+    return f"{start.strftime('%Y%m%d')}-{end.strftime('%Y%m%d')}"
+
+
+def _scoreboard_urls(league_slug: str) -> list[str]:
+    quoted = urllib.parse.quote(league_slug, safe=".")
+    dates = _scoreboard_dates()
+    return [
+        f"{SITE_SCOREBOARD.format(league=quoted)}?dates={dates}",
+        CDN_SCOREBOARD.format(league=quoted),
+    ]
+
+
 def fetch_league(
     league_slug: str,
     chiclet: str,
@@ -148,12 +234,15 @@ def fetch_league(
     fetcher: Callable[[str], dict[str, Any]] | None = None,
 ) -> list[LiveMatch]:
     fetch = fetcher or _fetch_json
-    url = CDN_SCOREBOARD.format(league=urllib.parse.quote(league_slug, safe="."))
-    try:
-        payload = fetch(url)
-    except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, json.JSONDecodeError, OSError):
-        return []
-    return parse_scoreboard(payload, league_slug, chiclet)
+    for url in _scoreboard_urls(league_slug):
+        try:
+            payload = fetch(url)
+        except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, json.JSONDecodeError, OSError):
+            continue
+        matches = parse_scoreboard(payload, league_slug, chiclet)
+        if matches or fetcher is not None:
+            return matches
+    return []
 
 
 def fetch_live_board(
@@ -192,8 +281,10 @@ def fetch_live_board(
             except Exception as exc:  # noqa: BLE001 — surface per-league failure
                 errors.append(f"{label}: {exc}")
 
+    now = datetime.now(timezone.utc)
+    matches = [promote_started_match(m, now) for m in matches]
     if live_only:
-        matches = [m for m in matches if m.state == "in"]
+        matches = [m for m in matches if match_is_live(m, now)]
 
     # Stable order: league chiclet order, then kickoff, then home.
     order = {slug: i for i, (slug, _) in enumerate(league_list)}
