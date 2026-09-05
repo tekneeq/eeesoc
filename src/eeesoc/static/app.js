@@ -1151,9 +1151,13 @@
     if (!data) return;
 
     const rec = data.record || {};
+    const todayIso = new Date().toISOString().slice(0, 10);
+    const windowLabel =
+      rec.anchor && rec.anchor !== todayIso
+        ? `Past ${rec.window_days || 30} days (to ${rec.anchor})`
+        : `Past ${rec.window_days || 30} days`;
     $("#wpRecord").innerHTML =
-      wpRecordCard(`Past ${rec.window_days || 30} days`, rec.last30) +
-      wpRecordCard("Season", rec.season);
+      wpRecordCard(windowLabel, rec.last30) + wpRecordCard("Season", rec.season);
 
     const grid = $("#wpFixtures");
     grid.innerHTML = "";
@@ -1255,7 +1259,7 @@
         : "TBD";
       const h2h = (d.h2h || [])
         .map(
-          (g) => `<div class="wp-form-row">
+          (g) => `<div class="wp-form-row wp-h2h-row">
             <span class="date">${escapeHtml(g.date)}</span>
             <span class="teams">${escapeHtml(g.home)} ${escapeHtml(g.ft)} ${escapeHtml(g.away)}</span>
           </div>`

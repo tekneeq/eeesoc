@@ -230,8 +230,17 @@ def summarize_record(
 ) -> dict[str, Any]:
     cutoff = (today - timedelta(days=window_days)).isoformat()
     recent = [r for r in rows if r["date"] >= cutoff]
+    anchor = today.isoformat()
+    if not recent and rows:
+        # Stale cache (no games graded in the true window): anchor the window
+        # to the latest graded matchday so the card still shows recent form.
+        latest = max(r["date"] for r in rows)
+        cutoff = (date.fromisoformat(latest) - timedelta(days=window_days)).isoformat()
+        recent = [r for r in rows if r["date"] >= cutoff]
+        anchor = latest
     return {
         "window_days": window_days,
+        "anchor": anchor,
         "last30": _summarize(recent),
         "season": _summarize(rows),
     }

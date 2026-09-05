@@ -1628,6 +1628,10 @@ main {
   font-size: 0.78rem;
 }
 
+.wp-h2h-row {
+  grid-template-columns: 5.5rem 1fr;
+}
+
 .wp-form-badge {
   display: inline-flex;
   align-items: center;

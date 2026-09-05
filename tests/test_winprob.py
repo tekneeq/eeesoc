@@ -102,6 +102,19 @@ def test_summarize_record_splits_last30_and_season():
     assert rec["last30"]["correct"] == 1
     assert rec["last30"]["wrong"] == 1
     assert rec["window_days"] == 30
+    assert rec["anchor"] == "2026-09-05"
+
+
+def test_summarize_record_anchors_to_latest_match_when_window_empty():
+    rows = [
+        {"date": "2026-05-10", "correct": True},
+        {"date": "2026-05-24", "correct": False},
+        {"date": "2026-04-01", "correct": True},
+    ]
+    rec = summarize_record(rows, today=date(2026, 9, 5), window_days=30)
+    assert rec["anchor"] == "2026-05-24"
+    assert rec["last30"]["total"] == 2  # the two May games within 30d of the anchor
+    assert rec["season"]["total"] == 3
 
 
 SITE_PAYLOAD = {
