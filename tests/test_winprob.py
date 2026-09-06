@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import date
+from pathlib import Path
 
 from eeesoc.models import Match
 from eeesoc.winprob import (
@@ -15,6 +16,7 @@ from eeesoc.winprob import (
     outcome_probs,
     parse_fd_date,
     parse_site_scoreboard,
+    pick_bucket,
     predict_fixture,
     summarize_record,
     team_form,
@@ -84,9 +86,20 @@ def test_backtest_grades_every_match_and_excludes_presets():
     rows = backtest_predictions([*current, preset], history)
     assert len(rows) == 3
     assert rows[0]["date"] == "2026-08-01"
-    assert {"pick", "actual", "correct", "probs", "ft"} <= set(rows[0])
+    assert {"pick", "actual", "correct", "probs", "ft", "bucket", "league_chiclet"} <= set(rows[0])
+    assert rows[0]["league_chiclet"] == "EPL"
+    assert rows[0]["bucket"] in {"<50", "50-55", ">55-60", ">60"}
     # Rows are chronological
     assert [r["date"] for r in rows] == sorted(r["date"] for r in rows)
+
+
+def test_pick_bucket_cuts():
+    assert pick_bucket(0.49) == "<50"
+    assert pick_bucket(0.5) == "50-55"
+    assert pick_bucket(0.55) == "50-55"
+    assert pick_bucket(0.5501) == ">55-60"
+    assert pick_bucket(0.6) == ">55-60"
+    assert pick_bucket(0.601) == ">60"
 
 
 def test_summarize_record_splits_last30_and_season():
@@ -103,6 +116,10 @@ def test_summarize_record_splits_last30_and_season():
     assert rec["last30"]["wrong"] == 1
     assert rec["window_days"] == 30
     assert rec["anchor"] == "2026-09-05"
+    assert rec["cutoff"] == "2026-08-06"
+    assert rec["daily"]
+    assert rec["leagues"]
+    assert set(rec["last30"]["buckets"]) == {"<50", "50-55", ">55-60", ">60"}
 
 
 def test_summarize_record_anchors_to_latest_match_when_window_empty():
@@ -115,6 +132,44 @@ def test_summarize_record_anchors_to_latest_match_when_window_empty():
     assert rec["anchor"] == "2026-05-24"
     assert rec["last30"]["total"] == 2  # the two May games within 30d of the anchor
     assert rec["season"]["total"] == 3
+
+
+def test_summarize_record_breaks_out_leagues_and_clickable_buckets():
+    rows = [
+        {
+            "date": "2026-09-01",
+            "correct": True,
+            "pick_prob": 0.62,
+            "bucket": ">60",
+            "league": "epl",
+            "league_chiclet": "EPL",
+        },
+        {
+            "date": "2026-09-01",
+            "correct": False,
+            "pick_prob": 0.52,
+            "bucket": "50-55",
+            "league": "epl",
+            "league_chiclet": "EPL",
+        },
+        {
+            "date": "2026-09-02",
+            "correct": True,
+            "pick_prob": 0.57,
+            "bucket": ">55-60",
+            "league": "esp",
+            "league_chiclet": "La Liga",
+        },
+    ]
+    rec = summarize_record(rows, today=date(2026, 9, 5), window_days=30)
+    chiclets = {g["chiclet"]: g for g in rec["leagues"]}
+    assert set(chiclets) == {"EPL", "La Liga"}
+    assert chiclets["EPL"]["last30"]["total"] == 2
+    assert chiclets["EPL"]["last30"]["buckets"][">60"]["correct"] == 1
+    assert chiclets["La Liga"]["last30"]["buckets"][">55-60"]["total"] == 1
+    assert rec["daily"][0]["date"] == "2026-09-01"
+    assert rec["daily"][0]["total"] == 2
+    assert rec["daily"][0]["buckets"]["50-55"]["wrong"] == 1
 
 
 SITE_PAYLOAD = {
@@ -196,6 +251,9 @@ def test_build_winprob_board():
     )
     assert board["record"]["season"]["total"] == len(current)
     assert board["record"]["last30"]["total"] <= board["record"]["season"]["total"]
+    assert board["record"]["daily"]
+    assert board["record"]["leagues"][0]["chiclet"] == "EPL"
+    assert board["record"]["picks"]
     assert board["recent_results"]
     assert len(board["fixtures"]) == 1
     fx = board["fixtures"][0]
@@ -232,3 +290,13 @@ def test_build_fixture_detail_maps_espn_names():
 
     missing = build_fixture_detail("Unknown FC", "Chelsea", current, history)
     assert missing["error"]
+
+
+def test_winprob_tab_has_daily_chart_and_league_buckets():
+    js = Path("src/eeesoc/static/app.js").read_text(encoding="utf-8")
+    assert "function wpDailyChartSvg" in js
+    assert "function wpBucketChip" in js
+    assert 'kind: "bucket"' in js
+    assert 'kind: "day"' in js
+    html = Path("src/eeesoc/static/index.html").read_text(encoding="utf-8")
+    assert "league bucket" in html
