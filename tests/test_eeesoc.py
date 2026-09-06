@@ -147,3 +147,13 @@ def test_cli_host_flag_defaults():
     ns = build_parser().parse_args(["--dashboard", "--host", "0.0.0.0", "--port", "8081"])
     assert ns.host == "0.0.0.0"
     assert ns.port == 8081
+
+
+def test_entrypoint_serves_from_existing_cache():
+    """A failed/slow --warm must not block :8081 (nginx 502 after deploy)."""
+    text = Path("scripts/docker-entrypoint.sh").read_text(encoding="utf-8")
+    assert "cache hit" in text
+    assert "refresh in background" in text
+    assert "starting with empty corpus" in text
+    # Unconditional blocking warm is what took eeesoc.com to 502 after #27.
+    assert text.index("exec uv run eeesoc --dashboard") > text.index("cache hit")

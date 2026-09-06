@@ -30,17 +30,22 @@ if ! docker ps --format '{{.Names}}' 2>/dev/null | grep -qx eeesoc-dashboard \
 fi
 
 log "2/2  health check"
-# Give warm+bind a few seconds on cold cache
-for i in 1 2 3 4 5 6 7 8 9 10; do
+# Cached starts bind immediately; first-boot still needs a CSV warm.
+for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
     if curl -fsS "http://127.0.0.1:8081/health" >/dev/null 2>&1; then
         log "healthy: $(curl -fsS http://127.0.0.1:8081/health | tr -d '\n')"
         break
     fi
-    if [ "$i" -eq 10 ]; then
+    if [ "$i" -eq 20 ]; then
         log "ERROR: /health did not respond after restart"
         docker logs --tail 80 eeesoc-dashboard 2>/dev/null \
           || sudo docker logs --tail 80 eeesoc-dashboard 2>/dev/null \
           || true
+        if docker image inspect eeesoc-dashboard:prev >/dev/null 2>&1 \
+           || sudo docker image inspect eeesoc-dashboard:prev >/dev/null 2>&1; then
+            log "rolling back to eeesoc-dashboard:prev"
+            ./restart.sh --image eeesoc-dashboard:prev || true
+        fi
         exit 1
     fi
     sleep 3
