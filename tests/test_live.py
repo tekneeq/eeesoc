@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 from eeesoc.live import (
     build_pitch_track,
@@ -677,3 +678,12 @@ def test_opponent_scored_context_averages():
     assert ctx["pct_any_2h_goals"] == 0.5
     assert any(w["bucket"] == "46-60" and w["side"] == "my" for w in ctx["when_2h"])
     assert any(w["bucket"] == "76-90" and w["side"] == "opp" for w in ctx["when_2h"])
+
+
+def test_live_chiclets_use_pointer_drag():
+    """Live reorder must not rely on HTML5 DnD on <button> (broken in Firefox / SVG)."""
+    js = Path("src/eeesoc/static/app.js").read_text(encoding="utf-8")
+    assert "function placeChicletAtY" in js
+    assert 'addEventListener("pointerdown"' in js
+    assert "btn.draggable = true" not in js
+    assert "makeChicletDropZone" not in js

@@ -15,6 +15,7 @@
     timelines: {},
     liveTickTimer: null,
     chicletOrder: [],
+    chicletDrag: false,
     collapsed: new Set(),
     winprob: null,
     selectedWpId: null,
@@ -254,6 +255,13 @@
     const withTimeline = !!opts.withTimeline;
     const soft = !!opts.soft;
 
+    // Never rebuild the list mid-drag — moving a <button> during HTML5 DnD (or a
+    // live poll) cancels the gesture and the card snaps back.
+    if (state.chicletDrag) {
+      if (soft) softPatchLiveChiclets(grid, rows, selected, onSelect, opts);
+      return;
+    }
+
     if (soft && softPatchLiveChiclets(grid, rows, selected, onSelect, opts)) {
       return;
     }
@@ -268,7 +276,6 @@
       // Flat, user-orderable list — each chiclet carries its own league tag.
       const wrap = document.createElement("div");
       wrap.className = "match-chiclet-row match-chiclet-row-tl";
-      makeChicletDropZone(wrap);
       for (const m of orderRows(rows)) {
         const btn = buildMatchChicletButton(m, selected, onSelect, withTimeline);
         makeChicletDraggable(btn, wrap);
@@ -306,40 +313,119 @@
     }
   }
 
-  function makeChicletDraggable(btn, wrap) {
-    btn.draggable = true;
-    btn.addEventListener("dragstart", (e) => {
-      btn.classList.add("dragging");
-      e.dataTransfer.effectAllowed = "move";
-      e.dataTransfer.setData("text/plain", btn.dataset.eventId || "");
+  function placeChicletAtY(wrap, card, clientY) {
+    const others = [...wrap.querySelectorAll(".match-chiclet")].filter((el) => el !== card);
+    const next = others.find((el) => {
+      const r = el.getBoundingClientRect();
+      return clientY < r.top + r.height / 2;
     });
-    btn.addEventListener("dragend", () => {
-      btn.classList.remove("dragging");
-      const ids = [...wrap.querySelectorAll(".match-chiclet[data-event-id]")].map(
-        (el) => String(el.dataset.eventId)
-      );
-      persistChicletOrder(ids);
-    });
+    if (next) {
+      if (next.previousElementSibling !== card) wrap.insertBefore(card, next);
+    } else if (wrap.lastElementChild !== card) {
+      wrap.appendChild(card);
+    }
   }
 
-  function makeChicletDropZone(wrap) {
-    wrap.addEventListener("dragover", (e) => {
-      const dragging = wrap.querySelector(".match-chiclet.dragging");
-      if (!dragging) return;
+  function makeChicletDraggable(btn, wrap) {
+    // Pointer drag — HTML5 DnD on <button> (and on SVG children) is unreliable:
+    // Firefox never starts the drag, and Chromium often cancels it the moment
+    // insertBefore moves the drag source. Hold / move is what the Live tab wants.
+    const MOVE_PX = 6;
+    const TOUCH_HOLD_MS = 160;
+    let pointerId = null;
+    let originX = 0;
+    let originY = 0;
+    let dragging = false;
+    let holdTimer = null;
+    let pointerType = "mouse";
+
+    const clearHold = () => {
+      if (holdTimer) {
+        clearTimeout(holdTimer);
+        holdTimer = null;
+      }
+    };
+
+    const persistOrder = () => {
+      persistChicletOrder(
+        [...wrap.querySelectorAll(".match-chiclet[data-event-id]")].map((el) => String(el.dataset.eventId))
+      );
+    };
+
+    const startDrag = () => {
+      if (dragging || pointerId == null) return;
+      dragging = true;
+      state.chicletDrag = true;
+      btn.__suppressClick = true;
+      btn.classList.add("dragging");
+      try {
+        btn.setPointerCapture(pointerId);
+      } catch (err) {
+        /* capture is optional — window listeners still finish the gesture */
+      }
+    };
+
+    const stopDrag = (commit) => {
+      clearHold();
+      btn.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+      if (dragging) {
+        try {
+          btn.releasePointerCapture(pointerId);
+        } catch (err) {
+          /* already released */
+        }
+        btn.classList.remove("dragging");
+        state.chicletDrag = false;
+        if (commit) persistOrder();
+      }
+      dragging = false;
+      pointerId = null;
+    };
+
+    const onMove = (e) => {
+      if (e.pointerId !== pointerId) return;
+      const dx = e.clientX - originX;
+      const dy = e.clientY - originY;
+      if (!dragging) {
+        if (Math.hypot(dx, dy) < MOVE_PX) return;
+        // Touch/pen: movement before the hold completes is a page scroll.
+        if (pointerType !== "mouse") {
+          stopDrag(false);
+          return;
+        }
+        startDrag();
+      }
       e.preventDefault();
-      e.dataTransfer.dropEffect = "move";
-      const siblings = [...wrap.querySelectorAll(".match-chiclet:not(.dragging)")];
-      const next = siblings.find((el) => {
-        const r = el.getBoundingClientRect();
-        return e.clientY < r.top + r.height / 2;
-      });
-      if (next) {
-        if (next.previousElementSibling !== dragging) wrap.insertBefore(dragging, next);
-      } else if (wrap.lastElementChild !== dragging) {
-        wrap.appendChild(dragging);
+      const edge = 56;
+      const scroller = document.scrollingElement || document.documentElement;
+      if (e.clientY < edge) scroller.scrollBy(0, -20);
+      else if (e.clientY > window.innerHeight - edge) scroller.scrollBy(0, 20);
+      placeChicletAtY(wrap, btn, e.clientY);
+    };
+
+    const onUp = (e) => {
+      if (pointerId != null && e.pointerId !== pointerId) return;
+      stopDrag(true);
+    };
+
+    btn.addEventListener("pointerdown", (e) => {
+      if (e.isPrimary === false) return;
+      if (e.pointerType === "mouse" && e.button !== 0) return;
+      if (e.target.closest(".mc-collapse")) return;
+      pointerType = e.pointerType || "mouse";
+      pointerId = e.pointerId;
+      originX = e.clientX;
+      originY = e.clientY;
+      dragging = false;
+      btn.addEventListener("pointermove", onMove, { passive: false });
+      window.addEventListener("pointerup", onUp);
+      window.addEventListener("pointercancel", onUp);
+      if (pointerType !== "mouse") {
+        holdTimer = setTimeout(startDrag, TOUCH_HOLD_MS);
       }
     });
-    wrap.addEventListener("drop", (e) => e.preventDefault());
   }
 
   function chicletStatsHtml(tl) {
@@ -406,6 +492,10 @@
       }
     `;
     btn.addEventListener("click", () => {
+      if (btn.__suppressClick) {
+        btn.__suppressClick = false;
+        return;
+      }
       if (btn.__onSelect) btn.__onSelect(btn.__match);
     });
     bindCollapse(btn);
