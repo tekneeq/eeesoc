@@ -31,17 +31,33 @@ EOF
 DOCKER=(docker)
 require_docker
 
-git pull
+IMAGE="eeesoc-dashboard:latest"
+if [[ "${1:-}" == "--image" && -n "${2:-}" ]]; then
+  IMAGE="$2"
+fi
 
-GIT_SHA="$(git rev-parse --short HEAD)"
-GIT_COMMIT_TIME="$(git show -s --format=%cI HEAD)"
+if [[ "$IMAGE" == "eeesoc-dashboard:latest" ]]; then
+  git pull
 
-mkdir -p data/cache
+  GIT_SHA="$(git rev-parse --short HEAD)"
+  GIT_COMMIT_TIME="$(git show -s --format=%cI HEAD)"
 
-"${DOCKER[@]}" build \
-    --build-arg "GIT_SHA=${GIT_SHA}" \
-    --build-arg "GIT_COMMIT_TIME=${GIT_COMMIT_TIME}" \
-    -t eeesoc-dashboard:latest .
+  mkdir -p data/cache
+
+  # Keep the last running image so a failed health check can roll back.
+  if "${DOCKER[@]}" image inspect eeesoc-dashboard:latest >/dev/null 2>&1; then
+    "${DOCKER[@]}" tag eeesoc-dashboard:latest eeesoc-dashboard:prev
+  fi
+
+  "${DOCKER[@]}" build \
+      --build-arg "GIT_SHA=${GIT_SHA}" \
+      --build-arg "GIT_COMMIT_TIME=${GIT_COMMIT_TIME}" \
+      -t eeesoc-dashboard:latest .
+else
+  GIT_SHA="$(git rev-parse --short HEAD)"
+  GIT_COMMIT_TIME="$(git show -s --format=%cI HEAD)"
+fi
+
 "${DOCKER[@]}" rm -f eeesoc-dashboard 2>/dev/null || true
 "${DOCKER[@]}" run -d --name eeesoc-dashboard --restart unless-stopped \
     -p 8081:8081 \
@@ -50,6 +66,6 @@ mkdir -p data/cache
     -e "EEESOC_GIT_COMMIT_TIME=${GIT_COMMIT_TIME}" \
     -e "EEESOC_SEASON=${EEESOC_SEASON:-EPL:2025}" \
     -e "EEESOC_CACHE=/data/cache" \
-    eeesoc-dashboard:latest
+    "$IMAGE"
 
-echo "Started eeesoc-dashboard at ${GIT_SHA} (${GIT_COMMIT_TIME})"
+echo "Started ${IMAGE} at ${GIT_SHA} (${GIT_COMMIT_TIME})"
