@@ -784,16 +784,27 @@ main {
   max-width: 56rem;
   width: 100%;
   cursor: grab;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-user-drag: none;
 }
 
-.match-chiclet-tl:active {
+.match-chiclet-tl:active,
+.match-chiclet.dragging {
   cursor: grabbing;
+}
+
+.match-chiclet-tl svg,
+.match-chiclet-tl img {
+  -webkit-user-drag: none;
+  user-select: none;
 }
 
 .match-chiclet.dragging {
   opacity: 0.45;
   border-style: dashed;
   border-color: rgba(125, 255, 179, 0.6);
+  touch-action: none;
 }
 
 .mc-top-left {
@@ -809,6 +820,8 @@ main {
   line-height: 1;
   letter-spacing: -0.08em;
   user-select: none;
+  cursor: grab;
+  touch-action: none;
 }
 
 .match-chiclet-tl:hover .mc-grip {
