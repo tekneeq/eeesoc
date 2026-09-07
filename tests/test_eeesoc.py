@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import json
+from datetime import date
 from pathlib import Path
 
 import pytest
 
 from eeesoc.cache import cache_root, read_json, write_json
+from eeesoc.dashboard import build_match_rows
 from eeesoc.data import (
     inject_everton_preset,
     matches_from_csv,
@@ -147,6 +149,89 @@ def test_cli_host_flag_defaults():
     ns = build_parser().parse_args(["--dashboard", "--host", "0.0.0.0", "--port", "8081"])
     assert ns.host == "0.0.0.0"
     assert ns.port == 8081
+
+
+def test_match_rows_puts_today_first_and_hides_preset():
+    today = date(2026, 9, 7)
+    preset = Match(
+        match_id="EPL:2025:preset:Everton:53",
+        season="EPL:2025",
+        date="01/01/2026",
+        home="Everton",
+        away="Demo United",
+        home_goals_ft=2,
+        away_goals_ft=0,
+        home_shots_ft=14,
+        away_shots_ft=9,
+        home_sot_ft=5,
+        away_sot_ft=2,
+    )
+    matches = [
+        Match(
+            match_id="old",
+            season="EPL:2026",
+            date="16/08/2026",
+            home="Arsenal",
+            away="Chelsea",
+            home_goals_ft=1,
+            away_goals_ft=0,
+            home_shots_ft=10,
+            away_shots_ft=8,
+            home_sot_ft=4,
+            away_sot_ft=2,
+        ),
+        Match(
+            match_id="today-cached",
+            season="EPL:2026",
+            date="07/09/2026",
+            home="Liverpool",
+            away="Everton",
+            home_goals_ft=2,
+            away_goals_ft=1,
+            home_shots_ft=12,
+            away_shots_ft=7,
+            home_sot_ft=5,
+            away_sot_ft=3,
+        ),
+        preset,
+        Match(
+            match_id="mid",
+            season="EPL:2026",
+            date="01/09/2026",
+            home="Tottenham",
+            away="Leeds",
+            home_goals_ft=0,
+            away_goals_ft=0,
+            home_shots_ft=6,
+            away_shots_ft=6,
+            home_sot_ft=2,
+            away_sot_ft=1,
+        ),
+    ]
+    scheduled = [
+        {
+            "start": "2026-09-07T19:00:00+00:00",
+            "home": "Man City",
+            "away": "Newcastle",
+            "home_fd": "Man City",
+            "away_fd": "Newcastle",
+        },
+        {
+            "start": "2026-09-07T11:30:00+00:00",
+            "home": "Liverpool",
+            "away": "Everton",
+            "home_fd": "Liverpool",
+            "away_fd": "Everton",
+        },
+    ]
+    rows = build_match_rows(matches, today=today, scheduled=scheduled)
+    homes = [r["home"] for r in rows]
+    assert "Everton" not in homes
+    assert homes[:2] == ["Liverpool", "Man City"]
+    assert rows[0]["is_today"] is True
+    assert rows[0]["scheduled"] is False
+    assert rows[1]["scheduled"] is True
+    assert homes[2:] == ["Tottenham", "Arsenal"]
 
 
 def test_entrypoint_serves_from_existing_cache():
