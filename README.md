@@ -14,7 +14,7 @@ uv sync --extra dev
 uv run eeesoc --dashboard --port 8081 --warm EPL:2025
 ```
 
-Open http://127.0.0.1:8081 — use **Everton 53′** for the demo preset (`42'/53' · 12/4 vs 6/1`).
+Open http://127.0.0.1:8081 — the **Matches** tab lists today's scheduled fixtures first.
 
 ## CLI
 
@@ -90,5 +90,5 @@ cd ~/eeesoc && ./deploy.sh
 
 - Season data is loaded from [football-data.co.uk](https://www.football-data.co.uk/) EPL CSVs.
 - Minute-level shot ramps are reconstructed from full-time box scores (deterministic per match).
-- The Everton 53′ fixture is injected as an explicit demo snapshot for Similar.
+- An Everton 53′ fixture is still injected into the season cache for CLI `--similar` demos; it is not shown in the dashboard header.
 - Docker binds `0.0.0.0:8081` and mounts `./data/cache` so warm data survives rebuilds.

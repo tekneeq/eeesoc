@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import re
+import time
+from datetime import date, datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
@@ -14,11 +16,124 @@ from eeesoc.live import build_event_timeline, build_live_situation, build_pitch_
 from eeesoc.models import Match, MatchSnapshot
 from eeesoc.scorelines import build_live_scoreline_eval, score_path
 from eeesoc.similar import find_similar, opponent_scored_context
-from eeesoc.winprob import build_fixture_detail, build_winprob_board
+from eeesoc.teams import resolve_team
+from eeesoc.winprob import build_fixture_detail, build_winprob_board, fetch_scheduled_fixtures, parse_fd_date
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 
 EVERTON_PRESET_RE = re.compile(r"preset:Everton:53")
+
+_MATCHES_SCHED_TTL_S = 60.0
+_matches_sched_cache: tuple[float, str, list[dict[str, Any]]] | None = None
+
+
+def _is_preset(match_id: str) -> bool:
+    return bool(EVERTON_PRESET_RE.search(match_id or ""))
+
+
+def _fixture_day(start: str) -> date | None:
+    text = (start or "").strip()
+    if not text:
+        return None
+    try:
+        return datetime.fromisoformat(text.replace("Z", "+00:00")).date()
+    except ValueError:
+        return None
+
+
+def _serialize_match(m: Match, *, today: date) -> dict[str, Any]:
+    parsed = parse_fd_date(m.date)
+    return {
+        "match_id": m.match_id,
+        "date": m.date,
+        "iso_date": parsed.isoformat() if parsed else "",
+        "home": m.home,
+        "away": m.away,
+        "ft": f"{m.home_goals_ft}-{m.away_goals_ft}",
+        "shots": f"{m.home_shots_ft}/{m.home_sot_ft} vs {m.away_shots_ft}/{m.away_sot_ft}",
+        "is_preset": _is_preset(m.match_id),
+        "is_today": parsed == today if parsed else False,
+        "scheduled": False,
+        "start": "",
+    }
+
+
+def build_match_rows(
+    matches: list[Match],
+    *,
+    today: date | None = None,
+    scheduled: list[dict[str, Any]] | None = None,
+    include_presets: bool = False,
+) -> list[dict[str, Any]]:
+    """Season fixtures with today's slate first, then newest remaining dates."""
+    today = today or date.today()
+    rows: list[dict[str, Any]] = []
+    seen_keys: set[tuple[str, str, str]] = set()
+
+    for m in matches:
+        if not include_presets and _is_preset(m.match_id):
+            continue
+        row = _serialize_match(m, today=today)
+        rows.append(row)
+        if row["iso_date"]:
+            seen_keys.add((row["home"].lower(), row["away"].lower(), row["iso_date"]))
+
+    for fx in scheduled or []:
+        start = str(fx.get("start") or "")
+        home = str(fx.get("home_fd") or fx.get("home") or "")
+        away = str(fx.get("away_fd") or fx.get("away") or "")
+        if not home or not away:
+            continue
+        day = _fixture_day(start)
+        if day is None or abs((day - today).days) > 1:
+            continue
+        iso = day.isoformat()
+        key = (home.lower(), away.lower(), iso)
+        if key in seen_keys:
+            continue
+        seen_keys.add(key)
+        rows.append(
+            {
+                "match_id": "",
+                "date": day.strftime("%d/%m/%Y"),
+                "iso_date": iso,
+                "home": home,
+                "away": away,
+                "ft": "—",
+                "shots": "scheduled",
+                "is_preset": False,
+                "is_today": day == today,
+                "scheduled": True,
+                "start": start,
+            }
+        )
+
+    today_rows = [r for r in rows if r["is_today"]]
+    other_rows = [r for r in rows if not r["is_today"]]
+    today_rows.sort(key=lambda r: (r.get("start") or "", r.get("home") or ""))
+    other_rows.sort(key=lambda r: (r.get("iso_date") or "", r.get("home") or ""), reverse=True)
+    return today_rows + other_rows
+
+
+def load_nearby_scheduled(today: date | None = None) -> list[dict[str, Any]]:
+    """Yesterday..tomorrow scheduled EPL fixtures (timezone buffer), cached briefly."""
+    global _matches_sched_cache
+    today = today or date.today()
+    key = today.isoformat()
+    if _matches_sched_cache is not None:
+        ts, cached_key, cached = _matches_sched_cache
+        if cached_key == key and time.time() - ts < _MATCHES_SCHED_TTL_S:
+            return cached
+    out: list[dict[str, Any]] = []
+    try:
+        for fx in fetch_scheduled_fixtures(days=3, today=today - timedelta(days=1)):
+            home_fd = resolve_team(fx["home"], espn_id=fx.get("home_id")) or fx["home"]
+            away_fd = resolve_team(fx["away"], espn_id=fx.get("away_id")) or fx["away"]
+            out.append({**fx, "home_fd": home_fd, "away_fd": away_fd})
+    except Exception:  # noqa: BLE001 — Matches tab still lists the cached season
+        out = []
+    _matches_sched_cache = (time.time(), key, out)
+    return out
 
 
 class DashboardState:
@@ -77,7 +192,7 @@ def make_handler(state: DashboardState):
                     _json_bytes(
                         {
                             "season": state.season,
-                            "match_count": len(state.matches),
+                            "match_count": len([m for m in state.matches if not _is_preset(m.match_id)]),
                             "history_count": len(state.history),
                             "everton_preset_id": preset.match_id if preset else None,
                         }
@@ -279,19 +394,17 @@ def make_handler(state: DashboardState):
                     "application/json",
                 )
             if path == "/api/matches":
-                rows = [
-                    {
-                        "match_id": m.match_id,
-                        "date": m.date,
-                        "home": m.home,
-                        "away": m.away,
-                        "ft": f"{m.home_goals_ft}-{m.away_goals_ft}",
-                        "shots": f"{m.home_shots_ft}/{m.home_sot_ft} vs {m.away_shots_ft}/{m.away_sot_ft}",
-                        "is_preset": bool(EVERTON_PRESET_RE.search(m.match_id)),
-                    }
-                    for m in state.matches
-                ]
-                return self._send(200, _json_bytes({"matches": rows}), "application/json")
+                today = date.today()
+                rows = build_match_rows(
+                    state.matches,
+                    today=today,
+                    scheduled=load_nearby_scheduled(today),
+                )
+                return self._send(
+                    200,
+                    _json_bytes({"matches": rows, "today": today.isoformat()}),
+                    "application/json",
+                )
 
             if path == "/api/snapshot":
                 mid = (qs.get("match_id") or [None])[0]

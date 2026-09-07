@@ -78,6 +78,7 @@ body {
   display: flex;
   gap: 0.35rem;
   margin-left: 0.5rem;
+  margin-right: auto;
 }
 
 .tab {
@@ -101,26 +102,6 @@ body {
   color: var(--text);
   background: var(--accent-dim);
   border-color: rgba(125, 255, 179, 0.28);
-}
-
-.preset {
-  margin-left: auto;
-  appearance: none;
-  border: 1px solid rgba(255, 200, 87, 0.35);
-  background: rgba(255, 200, 87, 0.08);
-  color: var(--warn);
-  font-family: var(--mono);
-  font-size: 0.78rem;
-  font-weight: 500;
-  padding: 0.45rem 0.75rem;
-  border-radius: 0.4rem;
-  cursor: pointer;
-  transition: transform 120ms ease, background 160ms ease;
-}
-
-.preset:hover {
-  background: rgba(255, 200, 87, 0.16);
-  transform: translateY(-1px);
 }
 
 main {
@@ -236,12 +217,26 @@ main {
   justify-self: end;
 }
 
-.match-row.preset-row .teams::after {
-  content: " preset";
-  color: var(--warn);
-  font-family: var(--mono);
-  font-size: 0.7rem;
-  font-weight: 500;
+.match-day-label {
+  margin: 0.85rem 0 0.25rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.match-day-label:first-child {
+  margin-top: 0.15rem;
+}
+
+.match-row.today-row {
+  background: rgba(125, 255, 179, 0.05);
+  border-color: rgba(125, 255, 179, 0.12);
+}
+
+.match-row.scheduled-row {
+  cursor: default;
 }
 
 .freeze {
@@ -1501,9 +1496,6 @@ main {
 @media (max-width: 640px) {
   .top {
     flex-wrap: wrap;
-  }
-  .preset {
-    margin-left: 0;
   }
   .match-row,
   .similar-row,

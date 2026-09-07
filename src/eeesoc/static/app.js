@@ -1530,28 +1530,93 @@
     }
   }
 
+  function localTodayIso() {
+    const d = new Date();
+    const mm = String(d.getMonth() + 1).padStart(2, "0");
+    const dd = String(d.getDate()).padStart(2, "0");
+    return `${d.getFullYear()}-${mm}-${dd}`;
+  }
+
+  function parseMatchDay(m) {
+    if (m.start) {
+      const d = new Date(m.start);
+      if (!Number.isNaN(d.getTime())) {
+        const mm = String(d.getMonth() + 1).padStart(2, "0");
+        const dd = String(d.getDate()).padStart(2, "0");
+        return `${d.getFullYear()}-${mm}-${dd}`;
+      }
+    }
+    if (m.iso_date) return m.iso_date;
+    const raw = String(m.date || "").trim();
+    const hit = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+    if (hit) return `${hit[3]}-${hit[2].padStart(2, "0")}-${hit[1].padStart(2, "0")}`;
+    return "";
+  }
+
+  function isTodayMatch(m) {
+    const day = parseMatchDay(m);
+    return Boolean(day) && day === localTodayIso();
+  }
+
+  function matchKickoffLabel(m) {
+    if (!m.start) return "Scheduled";
+    const d = new Date(m.start);
+    if (Number.isNaN(d.getTime())) return "Scheduled";
+    return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  }
+
+  function appendMatchSection(list, title) {
+    const head = document.createElement("div");
+    head.className = "match-day-label";
+    head.textContent = title;
+    list.appendChild(head);
+  }
+
+  function appendMatchRow(list, m) {
+    const selectable = Boolean(m.match_id) && !m.scheduled;
+    const el = document.createElement(selectable ? "button" : "div");
+    if (selectable) el.type = "button";
+    el.className =
+      "match-row" +
+      (isTodayMatch(m) ? " today-row" : "") +
+      (m.scheduled ? " scheduled-row" : "") +
+      (m.match_id === state.selectedId ? " selected" : "");
+    const meta = m.scheduled
+      ? `${matchKickoffLabel(m)} · scheduled`
+      : `FT ${escapeHtml(m.ft)} · ${escapeHtml(m.shots)}`;
+    el.innerHTML = `
+      <span class="date">${escapeHtml(m.date)}</span>
+      <span class="teams">${escapeHtml(m.home)} vs ${escapeHtml(m.away)}</span>
+      <span class="meta">${meta}</span>
+    `;
+    if (selectable) {
+      el.addEventListener("click", () => selectMatch(m.match_id, true));
+    }
+    list.appendChild(el);
+  }
+
   function renderMatches() {
     const q = ($("#matchFilter").value || "").trim().toLowerCase();
     const list = $("#matchList");
     list.innerHTML = "";
     const rows = state.matches.filter((m) => {
+      if (m.is_preset) return false;
       if (!q) return true;
       return `${m.home} ${m.away} ${m.date}`.toLowerCase().includes(q);
     });
-    for (const m of rows) {
-      const btn = document.createElement("button");
-      btn.type = "button";
-      btn.className =
-        "match-row" +
-        (m.is_preset ? " preset-row" : "") +
-        (m.match_id === state.selectedId ? " selected" : "");
-      btn.innerHTML = `
-        <span class="date">${m.date}</span>
-        <span class="teams">${m.home} vs ${m.away}</span>
-        <span class="meta">FT ${m.ft} · ${m.shots}</span>
-      `;
-      btn.addEventListener("click", () => selectMatch(m.match_id, true));
-      list.appendChild(btn);
+    const todayRows = rows
+      .filter(isTodayMatch)
+      .sort((a, b) => (a.start || "").localeCompare(b.start || "") || (a.home || "").localeCompare(b.home || ""));
+    const restRows = rows
+      .filter((m) => !isTodayMatch(m) && !m.scheduled)
+      .sort((a, b) => (parseMatchDay(b) || "").localeCompare(parseMatchDay(a) || "") || (a.home || "").localeCompare(b.home || ""));
+    if (todayRows.length) {
+      appendMatchSection(list, "Today");
+      for (const m of todayRows) appendMatchRow(list, m);
+    }
+    if (restRows.length) {
+      if (todayRows.length) appendMatchSection(list, "All matches");
+      for (const m of restRows) appendMatchRow(list, m);
     }
   }
 
@@ -1607,16 +1672,6 @@
       row.title = `${h.home} ${s.home_shots || 0}/${s.home_sot || 0} vs ${h.away} ${s.away_shots || 0}/${s.away_sot || 0}`;
       list.appendChild(row);
     }
-  }
-
-  async function loadEvertonPreset() {
-    const id = state.meta?.everton_preset_id;
-    if (!id) {
-      alert("Everton preset not in cache — run with --warm EPL:2025");
-      return;
-    }
-    $("#cutMinute").value = "53";
-    await selectMatch(id, true);
   }
 
   function syncSelectedLive(all, key, onGone) {
@@ -1692,7 +1747,6 @@
     $("#cutMinute").addEventListener("change", () => {
       if (state.selectedId) selectMatch(state.selectedId, false);
     });
-    $("#evertonPreset").addEventListener("click", loadEvertonPreset);
     $("#collapseAll")?.addEventListener("click", () => {
       const ids = flatLiveMatches(state.liveFilter).map((m) => m.event_id);
       setAllCollapsed(ids, true);
