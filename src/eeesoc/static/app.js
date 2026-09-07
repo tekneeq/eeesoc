@@ -730,9 +730,55 @@
     </svg>`;
   }
 
+  function pressureHeadline(tl) {
+    const p = tl.pressure;
+    if (!p || p.label === "quiet") return "";
+    const homeName = shortName(tl.home || "Home");
+    const awayName = shortName(tl.away || "Away");
+    const win = `last ${p.window || 15}'`;
+    if (p.leader === "home") return `${homeName} pressing high — ${awayName} pinned back (${win})`;
+    if (p.leader === "away") return `${awayName} pressing high — ${homeName} pinned back (${win})`;
+    return "";
+  }
+
+  function pressureHtml(tl) {
+    const p = tl.pressure;
+    if (!p) return "";
+    const homeName = shortName(tl.home || "Home");
+    const awayName = shortName(tl.away || "Away");
+    const win = p.window || 15;
+    if (p.label === "quiet" || p.share?.home == null) {
+      return `<span class="mc-pressure">
+        <span class="mc-pressure-head">Pressure · last ${win}'</span>
+        <span class="mc-pressure-meta">Reading the last ${win}'…</span>
+      </span>`;
+    }
+    const h = Math.round(p.share.home * 100);
+    const a = Math.max(0, 100 - h);
+    const lead = p.leader === "home" ? p.home : p.leader === "away" ? p.away : null;
+    const leadName = p.leader === "home" ? homeName : awayName;
+    const meta = lead
+      ? `${escapeHtml(leadName)} · ${lead.final_third} final-third · ${lead.box} in box · ${lead.corners} corners · ${lead.shots} shots`
+      : `Even — ${p.home.final_third} vs ${p.away.final_third} final-third actions`;
+    return `<span class="mc-pressure${p.leader ? ` lead-${p.leader}` : ""}">
+      <span class="mc-pressure-head">Pressure · last ${win}'</span>
+      <span class="mc-pressure-row">
+        <b class="mc-pressure-h">${h}%</b>
+        <span class="mc-pressure-bar" aria-hidden="true">
+          <i class="mc-pressure-seg-h" style="width:${h}%"></i>
+          <i class="mc-pressure-seg-a" style="width:${a}%"></i>
+        </span>
+        <b class="mc-pressure-a">${a}%</b>
+      </span>
+      <span class="mc-pressure-meta">${meta}</span>
+    </span>`;
+  }
+
   function territoryLabel(tl) {
     const terr = tl.territory;
     if (!terr) return "";
+    const fromPressure = pressureHeadline(tl);
+    if (fromPressure) return fromPressure;
     const homeName = shortName(tl.home || "Home");
     const awayName = shortName(tl.away || "Away");
     switch (terr.label) {
@@ -800,7 +846,7 @@
       <text x="${padX}" y="${H - 14}" class="tl-label"><tspan class="tl-xg-h">◀ ${escapeHtml(shortName(tl.home || "Home"))}</tspan> defend</text>
       <text x="${W - padX}" y="${H - 14}" class="tl-label" text-anchor="end"><tspan class="tl-xg-a">${escapeHtml(shortName(tl.away || "Away"))} ▶</tspan> defend</text>
       <text x="${midX}" y="${H - 3}" class="terr-headline" text-anchor="middle">${escapeHtml(territoryLabel(tl))}</text>
-    </svg>`;
+    </svg>${pressureHtml(tl)}`;
   }
 
   async function loadMatchTimeline(m, mount, xgMount, opts = {}) {
@@ -835,6 +881,7 @@
         xa: tl.xg?.away_total,
         fouls: [tl.counts?.home_foul, tl.counts?.away_foul],
         terr: tl.territory?.total,
+        press: [tl.pressure?.to_minute, tl.pressure?.home?.final_third, tl.pressure?.away?.final_third],
       });
 
     // Keep existing pictograms visible while refetching — only fill empty mounts from cache.

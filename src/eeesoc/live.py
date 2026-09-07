@@ -896,16 +896,17 @@ def _build_territory(points: list[tuple[float, float, str]]) -> dict[str, Any]:
     max_cell = max((max(r) for r in cells), default=0)
     pct = [round(t / total, 3) if total else None for t in thirds]
 
+    # Most of any match is played in the middle third, so test for an
+    # attacking tilt first — otherwise "midfield" swallows every game.
     label = "balanced"
     if total < 15:
         label = "warming_up"
-    elif pct[1] is not None and pct[1] >= 0.42:
+    elif pct[2] >= 0.30 and pct[2] - pct[0] >= 0.10:
+        label = "home_attacking"
+    elif pct[0] >= 0.30 and pct[0] - pct[2] >= 0.10:
+        label = "away_attacking"
+    elif pct[1] >= 0.42:
         label = "midfield"
-    elif pct[2] is not None and pct[0] is not None:
-        if pct[2] >= 0.40 and pct[2] - pct[0] >= 0.08:
-            label = "home_attacking"
-        elif pct[0] >= 0.40 and pct[0] - pct[2] >= 0.08:
-            label = "away_attacking"
 
     ball_total = side_counts["home"] + side_counts["away"]
     return {
@@ -920,6 +921,79 @@ def _build_territory(points: list[tuple[float, float, str]]) -> dict[str, Any]:
             "away": round(side_counts["away"] / ball_total, 3) if ball_total else None,
         },
         "label": label,
+    }
+
+
+PRESSURE_WINDOW_MIN = 15
+_ATT_THIRD_X = 200.0 / 3.0
+# ESPN team-relative box: roughly the last 17m of the pitch, central 58% of width.
+_BOX_X = 83.0
+_BOX_Y_LO, _BOX_Y_HI = 21.0, 79.0
+_PRESSURE_MIN_ACTIONS = 20
+_PRESSURE_MIN_FINAL_THIRD = 6
+_PRESSURE_TILT = 0.62
+
+_PRESSURE_SHOT_KINDS = {"shot", "shot_on", "blocked", "goal"}
+
+
+def _build_pressure(
+    points: list[tuple[int, float, float, str, str | None]],
+    *,
+    now_minute: int,
+    window: int = PRESSURE_WINDOW_MIN,
+) -> dict[str, Any]:
+    """
+    Rolling-window pressure: who keeps getting into the other side's final third.
+
+    ``points`` is (minute, x, y, side, kind) with team-relative coordinates
+    (each side attacks x→100). Territory alone hides this — a first-half
+    Udinese siege and a second-half Lazio siege sum to "even".
+    """
+    lo = max(1, now_minute - window + 1)
+    stats: dict[str, dict[str, int]] = {
+        side: {"actions": 0, "final_third": 0, "box": 0, "shots": 0, "corners": 0}
+        for side in ("home", "away")
+    }
+    for minute, x, y, side, kind in points:
+        if side not in stats or minute < lo or minute > now_minute:
+            continue
+        s = stats[side]
+        s["actions"] += 1
+        if x >= _ATT_THIRD_X:
+            s["final_third"] += 1
+        if x >= _BOX_X and _BOX_Y_LO <= y <= _BOX_Y_HI:
+            s["box"] += 1
+        if kind in _PRESSURE_SHOT_KINDS:
+            s["shots"] += 1
+        elif kind == "corner":
+            s["corners"] += 1
+
+    actions = stats["home"]["actions"] + stats["away"]["actions"]
+    final_third = stats["home"]["final_third"] + stats["away"]["final_third"]
+    share_home = stats["home"]["final_third"] / final_third if final_third else None
+    share_away = 1.0 - share_home if share_home is not None else None
+
+    label = "even"
+    leader: str | None = None
+    if actions < _PRESSURE_MIN_ACTIONS or final_third < _PRESSURE_MIN_FINAL_THIRD:
+        label = "quiet"
+    elif share_home is not None and share_home >= _PRESSURE_TILT:
+        label, leader = "home", "home"
+    elif share_away is not None and share_away >= _PRESSURE_TILT:
+        label, leader = "away", "away"
+
+    return {
+        "window": window,
+        "from_minute": lo,
+        "to_minute": now_minute,
+        "home": stats["home"],
+        "away": stats["away"],
+        "share": {
+            "home": round(share_home, 3) if share_home is not None else None,
+            "away": round(share_away, 3) if share_away is not None else None,
+        },
+        "label": label,
+        "leader": leader,
     }
 
 
@@ -1006,6 +1080,7 @@ def build_event_timeline(
     home_xg_pts: list[tuple[int, float]] = []
     away_xg_pts: list[tuple[int, float]] = []
     territory_pts: list[tuple[float, float, str]] = []
+    pressure_pts: list[tuple[int, float, float, str, str | None]] = []
 
     for play in plays:
         ptype = _normalize_play_type(_play_type(play))
@@ -1018,17 +1093,20 @@ def build_event_timeline(
         if xg is not None and pmin is not None and side in {"home", "away"} and xg > 0:
             (home_xg_pts if side == "home" else away_xg_pts).append((pmin, xg))
 
+        kind = _event_kind(ptype, scoring=bool(play.get("scoringPlay")))
+
         if side in {"home", "away"}:
             px = _coord(play, "fieldPositionX")
             py = _coord(play, "fieldPositionY")
             if px is not None and py is not None and (px or py):
                 territory_pts.append((px, py, side))
+                if pmin is not None:
+                    pressure_pts.append((pmin, px, py, side, kind))
 
         if "foul" in ptype and side in {"home", "away"}:
             counts["foul"] += 1
             counts[f"{side}_foul"] += 1
 
-        kind = _event_kind(ptype, scoring=bool(play.get("scoringPlay")))
         if not kind or pmin is None:
             continue
         text = str(play.get("shortText") or play.get("text") or kind)
@@ -1077,6 +1155,7 @@ def build_event_timeline(
         "events": events,
         "counts": counts,
         "territory": _build_territory(territory_pts),
+        "pressure": _build_pressure(pressure_pts, now_minute=minute),
         "xg": {
             "home": home_series,
             "away": away_series,

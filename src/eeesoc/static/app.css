@@ -989,6 +989,81 @@ main {
   letter-spacing: 0.03em;
 }
 
+.mc-pressure {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin-top: 0.35rem;
+  padding: 0.45rem 0.55rem;
+  border: 1px solid var(--line);
+  border-radius: 0.4rem;
+  background: rgba(255, 255, 255, 0.02);
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  color: var(--muted);
+}
+
+.mc-pressure.lead-home {
+  border-color: rgba(125, 255, 179, 0.28);
+}
+
+.mc-pressure.lead-away {
+  border-color: rgba(125, 200, 255, 0.32);
+}
+
+.mc-pressure-head {
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 0.62rem;
+}
+
+.mc-pressure-row {
+  display: grid;
+  grid-template-columns: 2.6rem 1fr 2.6rem;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.mc-pressure-h,
+.mc-pressure-a {
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.mc-pressure-h {
+  color: var(--accent);
+}
+
+.mc-pressure-a {
+  color: rgba(125, 200, 255, 0.95);
+  text-align: right;
+}
+
+.mc-pressure-bar {
+  display: flex;
+  height: 0.5rem;
+  border-radius: 999px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.mc-pressure-seg-h {
+  display: block;
+  background: var(--accent);
+  transition: width 400ms ease;
+}
+
+.mc-pressure-seg-a {
+  display: block;
+  background: rgba(125, 200, 255, 0.95);
+  transition: width 400ms ease;
+}
+
+.mc-pressure-meta {
+  color: var(--text);
+  opacity: 0.85;
+}
+
 .tl-shot circle {
   fill: rgba(255, 200, 87, 0.85);
   stroke: #1a1200;
