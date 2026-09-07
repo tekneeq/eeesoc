@@ -192,7 +192,7 @@ def make_handler(state: DashboardState):
                     _json_bytes(
                         {
                             "season": state.season,
-                            "match_count": len(state.matches),
+                            "match_count": len([m for m in state.matches if not _is_preset(m.match_id)]),
                             "history_count": len(state.history),
                             "everton_preset_id": preset.match_id if preset else None,
                         }
