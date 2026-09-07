@@ -228,7 +228,9 @@ def make_handler(state: DashboardState):
 
             if path == "/api/live":
                 live_only = (qs.get("live_only") or ["1"])[0] not in ("0", "false", "no")
-                board = fetch_live_board(live_only=live_only)
+                raw_back = (qs.get("days_back") or ["0"])[0]
+                days_back = int(raw_back) if raw_back.strip().isdigit() else 0
+                board = fetch_live_board(live_only=live_only, days_back=days_back)
                 return self._send(200, _json_bytes(board), "application/json")
 
             if path == "/api/live/track":

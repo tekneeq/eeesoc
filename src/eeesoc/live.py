@@ -43,7 +43,7 @@ LEAGUES: list[tuple[str, str]] = [
 ]
 
 _CACHE_TTL_S = 6.0
-_cache_lock_payload: tuple[float, dict[str, Any]] | None = None
+_board_cache: dict[tuple[bool, int], tuple[float, dict[str, Any]]] = {}
 
 
 @dataclass(frozen=True)
@@ -209,18 +209,20 @@ def parse_scoreboard(payload: dict[str, Any], league_slug: str, chiclet: str) ->
     return out
 
 
-def _scoreboard_dates(now: datetime | None = None) -> str:
+def _scoreboard_dates(now: datetime | None = None, *, days_back: int = 0) -> str:
+    """UTC date range: reach back for late finishes / finished-game views, ahead late in the day."""
     now = now or datetime.now(timezone.utc)
-    start = now - timedelta(days=1) if now.hour < 8 else now
+    back = max(int(days_back), 1 if now.hour < 8 else 0)
+    start = now - timedelta(days=back)
     end = now + timedelta(days=1) if now.hour >= 20 else now
     if start.date() == end.date():
         return start.strftime("%Y%m%d")
     return f"{start.strftime('%Y%m%d')}-{end.strftime('%Y%m%d')}"
 
 
-def _scoreboard_urls(league_slug: str) -> list[str]:
+def _scoreboard_urls(league_slug: str, *, days_back: int = 0) -> list[str]:
     quoted = urllib.parse.quote(league_slug, safe=".")
-    dates = _scoreboard_dates()
+    dates = _scoreboard_dates(days_back=days_back)
     return [
         f"{SITE_SCOREBOARD.format(league=quoted)}?dates={dates}",
         CDN_SCOREBOARD.format(league=quoted),
@@ -231,10 +233,11 @@ def fetch_league(
     league_slug: str,
     chiclet: str,
     *,
+    days_back: int = 0,
     fetcher: Callable[[str], dict[str, Any]] | None = None,
 ) -> list[LiveMatch]:
     fetch = fetcher or _fetch_json
-    for url in _scoreboard_urls(league_slug):
+    for url in _scoreboard_urls(league_slug, days_back=days_back):
         try:
             payload = fetch(url)
         except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, json.JSONDecodeError, OSError):
@@ -248,6 +251,7 @@ def fetch_league(
 def fetch_live_board(
     *,
     live_only: bool = True,
+    days_back: int = 0,
     leagues: list[tuple[str, str]] | None = None,
     fetcher: Callable[[str], dict[str, Any]] | None = None,
     use_cache: bool = True,
@@ -255,14 +259,17 @@ def fetch_live_board(
     """
     Fan out across leagues and return matches grouped for the Live tab.
 
+    ``live_only=False`` keeps finished (``post``) and upcoming rows so the
+    client can show full-time chiclets; ``days_back`` widens the scoreboard
+    window to pick up yesterday's finished games.
+
     Cached briefly so the dashboard can poll without hammering ESPN.
     """
-    global _cache_lock_payload
-
-    cache_key_live = live_only
-    if use_cache and _cache_lock_payload is not None:
-        ts, payload = _cache_lock_payload
-        if time.time() - ts < _CACHE_TTL_S and payload.get("live_only") is cache_key_live:
+    days_back = max(0, min(int(days_back), 3))
+    cache_key = (bool(live_only), days_back)
+    if use_cache and cache_key in _board_cache:
+        ts, payload = _board_cache[cache_key]
+        if time.time() - ts < _CACHE_TTL_S:
             return payload
 
     league_list = leagues or LEAGUES
@@ -271,7 +278,7 @@ def fetch_live_board(
 
     with ThreadPoolExecutor(max_workers=min(8, len(league_list) or 1)) as pool:
         futures = {
-            pool.submit(fetch_league, slug, label, fetcher=fetcher): (slug, label)
+            pool.submit(fetch_league, slug, label, days_back=days_back, fetcher=fetcher): (slug, label)
             for slug, label in league_list
         }
         for fut in as_completed(futures):
@@ -310,6 +317,7 @@ def fetch_live_board(
             "slug": slug,
             "label": label,
             "live_count": sum(1 for m in matches if m.league_slug == slug and m.state == "in"),
+            "post_count": sum(1 for m in matches if m.league_slug == slug and m.state == "post"),
             "count": sum(1 for m in matches if m.league_slug == slug),
         }
         for slug, label in league_list
@@ -317,21 +325,22 @@ def fetch_live_board(
 
     payload = {
         "live_only": live_only,
+        "days_back": days_back,
         "fetched_at": time.time(),
         "total": len(matches),
         "live_total": sum(1 for m in matches if m.state == "in"),
+        "post_total": sum(1 for m in matches if m.state == "post"),
         "chiclets": chiclet_meta,
         "leagues": grouped,
         "errors": errors,
     }
     if use_cache:
-        _cache_lock_payload = (time.time(), payload)
+        _board_cache[cache_key] = (time.time(), payload)
     return payload
 
 
 def clear_live_cache() -> None:
-    global _cache_lock_payload
-    _cache_lock_payload = None
+    _board_cache.clear()
 
 
 # —— Live pitch tracking (passes / shots / ball) ——
@@ -815,6 +824,14 @@ SHOT_OFF_TYPES = {
 
 _timeline_cache: dict[str, tuple[float, dict[str, Any]]] = {}
 _TIMELINE_TTL_S = 5.0
+# Full-time play-by-play never changes; finished chiclets should not re-page ESPN every poll.
+_TIMELINE_FINAL_TTL_S = 15 * 60.0
+_FINAL_CLOCK_TOKENS = ("ft", "full", "final", "aet", "pen")
+
+
+def _is_final_clock(clock: str) -> bool:
+    c = (clock or "").lower()
+    return any(tok in c for tok in _FINAL_CLOCK_TOKENS)
 
 
 def _normalize_play_type(ptype: str) -> str:
@@ -1035,7 +1052,8 @@ def build_event_timeline(
     cache_key = f"tl:{league_slug}:{event_id}"
     if use_cache and cache_key in _timeline_cache:
         ts, payload = _timeline_cache[cache_key]
-        if time.time() - ts < _TIMELINE_TTL_S:
+        ttl = _TIMELINE_FINAL_TTL_S if payload.get("final") else _TIMELINE_TTL_S
+        if time.time() - ts < ttl:
             return payload
 
     plays = fetch_all_plays(league_slug, event_id, fetcher=fetcher)
@@ -1056,6 +1074,7 @@ def build_event_timeline(
 
     clock_l = clock.lower()
     frozen = any(tok in clock_l for tok in _FROZEN_CLOCK_TOKENS)
+    final = _is_final_clock(clock)
     events: list[dict[str, Any]] = []
     counts = {
         "shot": 0,
@@ -1145,6 +1164,7 @@ def build_event_timeline(
         "play_minute": latest_play,
         "elapsed_seconds": elapsed_seconds,
         "frozen": frozen,
+        "final": final,
         "max_minute": 90,
         "board_home_score": int(home_score or 0),
         "board_away_score": int(away_score or 0),

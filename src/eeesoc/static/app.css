@@ -1262,6 +1262,48 @@ main {
   justify-content: center;
 }
 
+.mc-live-badge.mc-ft-badge {
+  color: var(--muted);
+  border-color: var(--line);
+  background: rgba(255, 255, 255, 0.04);
+  padding: 0.12rem 0.5rem;
+}
+
+.mc-ft-when {
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  color: var(--muted);
+  margin-left: 0.4rem;
+}
+
+.match-chiclet.match-chiclet-ft {
+  border-color: rgba(180, 210, 200, 0.14);
+}
+
+.scope-switch {
+  display: inline-flex;
+  margin-right: 0.35rem;
+}
+
+.scope-switch .chiclet-tool {
+  border-radius: 0;
+}
+
+.scope-switch .chiclet-tool:first-child {
+  border-radius: 0.22rem 0 0 0.22rem;
+}
+
+.scope-switch .chiclet-tool:last-child {
+  border-radius: 0 0.22rem 0.22rem 0;
+  border-left: none;
+}
+
+.chiclet-tool.on {
+  color: var(--accent);
+  background: var(--accent-dim);
+  border-color: rgba(125, 255, 179, 0.4);
+}
+
 .mc-teams {
   display: grid;
   grid-template-columns: 1fr auto 1fr;
