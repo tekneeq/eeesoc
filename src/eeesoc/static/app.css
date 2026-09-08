@@ -1093,6 +1093,25 @@ main {
   stroke-width: 0.8;
 }
 
+.tl-og line {
+  stroke: var(--warn);
+  stroke-width: 2;
+  stroke-dasharray: 2 1.4;
+}
+
+.tl-og circle {
+  fill: none;
+  stroke: var(--warn);
+  stroke-width: 1.4;
+}
+
+.tl-og-label {
+  fill: var(--warn);
+  font-family: var(--mono);
+  font-size: 6px;
+  font-weight: 600;
+}
+
 .tl-corner rect {
   fill: rgba(230, 245, 235, 0.75);
   stroke: rgba(125, 255, 179, 0.5);
@@ -1151,6 +1170,14 @@ main {
   height: 0.7rem;
   background: var(--accent);
   border-radius: 1px;
+}
+
+.tl-mark.tl-og {
+  width: 0.55rem;
+  height: 0.55rem;
+  border: 1.5px solid var(--warn);
+  border-radius: 50%;
+  background: transparent;
 }
 
 .tl-mark.tl-xg-home {
@@ -1570,6 +1597,12 @@ main {
   fill: var(--accent);
   stroke: #04140c;
   stroke-width: 1.5;
+}
+
+.shot-og {
+  fill: none;
+  stroke: var(--warn);
+  stroke-width: 2.5;
 }
 
 .ball-halo {

@@ -817,6 +817,14 @@
         marks.push(
           `<g class="tl-goal"><title>${escapeHtml(title)}</title><line x1="${x}" y1="${y1}" x2="${x}" y2="${y2}"/><circle cx="${x}" cy="${cy}" r="4"/></g>`
         );
+      } else if (ev.kind === "own_goal") {
+        const y1 = home ? axisY - 24 : axisY + 2;
+        const y2 = home ? axisY - 2 : axisY + 24;
+        const cy = axisY + dir * 13;
+        const labelY = (cy + dir * 9).toFixed(1);
+        marks.push(
+          `<g class="tl-og"><title>${escapeHtml(title)}</title><line x1="${x}" y1="${y1}" x2="${x}" y2="${y2}"/><circle cx="${x}" cy="${cy}" r="4"/><text x="${x}" y="${labelY}" class="tl-og-label" text-anchor="middle">OG</text></g>`
+        );
       } else if (ev.kind === "shot_on") {
         marks.push(
           `<g class="tl-sot"><title>${escapeHtml(title)}</title><circle cx="${x}" cy="${laneY("shot_on")}" r="3"/></g>`
@@ -1486,12 +1494,14 @@
       if (s.x == null || s.y == null) continue;
       const [x, y] = pitchXY(s.x, s.y);
       const kind =
-        s.type === "goal" || s.type === "penalty-goal"
-          ? "shot-goal"
-          : s.type === "shot-on-target"
-            ? "shot-on"
-            : "shot-off";
-      add("circle", { cx: x, cy: y, r: kind === "shot-goal" ? 8 : 6, class: kind });
+        s.own_goal || s.type === "own-goal"
+          ? "shot-og"
+          : s.type === "goal" || s.type === "penalty-goal"
+            ? "shot-goal"
+            : s.type === "shot-on-target"
+              ? "shot-on"
+              : "shot-off";
+      add("circle", { cx: x, cy: y, r: kind === "shot-goal" || kind === "shot-og" ? 8 : 6, class: kind });
     }
 
     if (track.ball && track.ball.x != null && track.ball.y != null) {
