@@ -210,11 +210,14 @@ def parse_scoreboard(payload: dict[str, Any], league_slug: str, chiclet: str) ->
 
 
 def _scoreboard_dates(now: datetime | None = None, *, days_back: int = 0) -> str:
-    """UTC date range: reach back for late finishes / finished-game views, ahead late in the day."""
+    """UTC date range: reach back for late finishes, ahead for tonight's remaining kickoffs."""
     now = now or datetime.now(timezone.utc)
     back = max(int(days_back), 1 if now.hour < 8 else 0)
     start = now - timedelta(days=back)
-    end = now + timedelta(days=1) if now.hour >= 20 else now
+    # After 20:00 UTC, or whenever we already widened the window for Finished,
+    # include tomorrow so evening-local "today" games are not dropped.
+    ahead = 1 if now.hour >= 20 or int(days_back) > 0 else 0
+    end = now + timedelta(days=ahead)
     if start.date() == end.date():
         return start.strftime("%Y%m%d")
     return f"{start.strftime('%Y%m%d')}-{end.strftime('%Y%m%d')}"
@@ -259,9 +262,10 @@ def fetch_live_board(
     """
     Fan out across leagues and return matches grouped for the Live tab.
 
-    ``live_only=False`` keeps finished (``post``) and upcoming rows so the
-    client can show full-time chiclets; ``days_back`` widens the scoreboard
-    window to pick up yesterday's finished games.
+    ``live_only=False`` keeps finished (``post``) and upcoming (``pre``) rows
+    so the client can show full-time and not-yet-started chiclets; ``days_back``
+    widens the scoreboard window to pick up yesterday's finished games and
+    tonight's remaining kickoffs.
 
     Cached briefly so the dashboard can poll without hammering ESPN.
     """
@@ -318,6 +322,11 @@ def fetch_live_board(
             "label": label,
             "live_count": sum(1 for m in matches if m.league_slug == slug and m.state == "in"),
             "post_count": sum(1 for m in matches if m.league_slug == slug and m.state == "post"),
+            "pre_count": sum(
+                1
+                for m in matches
+                if m.league_slug == slug and m.state == "pre" and not any(w in _status_blob(m) for w in _DEAD_STATUS)
+            ),
             "count": sum(1 for m in matches if m.league_slug == slug),
         }
         for slug, label in league_list
@@ -330,6 +339,9 @@ def fetch_live_board(
         "total": len(matches),
         "live_total": sum(1 for m in matches if m.state == "in"),
         "post_total": sum(1 for m in matches if m.state == "post"),
+        "pre_total": sum(
+            1 for m in matches if m.state == "pre" and not any(w in _status_blob(m) for w in _DEAD_STATUS)
+        ),
         "chiclets": chiclet_meta,
         "leagues": grouped,
         "errors": errors,

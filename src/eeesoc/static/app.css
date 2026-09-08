@@ -1289,13 +1289,26 @@ main {
   border-radius: 0;
 }
 
+.scope-switch .chiclet-tool + .chiclet-tool {
+  border-left: none;
+}
+
 .scope-switch .chiclet-tool:first-child {
   border-radius: 0.22rem 0 0 0.22rem;
 }
 
 .scope-switch .chiclet-tool:last-child {
   border-radius: 0 0.22rem 0.22rem 0;
-  border-left: none;
+}
+
+.mc-ko-badge {
+  color: var(--warn);
+  border-color: rgba(255, 200, 87, 0.28);
+  background: rgba(255, 200, 87, 0.08);
+}
+
+.match-chiclet.match-chiclet-pre {
+  border-color: rgba(255, 200, 87, 0.18);
 }
 
 .chiclet-tool.on {
