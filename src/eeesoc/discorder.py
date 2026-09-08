@@ -13,10 +13,12 @@ Only messages that start with ``!soc`` (or ``!eee``) are handled:
 Env (``.env`` on the eeesoc EC2 host, loaded by docker ``--env-file``):
 
     DISCORD_BOT_TOKEN         required
-    DISCORD_CHANNEL_ID        optional ready greeting
+    DISCORD_CHANNEL_ID        channel for the ready greeting and live alerts
+    EEESOC_DISCORD_POLL_S     optional poll interval (default 20)
 """
 from __future__ import annotations
 
+import asyncio
 import os
 import traceback
 from datetime import datetime
@@ -476,6 +478,39 @@ async def _handle_message(msg: discord.Message) -> None:
         await msg.reply(f"Error: `{type(e).__name__}: {e}`")
 
 
+async def _resolve_channel(client: discord.Client) -> discord.abc.Messageable | None:
+    channel_id = (os.getenv("DISCORD_CHANNEL_ID") or "").strip()
+    if not channel_id:
+        print("[discord] DISCORD_CHANNEL_ID unset — no greeting or live alerts.")
+        return None
+    try:
+        channel = client.get_channel(int(channel_id))
+        if channel is None:
+            channel = await client.fetch_channel(int(channel_id))
+        return channel
+    except Exception as e:  # noqa: BLE001
+        print(f"[discord] could not resolve channel {channel_id}: {e!r}")
+        return None
+
+
+async def _alert_loop(client: discord.Client, channel: discord.abc.Messageable) -> None:
+    from eeesoc.discord_alerts import poll_seconds, run_poll_and_persist
+
+    interval = poll_seconds()
+    print(f"[discord] live alerts every {interval:.0f}s → channel {getattr(channel, 'id', '?')}")
+    while not client.is_closed():
+        try:
+            messages = await asyncio.to_thread(run_poll_and_persist)
+            for text in messages:
+                await channel.send(_clip(text))
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:  # noqa: BLE001
+            traceback.print_exc()
+            print(f"[discord] alert poll failed: {e!r}")
+        await asyncio.sleep(interval)
+
+
 def build_client() -> discord.Client:
     intents = Intents.default()
     intents.message_content = True
@@ -487,19 +522,18 @@ def build_client() -> discord.Client:
             f"[discord] logged in as {client.user} "
             f"(id={client.user and client.user.id})"
         )
-        channel_id = os.getenv("DISCORD_CHANNEL_ID")
-        if not channel_id:
+        channel = await _resolve_channel(client)
+        if channel is None:
             return
         try:
-            channel = client.get_channel(int(channel_id))
-            if channel is None:
-                channel = await client.fetch_channel(int(channel_id))
-            if channel is not None:
-                await channel.send(
-                    "eeesoc online. Commands start with `!soc` — try `!soc help`."
-                )
+            await channel.send(
+                "eeesoc online. Commands start with `!soc` — try `!soc help`. "
+                "Kickoff and goals post here with Similar paths."
+            )
         except Exception as e:  # noqa: BLE001
             print(f"[discord] ready greeting failed: {e!r}")
+        if not getattr(client, "_eeesoc_alert_task", None):
+            client._eeesoc_alert_task = asyncio.create_task(_alert_loop(client, channel))
 
     @client.event
     async def on_message(msg: discord.Message) -> None:

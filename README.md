@@ -79,9 +79,11 @@ Create a **new** Discord application at https://discord.com/developers/applicati
 
 ```bash
 DISCORD_BOT_TOKEN=...          # required to start the bot
-DISCORD_CHANNEL_ID=...         # optional — channel for the ready greeting
+DISCORD_CHANNEL_ID=...         # required for the ready greeting and live alerts
 # Optional: timezone for "today" kickoffs (default America/New_York)
 # EEESOC_TZ=America/New_York
+# Optional: live-alert poll interval in seconds (default 20)
+# EEESOC_DISCORD_POLL_S=20
 ```
 
 `./restart.sh` loads `.env` into the container. `./deploy.sh` starts the bot afterward. If `DISCORD_BOT_TOKEN` is unset, deploy skips the bot and continues.
@@ -93,7 +95,9 @@ DISCORD_CHANNEL_ID=...         # optional — channel for the ready greeting
 ./restart-discord-bot.sh --stop
 ```
 
-The bot **only** responds to `!soc …` (or `!eee …`) messages:
+With `DISCORD_CHANNEL_ID` set, the bot also **posts on its own**: kickoff (`pre` → `in`) and every goal, with the live score path (`0-0 → 1-0 → …`) and each club’s Similar “from here” branches (what usually happens next from that scoreline at that minute).
+
+The bot **also** responds to `!soc …` (or `!eee …`) messages:
 
 ```
 !soc help
