@@ -25,9 +25,6 @@
         <button class="tab" data-tab="matches" role="tab" aria-selected="false">Matches</button>
         <button class="tab" data-tab="similar" role="tab" aria-selected="false">Similar</button>
       </nav>
-      <button type="button" class="preset" id="evertonPreset" title="Load Everton 53' snapshot">
-        Everton 53′
-      </button>
     </header>
 
     <main>
@@ -38,7 +35,9 @@
             <p class="lede">
               Every in-play game, ticking in realtime — <span class="lede-home">green = home</span>,
               <span class="lede-away">blue = away</span>. Minute markers for shots (incl. blocked),
-              SOT, goals, corners, plus an xG vs time chart. Tap a chiclet for the pitch graphic,
+              SOT, goals, corners, an xG vs time chart, and a rolling 15′ pressure bar showing who
+              keeps reaching the other side’s final third. Switch to <b>Finished</b> for the same
+              chiclet on today’s and yesterday’s full-time games. Tap a chiclet for the pitch graphic,
               ▾ to collapse, or hold and drag <span class="lede-grip">⠿</span> to reorder the board.
             </p>
           </div>
@@ -46,6 +45,10 @@
             <span class="pulse" aria-hidden="true"></span>
             <span id="liveStamp">loading…</span>
             <span class="chiclet-tools">
+              <span class="scope-switch" role="group" aria-label="Live or finished games">
+                <button type="button" class="chiclet-tool scope-btn on" data-scope="live">Live</button>
+                <button type="button" class="chiclet-tool scope-btn" data-scope="finished">Finished</button>
+              </span>
               <button type="button" class="chiclet-tool" id="collapseAll">Collapse all</button>
               <button type="button" class="chiclet-tool" id="expandAll">Expand all</button>
             </span>
@@ -104,7 +107,7 @@
       <section id="panel-matches" class="panel" role="tabpanel" hidden>
         <div class="panel-head">
           <h1>Matches</h1>
-          <p class="lede">Pick a fixture, freeze the cut minute, then jump to Similar lookalikes.</p>
+          <p class="lede">Today's scheduled fixtures first. Pick one, freeze the cut minute, then jump to Similar lookalikes.</p>
         </div>
         <div class="toolbar">
           <label class="search">
@@ -141,7 +144,7 @@
         <div class="match-chiclet-grid" id="similarMatchChiclets" role="list"></div>
         <div class="freeze" id="freezeCard">
           <div class="freeze-title" id="freezeTitle">No snapshot yet</div>
-          <div class="freeze-label" id="freezeLabel">Pick a live chiclet, a Matches fixture, or Everton 53′</div>
+          <div class="freeze-label" id="freezeLabel">Pick a live chiclet or a Matches fixture</div>
           <div class="freeze-meta" id="freezeMeta"></div>
           <div class="goal-context" id="goalContext" hidden></div>
         </div>

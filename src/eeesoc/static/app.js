@@ -20,12 +20,46 @@
     winprob: null,
     selectedWpId: null,
     wpFocus: null, // {kind:'day', date} | {kind:'bucket', league, bucket}
+    liveScope: "live", // "live" (in-play) | "finished" (full-time, today + yesterday)
   };
 
   const LIVE_POLL_MS = 8000;
   const TIMELINE_FRESH_MS = 5000;
   const ORDER_KEY = "eeesoc:chicletOrder";
   const COLLAPSE_KEY = "eeesoc:chicletCollapsed";
+  const SCOPE_KEY = "eeesoc:liveScope";
+  const FINISHED_DAYS_BACK = 1;
+
+  function loadLiveScope() {
+    try {
+      return localStorage.getItem(SCOPE_KEY) === "finished" ? "finished" : "live";
+    } catch (err) {
+      return "live";
+    }
+  }
+
+  function persistLiveScope(scope) {
+    state.liveScope = scope;
+    try {
+      localStorage.setItem(SCOPE_KEY, scope);
+    } catch (err) {
+      /* private mode — scope lives for the session only */
+    }
+  }
+
+  function isFinishedMatch(m) {
+    return m?.state === "post";
+  }
+
+  function matchClockLabel(m) {
+    return isFinishedMatch(m) ? "FT" : m?.clock || "LIVE";
+  }
+
+  function matchInScope(m, scope) {
+    if (scope === "finished") return isFinishedMatch(m);
+    if (scope === "live") return m?.state === "in";
+    return true;
+  }
 
   function loadChicletOrder() {
     try {
@@ -199,7 +233,8 @@
     return parts.map((p, i) => (i === parts.length - 1 ? p : p[0] + ".")).join(" ");
   }
 
-  function flatLiveMatches(filter) {
+  // scope: "live" (default) | "finished" | "all"
+  function flatLiveMatches(filter, scope = "live") {
     if (!state.live) return [];
     let leagues = state.live.leagues || [];
     if (filter instanceof Set) {
@@ -208,22 +243,32 @@
     const rows = [];
     for (const g of leagues) {
       for (const m of g.matches || []) {
+        if (!matchInScope(m, scope)) continue;
         rows.push({ ...m, league_name: g.name, league_chiclet: g.chiclet, league_slug: g.slug });
       }
+    }
+    if (scope === "finished") {
+      // Most recent full-time first.
+      rows.sort((a, b) => String(b.start || "").localeCompare(String(a.start || "")) || a.home.localeCompare(b.home));
     }
     return rows;
   }
 
-  function renderLeagueChiclets(rowEl, filterKey, onChange) {
+  function scopeCount(c, scope) {
+    return scope === "finished" ? Number(c.post_count) || 0 : Number(c.live_count) || 0;
+  }
+
+  function renderLeagueChiclets(rowEl, filterKey, onChange, scope = "live") {
     const row = $(rowEl);
     row.innerHTML = "";
     if (!state.live) return;
 
     const filter = state[filterKey];
+    const total = scope === "finished" ? state.live.post_total || 0 : state.live.live_total || 0;
     const allBtn = document.createElement("button");
     allBtn.type = "button";
     allBtn.className = "chiclet" + (filter == null ? " on" : "");
-    allBtn.innerHTML = `<span class="chiclet-label">ALL</span><span class="chiclet-count">${state.live.live_total || 0}</span>`;
+    allBtn.innerHTML = `<span class="chiclet-label">ALL</span><span class="chiclet-count">${total}</span>`;
     allBtn.addEventListener("click", () => {
       state[filterKey] = null;
       onChange();
@@ -233,12 +278,13 @@
     for (const c of state.live.chiclets || []) {
       const btn = document.createElement("button");
       btn.type = "button";
+      const n = scopeCount(c, scope);
       const active = filter instanceof Set && filter.has(c.slug);
-      btn.className = "chiclet" + (active ? " on" : "") + (!c.live_count ? " dim" : "");
-      btn.disabled = !c.live_count && !active;
-      btn.innerHTML = `<span class="chiclet-label">${c.label}</span><span class="chiclet-count">${c.live_count}</span>`;
+      btn.className = "chiclet" + (active ? " on" : "") + (!n ? " dim" : "");
+      btn.disabled = !n && !active;
+      btn.innerHTML = `<span class="chiclet-label">${c.label}</span><span class="chiclet-count">${n}</span>`;
       btn.addEventListener("click", () => {
-        if (!c.live_count) return;
+        if (!n) return;
         if (state[filterKey] instanceof Set && state[filterKey].has(c.slug) && state[filterKey].size === 1) {
           state[filterKey] = null;
         } else {
@@ -252,7 +298,8 @@
 
   function renderMatchChiclets(gridEl, filter, selected, onSelect, opts = {}) {
     const grid = $(gridEl);
-    const rows = flatLiveMatches(filter);
+    const scope = opts.scope || "live";
+    const rows = flatLiveMatches(filter, scope);
     const withTimeline = !!opts.withTimeline;
     const soft = !!opts.soft;
 
@@ -269,21 +316,30 @@
 
     grid.innerHTML = "";
     if (!rows.length) {
-      grid.innerHTML = `<p class="lede empty-live">No live matches right now — chiclets light up at kickoff.</p>`;
+      grid.innerHTML =
+        scope === "finished"
+          ? `<p class="lede empty-live">No finished matches yet today — full-time chiclets land here after the whistle.</p>`
+          : `<p class="lede empty-live">No live matches right now — chiclets light up at kickoff.</p>`;
       return;
     }
 
     if (withTimeline) {
       // Flat, user-orderable list — each chiclet carries its own league tag.
+      // Finished games keep kickoff order (newest first) rather than the drag order.
       const wrap = document.createElement("div");
       wrap.className = "match-chiclet-row match-chiclet-row-tl";
-      for (const m of orderRows(rows)) {
+      for (const m of scope === "finished" ? rows : orderRows(rows)) {
         const btn = buildMatchChicletButton(m, selected, onSelect, withTimeline);
-        makeChicletDraggable(btn, wrap);
+        if (scope !== "finished") makeChicletDraggable(btn, wrap);
         wrap.appendChild(btn);
-        loadMatchTimeline(m, btn.querySelector(".mc-timeline"), btn.querySelector(".mc-xg"), {
-          preferCache: true,
-        });
+        if (isFinishedMatch(m)) {
+          // Dozens of full-time games × a dozen play pages each — only fetch what's on screen.
+          lazyLoadTimeline(m, btn);
+        } else {
+          loadMatchTimeline(m, btn.querySelector(".mc-timeline"), btn.querySelector(".mc-xg"), {
+            preferCache: true,
+          });
+        }
       }
       grid.appendChild(wrap);
       return;
@@ -312,6 +368,37 @@
       bindGroupCollapse(block, groupKey);
       grid.appendChild(block);
     }
+  }
+
+  let timelineObserver = null;
+
+  function lazyLoadTimeline(m, btn) {
+    const load = () =>
+      loadMatchTimeline(m, btn.querySelector(".mc-timeline"), btn.querySelector(".mc-xg"), {
+        preferCache: true,
+      });
+    if (state.timelines?.[m.event_id] || typeof IntersectionObserver === "undefined") {
+      load();
+      return;
+    }
+    if (!timelineObserver) {
+      timelineObserver = new IntersectionObserver(
+        (entries) => {
+          for (const entry of entries) {
+            if (!entry.isIntersecting) continue;
+            timelineObserver.unobserve(entry.target);
+            const fn = entry.target.__lazyTimeline;
+            if (fn) {
+              entry.target.__lazyTimeline = null;
+              fn();
+            }
+          }
+        },
+        { rootMargin: "300px 0px" }
+      );
+    }
+    btn.__lazyTimeline = load;
+    timelineObserver.observe(btn);
   }
 
   function placeChicletAtY(wrap, card, clientY) {
@@ -459,11 +546,17 @@
     btn.__onSelect = onSelect;
     const cached = withTimeline ? state.timelines?.[m.event_id] : null;
     const shown = displayedScore(m, cached);
+    const finished = isFinishedMatch(m);
+    if (finished) btn.classList.add("match-chiclet-ft");
+    const badge = finished
+      ? `<span class="mc-live-badge mc-ft-badge" title="${escapeHtml(m.clock ? `Ended at ${m.clock}` : "Full time")}"><span class="mc-clock-text">FT</span></span>`
+      : `<span class="mc-live-badge"><span class="live-dot"></span><span class="mc-clock-text">${escapeHtml(m.clock || "LIVE")}</span></span>`;
     btn.innerHTML = `
       <span class="mc-top">
         <span class="mc-top-left">
-          ${withTimeline ? `<span class="mc-grip" title="Drag to reorder" aria-hidden="true">⠿</span>` : ""}
-          <span class="mc-live-badge"><span class="live-dot"></span><span class="mc-clock-text">${escapeHtml(m.clock || "LIVE")}</span></span>
+          ${withTimeline && !finished ? `<span class="mc-grip" title="Drag to reorder" aria-hidden="true">⠿</span>` : ""}
+          ${badge}
+          ${finished ? `<span class="mc-ft-when">${escapeHtml(finishedWhen(m))}</span>` : ""}
         </span>
         <span class="mc-top-right">
           <span class="mc-league">${escapeHtml(m.league_chiclet)}</span>
@@ -503,6 +596,19 @@
     return btn;
   }
 
+  function finishedWhen(m) {
+    if (!m?.start) return "Full time";
+    const d = new Date(m.start);
+    if (Number.isNaN(d.getTime())) return "Full time";
+    const today = new Date();
+    const sameDay =
+      d.getFullYear() === today.getFullYear() &&
+      d.getMonth() === today.getMonth() &&
+      d.getDate() === today.getDate();
+    const time = d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+    return sameDay ? `Today ${time}` : `${d.toLocaleDateString([], { weekday: "short" })} ${time}`;
+  }
+
   function displayedScore(m, tl) {
     const boardH = Number(m?.home_score) || 0;
     const boardA = Number(m?.away_score) || 0;
@@ -530,7 +636,7 @@
       const title = $("#pitchTitle");
       if (title && !$("#pitchPanel")?.hidden) {
         const m = state.selectedLive;
-        title.textContent = `${m.home} ${home}–${away} ${m.away} · ${m.clock || "LIVE"}`;
+        title.textContent = `${m.home} ${home}–${away} ${m.away} · ${matchClockLabel(m)}`;
       }
     }
     if (changed) flashGoal(btn);
@@ -562,10 +668,11 @@
       btn.__onSelect = onSelect;
       btn.classList.toggle("on", !!(selected && selected.event_id === m.event_id));
       const tl = state.timelines?.[m.event_id];
+      const finished = isFinishedMatch(m);
       const clockText = btn.querySelector(".mc-clock-text");
       // The 1s ticker owns the running clock; only overwrite for frozen states (HT/FT)
       if (clockText && (!tl || tl.frozen || !Number.isFinite(Number(tl.elapsed_seconds)))) {
-        clockText.textContent = m.clock || "LIVE";
+        clockText.textContent = finished ? "FT" : m.clock || "LIVE";
       }
       const shown = displayedScore(m, tl);
       applyChicletScore(btn, shown.home, shown.away);
@@ -574,7 +681,8 @@
         names[0].textContent = shortName(m.home);
         names[1].textContent = shortName(m.away);
       }
-      if (refreshTimelines) {
+      // Full-time play-by-play is static and loads lazily on scroll — never re-poll it.
+      if (refreshTimelines && !finished) {
         loadMatchTimeline(m, btn.querySelector(".mc-timeline"), btn.querySelector(".mc-xg"), {
           quiet: true,
           force: true,
@@ -731,9 +839,55 @@
     </svg>`;
   }
 
+  function pressureHeadline(tl) {
+    const p = tl.pressure;
+    if (!p || p.label === "quiet") return "";
+    const homeName = shortName(tl.home || "Home");
+    const awayName = shortName(tl.away || "Away");
+    const win = `last ${p.window || 15}'`;
+    if (p.leader === "home") return `${homeName} pressing high — ${awayName} pinned back (${win})`;
+    if (p.leader === "away") return `${awayName} pressing high — ${homeName} pinned back (${win})`;
+    return "";
+  }
+
+  function pressureHtml(tl) {
+    const p = tl.pressure;
+    if (!p) return "";
+    const homeName = shortName(tl.home || "Home");
+    const awayName = shortName(tl.away || "Away");
+    const win = p.window || 15;
+    if (p.label === "quiet" || p.share?.home == null) {
+      return `<span class="mc-pressure">
+        <span class="mc-pressure-head">Pressure · last ${win}'</span>
+        <span class="mc-pressure-meta">Reading the last ${win}'…</span>
+      </span>`;
+    }
+    const h = Math.round(p.share.home * 100);
+    const a = Math.max(0, 100 - h);
+    const lead = p.leader === "home" ? p.home : p.leader === "away" ? p.away : null;
+    const leadName = p.leader === "home" ? homeName : awayName;
+    const meta = lead
+      ? `${escapeHtml(leadName)} · ${lead.final_third} final-third · ${lead.box} in box · ${lead.corners} corners · ${lead.shots} shots`
+      : `Even — ${p.home.final_third} vs ${p.away.final_third} final-third actions`;
+    return `<span class="mc-pressure${p.leader ? ` lead-${p.leader}` : ""}">
+      <span class="mc-pressure-head">Pressure · last ${win}'</span>
+      <span class="mc-pressure-row">
+        <b class="mc-pressure-h">${h}%</b>
+        <span class="mc-pressure-bar" aria-hidden="true">
+          <i class="mc-pressure-seg-h" style="width:${h}%"></i>
+          <i class="mc-pressure-seg-a" style="width:${a}%"></i>
+        </span>
+        <b class="mc-pressure-a">${a}%</b>
+      </span>
+      <span class="mc-pressure-meta">${meta}</span>
+    </span>`;
+  }
+
   function territoryLabel(tl) {
     const terr = tl.territory;
     if (!terr) return "";
+    const fromPressure = pressureHeadline(tl);
+    if (fromPressure) return fromPressure;
     const homeName = shortName(tl.home || "Home");
     const awayName = shortName(tl.away || "Away");
     switch (terr.label) {
@@ -801,7 +955,7 @@
       <text x="${padX}" y="${H - 14}" class="tl-label"><tspan class="tl-xg-h">◀ ${escapeHtml(shortName(tl.home || "Home"))}</tspan> defend</text>
       <text x="${W - padX}" y="${H - 14}" class="tl-label" text-anchor="end"><tspan class="tl-xg-a">${escapeHtml(shortName(tl.away || "Away"))} ▶</tspan> defend</text>
       <text x="${midX}" y="${H - 3}" class="terr-headline" text-anchor="middle">${escapeHtml(territoryLabel(tl))}</text>
-    </svg>`;
+    </svg>${pressureHtml(tl)}`;
   }
 
   async function loadMatchTimeline(m, mount, xgMount, opts = {}) {
@@ -836,6 +990,7 @@
         xa: tl.xg?.away_total,
         fouls: [tl.counts?.home_foul, tl.counts?.away_foul],
         terr: tl.territory?.total,
+        press: [tl.pressure?.to_minute, tl.pressure?.home?.final_third, tl.pressure?.away?.final_third],
       });
 
     // Keep existing pictograms visible while refetching — only fill empty mounts from cache.
@@ -916,6 +1071,7 @@
     if (!grid) return;
     for (const btn of grid.querySelectorAll(".match-chiclet[data-event-id]")) {
       const eventId = btn.dataset.eventId;
+      if (isFinishedMatch(btn.__match)) continue;
       const tl = state.timelines?.[eventId];
       if (tl) {
         const secs = liveElapsedSeconds(tl);
@@ -943,14 +1099,34 @@
   }
 
   function renderLiveTabChiclets(opts = {}) {
-    renderLeagueChiclets("#leagueChiclets", "liveFilter", () => {
-      renderLiveTabChiclets();
-    });
+    const scope = state.liveScope || "live";
+    renderLeagueChiclets(
+      "#leagueChiclets",
+      "liveFilter",
+      () => {
+        renderLiveTabChiclets();
+      },
+      scope
+    );
     renderMatchChiclets("#matchChiclets", state.liveFilter, state.selectedLive, selectLiveMatch, {
       withTimeline: true,
       soft: !!opts.soft,
       refreshTimelines: opts.refreshTimelines,
+      scope,
     });
+    document.querySelectorAll(".scope-btn").forEach((b) => {
+      b.classList.toggle("on", b.dataset.scope === scope);
+      b.setAttribute("aria-pressed", b.dataset.scope === scope ? "true" : "false");
+    });
+  }
+
+  function setLiveScope(scope) {
+    if (scope !== "live" && scope !== "finished") return;
+    if (scope === state.liveScope) return;
+    persistLiveScope(scope);
+    // League filters belong to a scope — a filter with no rows in the new scope is just confusing.
+    state.liveFilter = null;
+    renderLiveTabChiclets();
   }
 
   function renderSimilarTabChiclets(opts = {}) {
@@ -970,10 +1146,11 @@
     state.selectedLive = m;
     renderLiveTabChiclets({ soft: true, refreshTimelines: false });
     $("#pitchPanel").hidden = false;
-    $("#pitchTitle").textContent = `${m.home} ${m.home_score}–${m.away_score} ${m.away} · ${m.clock || "LIVE"}`;
+    $("#pitchTitle").textContent = `${m.home} ${m.home_score}–${m.away_score} ${m.away} · ${matchClockLabel(m)}`;
     await refreshTrack();
     if (state.trackTimer) clearInterval(state.trackTimer);
-    state.trackTimer = setInterval(refreshTrack, 5000);
+    // Nothing moves after full time — no point polling the pitch feed.
+    state.trackTimer = isFinishedMatch(m) ? null : setInterval(refreshTrack, 5000);
   }
 
   function liveQuery(m) {
@@ -984,7 +1161,8 @@
       away: m.away,
       hs: String(m.home_score),
       as: String(m.away_score),
-      clock: m.clock || "",
+      // ESPN leaves post-match clocks at "90'+6'"; tell the server it's full time.
+      clock: isFinishedMatch(m) ? "FT" : m.clock || "",
       clock_s: m.clock_seconds != null ? String(m.clock_seconds) : "",
       chiclet: m.league_chiclet || "",
       home_id: m.home_id || "",
@@ -1267,7 +1445,7 @@
 
     if (track.ball) {
       $("#pitchTitle").textContent =
-        `${track.home} ${track.home_score}–${track.away_score} ${track.away} · ${track.clock || "LIVE"}` +
+        `${track.home} ${track.home_score}–${track.away_score} ${track.away} · ${matchClockLabel(state.selectedLive || track)}` +
         ` · ball @ ${Math.round(track.ball.x)},${Math.round(track.ball.y)} (${track.ball.type})`;
     }
   }
@@ -1760,28 +1938,93 @@
     }
   }
 
+  function localTodayIso() {
+    const d = new Date();
+    const mm = String(d.getMonth() + 1).padStart(2, "0");
+    const dd = String(d.getDate()).padStart(2, "0");
+    return `${d.getFullYear()}-${mm}-${dd}`;
+  }
+
+  function parseMatchDay(m) {
+    if (m.start) {
+      const d = new Date(m.start);
+      if (!Number.isNaN(d.getTime())) {
+        const mm = String(d.getMonth() + 1).padStart(2, "0");
+        const dd = String(d.getDate()).padStart(2, "0");
+        return `${d.getFullYear()}-${mm}-${dd}`;
+      }
+    }
+    if (m.iso_date) return m.iso_date;
+    const raw = String(m.date || "").trim();
+    const hit = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+    if (hit) return `${hit[3]}-${hit[2].padStart(2, "0")}-${hit[1].padStart(2, "0")}`;
+    return "";
+  }
+
+  function isTodayMatch(m) {
+    const day = parseMatchDay(m);
+    return Boolean(day) && day === localTodayIso();
+  }
+
+  function matchKickoffLabel(m) {
+    if (!m.start) return "Scheduled";
+    const d = new Date(m.start);
+    if (Number.isNaN(d.getTime())) return "Scheduled";
+    return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  }
+
+  function appendMatchSection(list, title) {
+    const head = document.createElement("div");
+    head.className = "match-day-label";
+    head.textContent = title;
+    list.appendChild(head);
+  }
+
+  function appendMatchRow(list, m) {
+    const selectable = Boolean(m.match_id) && !m.scheduled;
+    const el = document.createElement(selectable ? "button" : "div");
+    if (selectable) el.type = "button";
+    el.className =
+      "match-row" +
+      (isTodayMatch(m) ? " today-row" : "") +
+      (m.scheduled ? " scheduled-row" : "") +
+      (m.match_id === state.selectedId ? " selected" : "");
+    const meta = m.scheduled
+      ? `${matchKickoffLabel(m)} · scheduled`
+      : `FT ${escapeHtml(m.ft)} · ${escapeHtml(m.shots)}`;
+    el.innerHTML = `
+      <span class="date">${escapeHtml(m.date)}</span>
+      <span class="teams">${escapeHtml(m.home)} vs ${escapeHtml(m.away)}</span>
+      <span class="meta">${meta}</span>
+    `;
+    if (selectable) {
+      el.addEventListener("click", () => selectMatch(m.match_id, true));
+    }
+    list.appendChild(el);
+  }
+
   function renderMatches() {
     const q = ($("#matchFilter").value || "").trim().toLowerCase();
     const list = $("#matchList");
     list.innerHTML = "";
     const rows = state.matches.filter((m) => {
+      if (m.is_preset) return false;
       if (!q) return true;
       return `${m.home} ${m.away} ${m.date}`.toLowerCase().includes(q);
     });
-    for (const m of rows) {
-      const btn = document.createElement("button");
-      btn.type = "button";
-      btn.className =
-        "match-row" +
-        (m.is_preset ? " preset-row" : "") +
-        (m.match_id === state.selectedId ? " selected" : "");
-      btn.innerHTML = `
-        <span class="date">${m.date}</span>
-        <span class="teams">${m.home} vs ${m.away}</span>
-        <span class="meta">FT ${m.ft} · ${m.shots}</span>
-      `;
-      btn.addEventListener("click", () => selectMatch(m.match_id, true));
-      list.appendChild(btn);
+    const todayRows = rows
+      .filter(isTodayMatch)
+      .sort((a, b) => (a.start || "").localeCompare(b.start || "") || (a.home || "").localeCompare(b.home || ""));
+    const restRows = rows
+      .filter((m) => !isTodayMatch(m) && !m.scheduled)
+      .sort((a, b) => (parseMatchDay(b) || "").localeCompare(parseMatchDay(a) || "") || (a.home || "").localeCompare(b.home || ""));
+    if (todayRows.length) {
+      appendMatchSection(list, "Today");
+      for (const m of todayRows) appendMatchRow(list, m);
+    }
+    if (restRows.length) {
+      if (todayRows.length) appendMatchSection(list, "All matches");
+      for (const m of restRows) appendMatchRow(list, m);
     }
   }
 
@@ -1839,16 +2082,6 @@
     }
   }
 
-  async function loadEvertonPreset() {
-    const id = state.meta?.everton_preset_id;
-    if (!id) {
-      alert("Everton preset not in cache — run with --warm EPL:2025");
-      return;
-    }
-    $("#cutMinute").value = "53";
-    await selectMatch(id, true);
-  }
-
   function syncSelectedLive(all, key, onGone) {
     const selected = state[key];
     if (!selected) return;
@@ -1862,15 +2095,20 @@
 
   async function refreshLive() {
     try {
-      const data = await (await fetch("/api/live?live_only=1")).json();
+      // One board for both scopes: in-play rows are state "in", full-time rows are "post".
+      const data = await (await fetch(`/api/live?live_only=0&days_back=${FINISHED_DAYS_BACK}`)).json();
       state.live = data;
-      const stamp = `${data.live_total || 0} live · updated ${new Date().toLocaleTimeString()}`;
-      $("#liveStamp").textContent = stamp;
-      $("#similarLiveStamp").textContent = stamp;
+      const when = new Date().toLocaleTimeString();
+      $("#liveStamp").textContent =
+        `${data.live_total || 0} live · ${data.post_total || 0} finished · updated ${when}`;
+      $("#similarLiveStamp").textContent = `${data.live_total || 0} live · updated ${when}`;
 
+      const scopeFor = { liveFilter: state.liveScope || "live", similarFilter: "live" };
       for (const filterKey of ["liveFilter", "similarFilter"]) {
         if (state[filterKey] instanceof Set) {
-          const alive = new Set((data.chiclets || []).filter((c) => c.live_count).map((c) => c.slug));
+          const alive = new Set(
+            (data.chiclets || []).filter((c) => scopeCount(c, scopeFor[filterKey])).map((c) => c.slug)
+          );
           for (const slug of [...state[filterKey]]) {
             if (!alive.has(slug)) state[filterKey].delete(slug);
           }
@@ -1878,7 +2116,7 @@
         }
       }
 
-      const all = flatLiveMatches(null);
+      const all = flatLiveMatches(null, "all");
       syncSelectedLive(all, "selectedLive", () => {
         $("#pitchPanel").hidden = true;
         if (state.trackTimer) clearInterval(state.trackTimer);
@@ -1892,7 +2130,7 @@
 
       if (state.selectedLive) {
         const m = state.selectedLive;
-        $("#pitchTitle").textContent = `${m.home} ${m.home_score}–${m.away_score} ${m.away} · ${m.clock || "LIVE"}`;
+        $("#pitchTitle").textContent = `${m.home} ${m.home_score}–${m.away_score} ${m.away} · ${matchClockLabel(m)}`;
       }
 
       if (state.selectedSimilarLive && !state.selectedId) {
@@ -1908,6 +2146,7 @@
   async function boot() {
     state.chicletOrder = loadChicletOrder();
     state.collapsed = loadCollapsed();
+    state.liveScope = loadLiveScope();
     const meta = await (await fetch("/api/meta")).json();
     state.meta = meta;
     $("#seasonLabel").textContent = `${meta.season} · ${meta.match_count} matches · ${meta.history_count} history`;
@@ -1922,13 +2161,15 @@
     $("#cutMinute").addEventListener("change", () => {
       if (state.selectedId) selectMatch(state.selectedId, false);
     });
-    $("#evertonPreset").addEventListener("click", loadEvertonPreset);
+    document.querySelectorAll(".scope-btn").forEach((b) => {
+      b.addEventListener("click", () => setLiveScope(b.dataset.scope));
+    });
     $("#collapseAll")?.addEventListener("click", () => {
-      const ids = flatLiveMatches(state.liveFilter).map((m) => m.event_id);
+      const ids = flatLiveMatches(state.liveFilter, state.liveScope).map((m) => m.event_id);
       setAllCollapsed(ids, true);
     });
     $("#expandAll")?.addEventListener("click", () => {
-      const ids = flatLiveMatches(state.liveFilter).map((m) => m.event_id);
+      const ids = flatLiveMatches(state.liveFilter, state.liveScope).map((m) => m.event_id);
       setAllCollapsed(ids, false);
     });
     const similarGroupIds = () => {
