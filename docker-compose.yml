@@ -13,7 +13,8 @@ services:
       - ./data/cache:/data/cache
       - ./logs:/app/logs
     env_file:
-      - .env
+      - path: .env
+        required: false
     environment:
       EEESOC_GIT_SHA: ${GIT_SHA:-unknown}
       EEESOC_GIT_COMMIT_TIME: ${GIT_COMMIT_TIME:-unknown}
