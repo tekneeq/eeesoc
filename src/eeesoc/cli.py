@@ -32,6 +32,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--similar", metavar="MATCH_ID", help="Print similar lookalikes for a match")
     p.add_argument("--minute", type=int, default=53, help="Cut minute for --similar")
     p.add_argument("--json", action="store_true", help="JSON output for CLI queries")
+    p.add_argument("--discord", action="store_true", help="Run the Discord !soc bot (needs DISCORD_BOT_TOKEN)")
     return p
 
 
@@ -90,6 +91,12 @@ def main(argv: list[str] | None = None) -> None:
                     f"[{h.snapshot.label()}]  FT {h.match.home_goals_ft}-{h.match.away_goals_ft}"
                 )
 
+    if args.discord:
+        from eeesoc.discorder import run_bot
+
+        run_bot()
+        return
+
     if args.dashboard:
         season = args.season
         if not season and args.warm:
@@ -104,7 +111,7 @@ def main(argv: list[str] | None = None) -> None:
         print(f"Cache: {cache_root()}")
         serve(port=args.port, season=season, host=args.host)
 
-    if not args.warm and not args.dashboard and not args.similar:
+    if not args.warm and not args.dashboard and not args.similar and not args.discord:
         build_parser().print_help()
         raise SystemExit(0)
 

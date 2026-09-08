@@ -11,6 +11,9 @@ services:
       - "8081:8081"
     volumes:
       - ./data/cache:/data/cache
+      - ./logs:/app/logs
+    env_file:
+      - .env
     environment:
       EEESOC_GIT_SHA: ${GIT_SHA:-unknown}
       EEESOC_GIT_COMMIT_TIME: ${GIT_COMMIT_TIME:-unknown}

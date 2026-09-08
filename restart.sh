@@ -36,13 +36,13 @@ if [[ "${1:-}" == "--image" && -n "${2:-}" ]]; then
   IMAGE="$2"
 fi
 
+mkdir -p data/cache logs
+
 if [[ "$IMAGE" == "eeesoc-dashboard:latest" ]]; then
   git pull
 
   GIT_SHA="$(git rev-parse --short HEAD)"
   GIT_COMMIT_TIME="$(git show -s --format=%cI HEAD)"
-
-  mkdir -p data/cache
 
   # Keep the last running image so a failed health check can roll back.
   if "${DOCKER[@]}" image inspect eeesoc-dashboard:latest >/dev/null 2>&1; then
@@ -59,9 +59,16 @@ else
 fi
 
 "${DOCKER[@]}" rm -f eeesoc-dashboard 2>/dev/null || true
+ENV_FILE_ARGS=()
+if [[ -f .env ]]; then
+  ENV_FILE_ARGS=(--env-file .env)
+fi
+
 "${DOCKER[@]}" run -d --name eeesoc-dashboard --restart unless-stopped \
     -p 8081:8081 \
     -v "$(pwd)/data/cache:/data/cache" \
+    -v "$(pwd)/logs:/app/logs" \
+    "${ENV_FILE_ARGS[@]}" \
     -e "EEESOC_GIT_SHA=${GIT_SHA}" \
     -e "EEESOC_GIT_COMMIT_TIME=${GIT_COMMIT_TIME}" \
     -e "EEESOC_SEASON=${EEESOC_SEASON:-EPL:2025}" \
