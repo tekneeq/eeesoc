@@ -20,7 +20,7 @@
     winprob: null,
     selectedWpId: null,
     wpFocus: null, // {kind:'day', date} | {kind:'bucket', league, bucket}
-    liveScope: "live", // "live" (in-play) | "finished" (full-time, today + yesterday)
+    liveScope: "live", // "live" | "upcoming" (today, not started) | "finished"
   };
 
   const LIVE_POLL_MS = 8000;
@@ -32,7 +32,9 @@
 
   function loadLiveScope() {
     try {
-      return localStorage.getItem(SCOPE_KEY) === "finished" ? "finished" : "live";
+      const v = localStorage.getItem(SCOPE_KEY);
+      if (v === "finished" || v === "upcoming") return v;
+      return "live";
     } catch (err) {
       return "live";
     }
@@ -51,12 +53,55 @@
     return m?.state === "post";
   }
 
+  const DEAD_STATUS = ["postponed", "canceled", "cancelled", "suspended", "abandoned", "forfeit"];
+
+  function isDeadMatch(m) {
+    const blob = `${m?.detail || ""} ${m?.clock || ""} ${m?.state || ""}`.toLowerCase();
+    return DEAD_STATUS.some((w) => blob.includes(w));
+  }
+
+  function kickoffDate(m) {
+    if (!m?.start) return null;
+    const d = new Date(m.start);
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+
+  function isSameLocalDay(d, now = new Date()) {
+    return (
+      d.getFullYear() === now.getFullYear() &&
+      d.getMonth() === now.getMonth() &&
+      d.getDate() === now.getDate()
+    );
+  }
+
+  function isUpcomingMatch(m) {
+    if (m?.state !== "pre" || isDeadMatch(m)) return false;
+    const d = kickoffDate(m);
+    return !!(d && isSameLocalDay(d));
+  }
+
+  function upcomingKick(m) {
+    const d = kickoffDate(m);
+    if (!d) return "KO";
+    return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  }
+
+  function upcomingWhen(m) {
+    const d = kickoffDate(m);
+    if (!d) return "Kickoff today";
+    const time = upcomingKick(m);
+    return isSameLocalDay(d) ? `Today ${time}` : `${d.toLocaleDateString([], { weekday: "short" })} ${time}`;
+  }
+
   function matchClockLabel(m) {
-    return isFinishedMatch(m) ? "FT" : m?.clock || "LIVE";
+    if (isFinishedMatch(m)) return "FT";
+    if (isUpcomingMatch(m)) return upcomingWhen(m);
+    return m?.clock || "LIVE";
   }
 
   function matchInScope(m, scope) {
     if (scope === "finished") return isFinishedMatch(m);
+    if (scope === "upcoming") return isUpcomingMatch(m);
     if (scope === "live") return m?.state === "in";
     return true;
   }
@@ -233,7 +278,7 @@
     return parts.map((p, i) => (i === parts.length - 1 ? p : p[0] + ".")).join(" ");
   }
 
-  // scope: "live" (default) | "finished" | "all"
+  // scope: "live" (default) | "upcoming" | "finished" | "all"
   function flatLiveMatches(filter, scope = "live") {
     if (!state.live) return [];
     let leagues = state.live.leagues || [];
@@ -250,12 +295,19 @@
     if (scope === "finished") {
       // Most recent full-time first.
       rows.sort((a, b) => String(b.start || "").localeCompare(String(a.start || "")) || a.home.localeCompare(b.home));
+    } else if (scope === "upcoming") {
+      rows.sort((a, b) => String(a.start || "").localeCompare(String(b.start || "")) || a.home.localeCompare(b.home));
     }
     return rows;
   }
 
   function scopeCount(c, scope) {
-    return scope === "finished" ? Number(c.post_count) || 0 : Number(c.live_count) || 0;
+    if (scope === "finished") return Number(c.post_count) || 0;
+    if (scope === "upcoming") {
+      // "Today" is local — don't trust the server's UTC pre_count.
+      return flatLiveMatches(new Set([c.slug]), "upcoming").length;
+    }
+    return Number(c.live_count) || 0;
   }
 
   function renderLeagueChiclets(rowEl, filterKey, onChange, scope = "live") {
@@ -264,7 +316,12 @@
     if (!state.live) return;
 
     const filter = state[filterKey];
-    const total = scope === "finished" ? state.live.post_total || 0 : state.live.live_total || 0;
+    const total =
+      scope === "finished"
+        ? state.live.post_total || 0
+        : scope === "upcoming"
+          ? flatLiveMatches(null, "upcoming").length
+          : state.live.live_total || 0;
     const allBtn = document.createElement("button");
     allBtn.type = "button";
     allBtn.className = "chiclet" + (filter == null ? " on" : "");
@@ -316,23 +373,29 @@
 
     grid.innerHTML = "";
     if (!rows.length) {
-      grid.innerHTML =
+      const empty =
         scope === "finished"
-          ? `<p class="lede empty-live">No finished matches yet today — full-time chiclets land here after the whistle.</p>`
-          : `<p class="lede empty-live">No live matches right now — chiclets light up at kickoff.</p>`;
+          ? "No finished matches yet today — full-time chiclets land here after the whistle."
+          : scope === "upcoming"
+            ? "No upcoming kickoffs left today — they move to Live at kickoff."
+            : "No live matches right now — chiclets light up at kickoff.";
+      grid.innerHTML = `<p class="lede empty-live">${empty}</p>`;
       return;
     }
 
     if (withTimeline) {
       // Flat, user-orderable list — each chiclet carries its own league tag.
-      // Finished games keep kickoff order (newest first) rather than the drag order.
+      // Finished / upcoming keep kickoff order rather than the drag order.
       const wrap = document.createElement("div");
       wrap.className = "match-chiclet-row match-chiclet-row-tl";
-      for (const m of scope === "finished" ? rows : orderRows(rows)) {
+      const ordered = scope === "live" ? orderRows(rows) : rows;
+      for (const m of ordered) {
         const btn = buildMatchChicletButton(m, selected, onSelect, withTimeline);
-        if (scope !== "finished") makeChicletDraggable(btn, wrap);
+        if (scope === "live") makeChicletDraggable(btn, wrap);
         wrap.appendChild(btn);
-        if (isFinishedMatch(m)) {
+        if (isUpcomingMatch(m)) {
+          // Nothing to chart until kickoff.
+        } else if (isFinishedMatch(m)) {
           // Dozens of full-time games × a dozen play pages each — only fetch what's on screen.
           lazyLoadTimeline(m, btn);
         } else {
@@ -547,30 +610,18 @@
     const cached = withTimeline ? state.timelines?.[m.event_id] : null;
     const shown = displayedScore(m, cached);
     const finished = isFinishedMatch(m);
+    const upcoming = isUpcomingMatch(m);
     if (finished) btn.classList.add("match-chiclet-ft");
+    if (upcoming) btn.classList.add("match-chiclet-pre");
     const badge = finished
       ? `<span class="mc-live-badge mc-ft-badge" title="${escapeHtml(m.clock ? `Ended at ${m.clock}` : "Full time")}"><span class="mc-clock-text">FT</span></span>`
-      : `<span class="mc-live-badge"><span class="live-dot"></span><span class="mc-clock-text">${escapeHtml(m.clock || "LIVE")}</span></span>`;
-    btn.innerHTML = `
-      <span class="mc-top">
-        <span class="mc-top-left">
-          ${withTimeline && !finished ? `<span class="mc-grip" title="Drag to reorder" aria-hidden="true">⠿</span>` : ""}
-          ${badge}
-          ${finished ? `<span class="mc-ft-when">${escapeHtml(finishedWhen(m))}</span>` : ""}
-        </span>
-        <span class="mc-top-right">
-          <span class="mc-league">${escapeHtml(m.league_chiclet)}</span>
-          ${collapseToggleHtml(m.event_id)}
-        </span>
-      </span>
-      <span class="mc-teams">
-        <span class="mc-home"><span class="mc-name">${escapeHtml(shortName(m.home))}</span><i class="mc-key mc-key-home" title="Home — green in charts"></i></span>
-        <span class="mc-score"><b class="mc-score-h">${shown.home}</b><span class="mc-score-sep">–</span><b class="mc-score-a">${shown.away}</b></span>
-        <span class="mc-away"><i class="mc-key mc-key-away" title="Away — blue in charts"></i><span class="mc-name">${escapeHtml(shortName(m.away))}</span></span>
-      </span>
-      ${
-        withTimeline
-          ? `<span class="mc-stats" data-stats-for="${escapeHtml(m.event_id)}">${chicletStatsHtml(cached)}</span>
+      : upcoming
+        ? `<span class="mc-live-badge mc-ko-badge" title="Kickoff"><span class="mc-clock-text">${escapeHtml(upcomingKick(m))}</span></span>`
+        : `<span class="mc-live-badge"><span class="live-dot"></span><span class="mc-clock-text">${escapeHtml(m.clock || "LIVE")}</span></span>`;
+    const chartPlaceholder = upcoming
+      ? `<span class="mc-stats" data-stats-for="${escapeHtml(m.event_id)}"><span class="mc-stat mc-stat-empty">waiting for kickoff</span></span>`
+      : withTimeline
+        ? `<span class="mc-stats" data-stats-for="${escapeHtml(m.event_id)}">${chicletStatsHtml(cached)}</span>
             <div class="mc-charts">
               <span class="mc-timeline" data-tl-for="${escapeHtml(m.event_id)}" aria-label="Match event timeline">${
                 cached ? timelineSvg(cached) : `<span class="mc-timeline-loading">timeline…</span>`
@@ -582,8 +633,25 @@
                 cached ? territorySvg(cached) : `<span class="mc-timeline-loading">territory…</span>`
               }</span>
             </div>`
-          : ""
-      }
+        : "";
+    btn.innerHTML = `
+      <span class="mc-top">
+        <span class="mc-top-left">
+          ${withTimeline && !finished && !upcoming ? `<span class="mc-grip" title="Drag to reorder" aria-hidden="true">⠿</span>` : ""}
+          ${badge}
+          ${finished || upcoming ? `<span class="mc-ft-when">${escapeHtml(finished ? finishedWhen(m) : upcomingWhen(m))}</span>` : ""}
+        </span>
+        <span class="mc-top-right">
+          <span class="mc-league">${escapeHtml(m.league_chiclet)}</span>
+          ${collapseToggleHtml(m.event_id)}
+        </span>
+      </span>
+      <span class="mc-teams">
+        <span class="mc-home"><span class="mc-name">${escapeHtml(shortName(m.home))}</span><i class="mc-key mc-key-home" title="Home — green in charts"></i></span>
+        <span class="mc-score"><b class="mc-score-h">${shown.home}</b><span class="mc-score-sep">–</span><b class="mc-score-a">${shown.away}</b></span>
+        <span class="mc-away"><i class="mc-key mc-key-away" title="Away — blue in charts"></i><span class="mc-name">${escapeHtml(shortName(m.away))}</span></span>
+      </span>
+      ${chartPlaceholder}
     `;
     btn.addEventListener("click", () => {
       if (btn.__suppressClick) {
@@ -669,10 +737,11 @@
       btn.classList.toggle("on", !!(selected && selected.event_id === m.event_id));
       const tl = state.timelines?.[m.event_id];
       const finished = isFinishedMatch(m);
+      const upcoming = isUpcomingMatch(m);
       const clockText = btn.querySelector(".mc-clock-text");
-      // The 1s ticker owns the running clock; only overwrite for frozen states (HT/FT)
+      // The 1s ticker owns the running clock; only overwrite for frozen states (HT/FT/KO)
       if (clockText && (!tl || tl.frozen || !Number.isFinite(Number(tl.elapsed_seconds)))) {
-        clockText.textContent = finished ? "FT" : m.clock || "LIVE";
+        clockText.textContent = finished ? "FT" : upcoming ? upcomingKick(m) : m.clock || "LIVE";
       }
       const shown = displayedScore(m, tl);
       applyChicletScore(btn, shown.home, shown.away);
@@ -682,7 +751,8 @@
         names[1].textContent = shortName(m.away);
       }
       // Full-time play-by-play is static and loads lazily on scroll — never re-poll it.
-      if (refreshTimelines && !finished) {
+      // Upcoming games have no ESPN timeline until kickoff.
+      if (refreshTimelines && !finished && !upcoming) {
         loadMatchTimeline(m, btn.querySelector(".mc-timeline"), btn.querySelector(".mc-xg"), {
           quiet: true,
           force: true,
@@ -1071,7 +1141,7 @@
     if (!grid) return;
     for (const btn of grid.querySelectorAll(".match-chiclet[data-event-id]")) {
       const eventId = btn.dataset.eventId;
-      if (isFinishedMatch(btn.__match)) continue;
+      if (isFinishedMatch(btn.__match) || isUpcomingMatch(btn.__match)) continue;
       const tl = state.timelines?.[eventId];
       if (tl) {
         const secs = liveElapsedSeconds(tl);
@@ -1121,7 +1191,7 @@
   }
 
   function setLiveScope(scope) {
-    if (scope !== "live" && scope !== "finished") return;
+    if (scope !== "live" && scope !== "finished" && scope !== "upcoming") return;
     if (scope === state.liveScope) return;
     persistLiveScope(scope);
     // League filters belong to a scope — a filter with no rows in the new scope is just confusing.
@@ -1147,8 +1217,16 @@
     renderLiveTabChiclets({ soft: true, refreshTimelines: false });
     $("#pitchPanel").hidden = false;
     $("#pitchTitle").textContent = `${m.home} ${m.home_score}–${m.away_score} ${m.away} · ${matchClockLabel(m)}`;
-    await refreshTrack();
     if (state.trackTimer) clearInterval(state.trackTimer);
+    if (isUpcomingMatch(m)) {
+      state.trackTimer = null;
+      const svg = $("#pitchSvg");
+      if (svg) svg.replaceChildren();
+      $("#pitchStats").innerHTML = "";
+      $("#pitchFeed").innerHTML = `<p class="lede">Kickoff ${escapeHtml(upcomingWhen(m))} — pitch tracking starts when the match goes live.</p>`;
+      return;
+    }
+    await refreshTrack();
     // Nothing moves after full time — no point polling the pitch feed.
     state.trackTimer = isFinishedMatch(m) ? null : setInterval(refreshTrack, 5000);
   }
@@ -1452,7 +1530,7 @@
 
   async function refreshTrack() {
     const m = state.selectedLive;
-    if (!m) return;
+    if (!m || isUpcomingMatch(m)) return;
     try {
       const track = await (await fetch(`/api/live/track?${liveQuery(m)}`)).json();
       renderPitch(track);
@@ -2099,8 +2177,9 @@
       const data = await (await fetch(`/api/live?live_only=0&days_back=${FINISHED_DAYS_BACK}`)).json();
       state.live = data;
       const when = new Date().toLocaleTimeString();
+      const upcomingN = flatLiveMatches(null, "upcoming").length;
       $("#liveStamp").textContent =
-        `${data.live_total || 0} live · ${data.post_total || 0} finished · updated ${when}`;
+        `${data.live_total || 0} live · ${upcomingN} upcoming · ${data.post_total || 0} finished · updated ${when}`;
       $("#similarLiveStamp").textContent = `${data.live_total || 0} live · updated ${when}`;
 
       const scopeFor = { liveFilter: state.liveScope || "live", similarFilter: "live" };

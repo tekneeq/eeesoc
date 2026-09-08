@@ -214,6 +214,22 @@ def test_fetch_live_board_keeps_finished_games_when_not_live_only():
                             }
                         ],
                     },
+                    {
+                        "id": "3",
+                        "date": "2026-09-07T22:00Z",
+                        "competitions": [
+                            {
+                                "status": {
+                                    "type": {"state": "pre", "detail": "Scheduled", "shortDetail": "Scheduled"},
+                                    "displayClock": "0'",
+                                },
+                                "competitors": [
+                                    {"homeAway": "home", "score": "0", "team": {"displayName": "Roma"}},
+                                    {"homeAway": "away", "score": "0", "team": {"displayName": "Napoli"}},
+                                ],
+                            }
+                        ],
+                    },
                 ],
             }
         }
@@ -225,17 +241,19 @@ def test_fetch_live_board_keeps_finished_games_when_not_live_only():
         return payload
 
     live = fetch_live_board(live_only=True, leagues=[("ita.1", "Serie A")], fetcher=fake_fetch, use_cache=False)
-    assert live["total"] == 1 and live["post_total"] == 0
+    assert live["total"] == 1 and live["post_total"] == 0 and live["pre_total"] == 0
 
     board = fetch_live_board(
         live_only=False, days_back=1, leagues=[("ita.1", "Serie A")], fetcher=fake_fetch, use_cache=False
     )
-    assert board["total"] == 2
+    assert board["total"] == 3
     assert board["live_total"] == 1
     assert board["post_total"] == 1
+    assert board["pre_total"] == 1
     assert board["chiclets"][0]["post_count"] == 1
+    assert board["chiclets"][0]["pre_count"] == 1
     states = {m["home"]: m["state"] for m in board["leagues"][0]["matches"]}
-    assert states == {"Udinese": "post", "A": "in"}
+    assert states == {"Udinese": "post", "A": "in", "Roma": "pre"}
     # days_back widens the scoreboard window to a range
     assert any("dates=" in u and "-" in u.split("dates=")[-1] for u in seen_urls[-2:])
 
@@ -245,8 +263,10 @@ def test_scoreboard_dates_days_back():
 
     noon = datetime(2026, 9, 7, 12, 0, tzinfo=timezone.utc)
     assert _scoreboard_dates(noon) == "20260907"
-    assert _scoreboard_dates(noon, days_back=1) == "20260906-20260907"
+    # days_back also reaches one day ahead so tonight's remaining kickoffs stay on the board
+    assert _scoreboard_dates(noon, days_back=1) == "20260906-20260908"
     late = datetime(2026, 9, 7, 21, 0, tzinfo=timezone.utc)
+    assert _scoreboard_dates(late) == "20260907-20260908"
     assert _scoreboard_dates(late, days_back=1) == "20260906-20260908"
 
 

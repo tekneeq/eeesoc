@@ -37,7 +37,8 @@
               <span class="lede-away">blue = away</span>. Minute markers for shots (incl. blocked),
               SOT, goals, corners, an xG vs time chart, and a rolling 15′ pressure bar showing who
               keeps reaching the other side’s final third. Switch to <b>Finished</b> for the same
-              chiclet on today’s and yesterday’s full-time games. Tap a chiclet for the pitch graphic,
+              chiclet on today’s and yesterday’s full-time games, or <b>Upcoming</b> for today’s
+              kickoffs that have not started yet. Tap a chiclet for the pitch graphic,
               ▾ to collapse, or hold and drag <span class="lede-grip">⠿</span> to reorder the board.
             </p>
           </div>
@@ -45,8 +46,9 @@
             <span class="pulse" aria-hidden="true"></span>
             <span id="liveStamp">loading…</span>
             <span class="chiclet-tools">
-              <span class="scope-switch" role="group" aria-label="Live or finished games">
+              <span class="scope-switch" role="group" aria-label="Live, upcoming, or finished games">
                 <button type="button" class="chiclet-tool scope-btn on" data-scope="live">Live</button>
+                <button type="button" class="chiclet-tool scope-btn" data-scope="upcoming">Upcoming</button>
                 <button type="button" class="chiclet-tool scope-btn" data-scope="finished">Finished</button>
               </span>
               <button type="button" class="chiclet-tool" id="collapseAll">Collapse all</button>
