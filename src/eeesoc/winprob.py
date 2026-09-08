@@ -27,6 +27,7 @@ PREV_SEASON_WEIGHT = 0.5
 # Shrink small-sample attack/defence multipliers toward league average.
 SHRINK_GAMES = 5.0
 RECORD_WINDOW_DAYS = 30
+PICK_BUCKETS = ("<50", "50-55", ">55-60", ">60")
 
 
 def _fetch_json(url: str, timeout: float = 12.0) -> dict[str, Any]:
@@ -205,6 +206,9 @@ def backtest_predictions(current: list[Match], history: list[Match]) -> list[dic
                     "pick": pick,
                     "pick_team": m.home if pick == "home" else (m.away if pick == "away" else "Draw"),
                     "pick_prob": pred["pick_prob"],
+                    "bucket": pick_bucket(pred["pick_prob"]),
+                    "league": _league_slug(m.season),
+                    "league_chiclet": _league_chiclet(m.season),
                     "actual": actual,
                     "correct": pick == actual,
                 }
@@ -212,6 +216,34 @@ def backtest_predictions(current: list[Match], history: list[Match]) -> list[dic
         weighted.extend((m, 1.0) for m in group)
 
     return rows
+
+
+def pick_bucket(prob: float | None) -> str:
+    """Pick-confidence band — same cuts as eeerev's 50-55 / >55-60 / >60 chips."""
+    p = round(float(prob or 0) * 100, 6)
+    if p > 60:
+        return ">60"
+    if p > 55:
+        return ">55-60"
+    if p >= 50:
+        return "50-55"
+    return "<50"
+
+
+def _league_chiclet(season: str | None) -> str:
+    return str(season or DEFAULT_LEAGUE_CHICLET).split(":")[0] or DEFAULT_LEAGUE_CHICLET
+
+
+def _league_slug(season: str | None) -> str:
+    return _league_chiclet(season).lower()
+
+
+def _row_bucket(row: dict[str, Any]) -> str | None:
+    if row.get("bucket"):
+        return str(row["bucket"])
+    if row.get("pick_prob") is not None:
+        return pick_bucket(row["pick_prob"])
+    return None
 
 
 def _summarize(rows: list[dict[str, Any]]) -> dict[str, Any]:
@@ -223,6 +255,35 @@ def _summarize(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "total": total,
         "pct": round(correct / total, 3) if total else None,
     }
+
+
+def _bucket_summaries(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    grouped: dict[str, list[dict[str, Any]]] = {key: [] for key in PICK_BUCKETS}
+    for row in rows:
+        key = _row_bucket(row)
+        if key in grouped:
+            grouped[key].append(row)
+    return {key: _summarize(grouped[key]) for key in PICK_BUCKETS}
+
+
+def _daily_series(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    by_day: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        day = str(row.get("date") or "")
+        if not day:
+            continue
+        by_day.setdefault(day, []).append(row)
+    out: list[dict[str, Any]] = []
+    for day in sorted(by_day):
+        group = by_day[day]
+        out.append({"date": day, **_summarize(group), "buckets": _bucket_summaries(group)})
+    return out
+
+
+def _record_block(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    summary = _summarize(rows)
+    summary["buckets"] = _bucket_summaries(rows)
+    return summary
 
 
 def summarize_record(
@@ -238,11 +299,35 @@ def summarize_record(
         cutoff = (date.fromisoformat(latest) - timedelta(days=window_days)).isoformat()
         recent = [r for r in rows if r["date"] >= cutoff]
         anchor = latest
+
+    by_league: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        chiclet = str(row.get("league_chiclet") or DEFAULT_LEAGUE_CHICLET)
+        by_league.setdefault(chiclet, []).append(row)
+
+    leagues = []
+    for chiclet, league_rows in by_league.items():
+        league_recent = [r for r in league_rows if r["date"] >= cutoff]
+        leagues.append(
+            {
+                "chiclet": chiclet,
+                "slug": str(league_rows[0].get("league") or chiclet.lower()),
+                "last30": _record_block(league_recent),
+                "season": _record_block(league_rows),
+                "daily": _daily_series(league_recent),
+            }
+        )
+    leagues.sort(key=lambda g: (-(g["last30"]["total"] or 0), g["chiclet"]))
+
     return {
         "window_days": window_days,
         "anchor": anchor,
-        "last30": _summarize(recent),
-        "season": _summarize(rows),
+        "last30": _record_block(recent),
+        "season": _record_block(rows),
+        "daily": _daily_series(recent),
+        "leagues": leagues,
+        "cutoff": cutoff,
+        "picks": rows,
     }
 
 

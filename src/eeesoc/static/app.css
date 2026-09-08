@@ -1645,24 +1645,24 @@ main {
 /* —— WinProb tab —— */
 
 .wp-record-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.6rem;
   margin: 0 0 1.25rem;
   padding-bottom: 1rem;
   border-bottom: 1px solid var(--line);
   animation: rise 280ms ease both;
 }
 
-.wp-record-card {
+.wp-record-board {
   display: flex;
   flex-direction: column;
-  gap: 0.2rem;
-  min-width: 11rem;
-  padding: 0.7rem 0.9rem;
-  border: 1px solid var(--line);
-  border-radius: 0.45rem;
-  background: linear-gradient(160deg, rgba(255, 255, 255, 0.045), rgba(255, 255, 255, 0.012) 55%);
+  gap: 0.55rem;
+}
+
+.wp-record-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.6rem;
 }
 
 .wp-record-label {
@@ -1673,18 +1673,195 @@ main {
   color: var(--muted);
 }
 
+.wp-record-meta {
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  color: var(--muted);
+}
+
 .wp-record-main {
   font-family: var(--mono);
-  font-size: 1.5rem;
+  font-size: 1.85rem;
   font-weight: 700;
   color: var(--accent);
   font-variant-numeric: tabular-nums;
 }
 
-.wp-record-sub {
+.wp-record-season {
+  font-family: var(--mono);
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+
+.wp-bucket-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.wp-bucket {
+  appearance: none;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  letter-spacing: 0.02em;
+  padding: 0.28rem 0.5rem;
+  border-radius: 0.28rem;
+  cursor: pointer;
+  font-variant-numeric: tabular-nums;
+}
+
+.wp-bucket.wp-b-lo {
+  color: #ff8f8f;
+}
+
+.wp-bucket.wp-b-ok {
+  color: #7ad7ff;
+}
+
+.wp-bucket.wp-b-mid {
+  color: var(--warn);
+}
+
+.wp-bucket.wp-b-hi {
+  color: var(--accent);
+}
+
+.wp-bucket:hover:not(:disabled) {
+  border-color: rgba(125, 255, 179, 0.35);
+}
+
+.wp-bucket.on {
+  background: var(--accent-dim);
+  border-color: rgba(125, 255, 179, 0.45);
+}
+
+.wp-bucket.dim,
+.wp-bucket:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.wp-league-records {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  margin-top: 0.15rem;
+}
+
+.wp-league-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.7rem;
+}
+
+.wp-league-line {
   font-family: var(--mono);
   font-size: 0.72rem;
   color: var(--muted);
+  min-width: 7.5rem;
+}
+
+.wp-daily-chart {
+  margin-top: 0.35rem;
+}
+
+.wp-daily-svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.wp-chart-grid {
+  stroke: rgba(180, 210, 200, 0.1);
+  stroke-width: 1;
+}
+
+.wp-chart-mid {
+  stroke: rgba(125, 255, 179, 0.28);
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+}
+
+.wp-chart-tick,
+.wp-chart-x,
+.wp-chart-frac {
+  fill: var(--muted);
+  font-family: var(--mono);
+  font-size: 8px;
+}
+
+.wp-chart-frac {
+  fill: rgba(231, 239, 233, 0.72);
+}
+
+.wp-chart-bar rect {
+  fill: rgba(122, 215, 255, 0.85);
+  cursor: pointer;
+}
+
+.wp-chart-bar:hover rect,
+.wp-chart-bar.on rect {
+  fill: var(--accent);
+}
+
+.wp-focus-banner {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid rgba(125, 255, 179, 0.28);
+  border-radius: 0.4rem;
+  background: var(--accent-dim);
+}
+
+.wp-focus-title {
+  display: block;
+  font-family: var(--mono);
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.wp-focus-sub {
+  display: block;
+  margin-top: 0.15rem;
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  color: var(--muted);
+}
+
+.wp-focus-clear {
+  appearance: none;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 0.22rem 0.45rem;
+  border-radius: 0.22rem;
+  cursor: pointer;
+}
+
+.wp-focus-clear:hover {
+  color: var(--text);
+  border-color: rgba(125, 255, 179, 0.35);
+}
+
+.wp-result-league {
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--accent);
 }
 
 .wp-chiclet {
@@ -1894,7 +2071,7 @@ main {
 
 .wp-result-row {
   display: grid;
-  grid-template-columns: auto 5.5rem 1fr auto;
+  grid-template-columns: auto 5.5rem auto 1fr auto;
   gap: 0.7rem;
   align-items: center;
   padding: 0.5rem 0.35rem;
@@ -1938,6 +2115,9 @@ main {
   }
   .wp-result-row {
     grid-template-columns: auto 1fr;
+  }
+  .wp-result-league {
+    grid-column: 2;
   }
   .wp-result-row .meta {
     justify-self: start;

@@ -19,6 +19,7 @@
     collapsed: new Set(),
     winprob: null,
     selectedWpId: null,
+    wpFocus: null, // {kind:'day', date} | {kind:'bucket', league, bucket}
     liveScope: "live", // "live" (in-play) | "finished" (full-time, today + yesterday)
   };
 
@@ -1479,19 +1480,162 @@
     }
   }
 
-  function wpRecordCard(label, rec) {
-    if (!rec || !rec.total) {
-      return `<div class="wp-record-card">
-        <span class="wp-record-label">${escapeHtml(label)}</span>
-        <span class="wp-record-main">—</span>
-        <span class="wp-record-sub">no graded picks yet</span>
+  const WP_BUCKETS = ["<50", "50-55", ">55-60", ">60"];
+
+  function wpRecordLine(rec) {
+    if (!rec || !rec.total) return "—";
+    return `${rec.correct}–${rec.wrong} (${wpPct(rec.pct)})`;
+  }
+
+  function wpBucketClass(key) {
+    if (key === ">60") return "wp-b-hi";
+    if (key === ">55-60") return "wp-b-mid";
+    if (key === "50-55") return "wp-b-ok";
+    return "wp-b-lo";
+  }
+
+  function wpBucketChip(key, rec, league, windowName) {
+    const empty = !rec || !rec.total;
+    const label = empty ? `${key} —` : `${key} ${rec.correct}–${rec.wrong} (${wpPct(rec.pct)})`;
+    const focus = state.wpFocus;
+    const on =
+      focus &&
+      focus.kind === "bucket" &&
+      focus.bucket === key &&
+      String(focus.league || "") === String(league || "") &&
+      (focus.window || "last30") === (windowName || "last30");
+    return `<button type="button" class="wp-bucket ${wpBucketClass(key)}${on ? " on" : ""}${
+      empty ? " dim" : ""
+    }" data-bucket="${escapeHtml(key)}" data-league="${escapeHtml(league || "")}" data-window="${escapeHtml(
+      windowName || "last30"
+    )}" ${empty ? "disabled" : ""}>${escapeHtml(label)}</button>`;
+  }
+
+  function wpBucketRow(buckets, league, windowName) {
+    const map = buckets || {};
+    return `<div class="wp-bucket-row" role="toolbar" aria-label="Pick confidence buckets">${WP_BUCKETS.map(
+      (key) => wpBucketChip(key, map[key], league, windowName)
+    ).join("")}</div>`;
+  }
+
+  function wpDailyChartSvg(days, focusDate) {
+    const rows = days || [];
+    if (!rows.length) {
+      return `<p class="lede empty-live">No graded matchdays in this window yet.</p>`;
+    }
+    const W = 720;
+    const H = 168;
+    const padL = 36;
+    const padR = 10;
+    const padT = 22;
+    const padB = 36;
+    const innerW = W - padL - padR;
+    const innerH = H - padT - padB;
+    const n = rows.length;
+    const gap = n > 20 ? 2 : 4;
+    const barW = Math.max(4, (innerW - gap * (n - 1)) / n);
+    const yAt = (pct) => padT + innerH * (1 - pct);
+    const ticks = [0, 0.25, 0.5, 0.75, 1];
+    const grid = ticks
+      .map((t) => {
+        const y = yAt(t).toFixed(1);
+        const cls = t === 0.5 ? "wp-chart-mid" : "wp-chart-grid";
+        return `<line x1="${padL}" y1="${y}" x2="${W - padR}" y2="${y}" class="${cls}"/>
+          <text x="${padL - 6}" y="${(Number(y) + 3).toFixed(1)}" class="wp-chart-tick" text-anchor="end">${Math.round(
+            t * 100
+          )}%</text>`;
+      })
+      .join("");
+    const bars = rows
+      .map((d, i) => {
+        const pct = d.total ? Number(d.pct) || 0 : 0;
+        const x = padL + i * (barW + gap);
+        const h = innerH * pct;
+        const y = yAt(pct);
+        const on = focusDate && focusDate === d.date;
+        const tipBuckets = WP_BUCKETS.map((key) => {
+          const b = (d.buckets || {})[key];
+          if (!b || !b.total) return `${key}: —`;
+          return `${key}: ${b.correct}–${b.wrong} (${wpPct(b.pct)})`;
+        }).join(" · ");
+        const title = `${d.date} — ${d.correct} of ${d.total} (${wpPct(d.pct)}) · ${tipBuckets}`;
+        const label = n <= 16 || i % 2 === 0 ? d.date.slice(5) : "";
+        return `<g class="wp-chart-bar${on ? " on" : ""}" data-date="${escapeHtml(d.date)}" role="button" tabindex="0">
+          <title>${escapeHtml(title)}</title>
+          <rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${Math.max(
+            1.2,
+            h
+          ).toFixed(1)}"/>
+          <text x="${(x + barW / 2).toFixed(1)}" y="${Math.max(padT - 4, y - 4).toFixed(
+            1
+          )}" class="wp-chart-frac" text-anchor="middle">${d.correct}/${d.total}</text>
+          ${
+            label
+              ? `<text x="${(x + barW / 2).toFixed(1)}" y="${H - 8}" class="wp-chart-x" text-anchor="middle">${escapeHtml(
+                  label
+                )}</text>`
+              : ""
+          }
+        </g>`;
+      })
+      .join("");
+    return `<svg class="wp-daily-svg" viewBox="0 0 ${W} ${H}" width="100%" height="${H}" role="img" aria-label="Daily WinProb hit rate">${grid}${bars}</svg>`;
+  }
+
+  function wpFocusBanner(focus, rec) {
+    if (!focus) return "";
+    if (focus.kind === "day") {
+      const day = (rec.daily || []).find((d) => d.date === focus.date);
+      if (!day) return "";
+      return `<div class="wp-focus-banner">
+        <div>
+          <span class="wp-focus-title">${escapeHtml(day.date)} · ${escapeHtml(wpRecordLine(day))}</span>
+          <span class="wp-focus-sub">${WP_BUCKETS.map((key) => {
+            const b = (day.buckets || {})[key];
+            return b && b.total ? `${key} ${b.correct}–${b.wrong}` : "";
+          })
+            .filter(Boolean)
+            .join(" · ")}</span>
+        </div>
+        <button type="button" class="wp-focus-clear">Clear</button>
       </div>`;
     }
-    return `<div class="wp-record-card">
-      <span class="wp-record-label">${escapeHtml(label)}</span>
-      <span class="wp-record-main">${rec.correct}–${rec.wrong}</span>
-      <span class="wp-record-sub">${wpPct(rec.pct)} of ${rec.total} picks</span>
+    const league = focus.league;
+    const block = league
+      ? (rec.leagues || []).find((g) => g.chiclet === league || g.slug === league)
+      : rec;
+    const buckets = (focus.window === "season" ? block?.season : block?.last30)?.buckets || {};
+    const b = buckets[focus.bucket];
+    const who = league || (focus.window === "season" ? "Season" : "All");
+    return `<div class="wp-focus-banner">
+      <div>
+        <span class="wp-focus-title">${escapeHtml(who)} · ${escapeHtml(focus.bucket)} · ${escapeHtml(
+          wpRecordLine(b)
+        )}</span>
+        <span class="wp-focus-sub">Click a chip or bar to pin those graded picks</span>
+      </div>
+      <button type="button" class="wp-focus-clear">Clear</button>
     </div>`;
+  }
+
+  function filterWpPicks(picks, focus, rec) {
+    const rows = picks || [];
+    const cutoff = rec?.cutoff || "";
+    if (!focus) {
+      const recent = cutoff ? rows.filter((r) => r.date >= cutoff) : rows;
+      return recent.slice(-20).reverse();
+    }
+    return rows
+      .filter((r) => {
+        if (focus.kind === "day") return r.date === focus.date;
+        if (focus.league && r.league_chiclet !== focus.league && r.league !== focus.league) {
+          return false;
+        }
+        if ((focus.window || "last30") !== "season" && cutoff && r.date < cutoff) return false;
+        return (r.bucket || "") === focus.bucket;
+      })
+      .slice()
+      .reverse();
   }
 
   function wpProbBarHtml(probs) {
@@ -1567,10 +1711,43 @@
     const todayIso = new Date().toISOString().slice(0, 10);
     const windowLabel =
       rec.anchor && rec.anchor !== todayIso
-        ? `Past ${rec.window_days || 30} days (to ${rec.anchor})`
-        : `Past ${rec.window_days || 30} days`;
-    $("#wpRecord").innerHTML =
-      wpRecordCard(windowLabel, rec.last30) + wpRecordCard("Season", rec.season);
+        ? `last ${rec.window_days || 30} days (to ${rec.anchor})`
+        : `last ${rec.window_days || 30} days`;
+    const last30 = rec.last30 || {};
+    const daysWith = (rec.daily || []).length;
+    const leagueRows = (rec.leagues || [])
+      .map((g) => {
+        const line = g.last30?.total
+          ? `${g.last30.correct}–${g.last30.wrong} (${wpPct(g.last30.pct)})`
+          : "no graded picks";
+        return `<div class="wp-league-row">
+          <span class="league-chiclet-tag">${escapeHtml(g.chiclet)}</span>
+          <span class="wp-league-line">${escapeHtml(line)}</span>
+          ${wpBucketRow((g.last30 && g.last30.buckets) || {}, g.chiclet, "last30")}
+        </div>`;
+      })
+      .join("");
+
+    const focusDate = state.wpFocus && state.wpFocus.kind === "day" ? state.wpFocus.date : "";
+    $("#wpRecord").innerHTML = `
+      <div class="wp-record-board">
+        <div class="wp-record-head">
+          <span class="wp-record-label">WinProb record — ${escapeHtml(windowLabel)}</span>
+          <span class="wp-record-meta">${daysWith} days with picks · ${last30.total || 0} picks</span>
+        </div>
+        <div class="wp-record-main">${escapeHtml(wpRecordLine(last30))}</div>
+        ${wpBucketRow(last30.buckets || {}, "", "last30")}
+        <div class="wp-record-season">season ${escapeHtml(wpRecordLine(rec.season))}</div>
+        ${
+          rec.season?.buckets
+            ? `<div class="wp-season-buckets">${wpBucketRow(rec.season.buckets, "", "season")}</div>`
+            : ""
+        }
+        <div class="wp-league-records">${leagueRows || ""}</div>
+        <div class="wp-daily-chart" id="wpDailyChart">${wpDailyChartSvg(rec.daily || [], focusDate)}</div>
+        ${wpFocusBanner(state.wpFocus, rec)}
+      </div>`;
+    bindWpRecord($("#wpRecord"), rec);
 
     const grid = $("#wpFixtures");
     grid.innerHTML = "";
@@ -1601,13 +1778,62 @@
       grid.appendChild(block);
     }
 
-    renderWpResults(data.recent_results || []);
+    const picks = rec.picks || data.recent_results || [];
+    const focused = filterWpPicks(picks, state.wpFocus, rec);
+    const title = state.wpFocus ? "Pinned graded picks" : "Recent graded picks";
+    renderWpResults(focused, title);
   }
 
-  function renderWpResults(rows) {
+  function bindWpRecord(root, rec) {
+    if (!root) return;
+    root.querySelectorAll(".wp-bucket:not([disabled])").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const bucket = btn.dataset.bucket;
+        const league = btn.dataset.league || "";
+        const next = {
+          kind: "bucket",
+          bucket,
+          league,
+          window: btn.dataset.window || "last30",
+        };
+        const cur = state.wpFocus;
+        const same =
+          cur &&
+          cur.kind === "bucket" &&
+          cur.bucket === next.bucket &&
+          String(cur.league || "") === String(next.league || "") &&
+          (cur.window || "last30") === next.window;
+        state.wpFocus = same ? null : next;
+        renderWinprob();
+      });
+    });
+    root.querySelectorAll(".wp-chart-bar").forEach((g) => {
+      const activate = () => {
+        const date = g.getAttribute("data-date");
+        const cur = state.wpFocus;
+        state.wpFocus = cur && cur.kind === "day" && cur.date === date ? null : { kind: "day", date };
+        renderWinprob();
+      };
+      g.addEventListener("click", activate);
+      g.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          activate();
+        }
+      });
+    });
+    root.querySelector(".wp-focus-clear")?.addEventListener("click", () => {
+      state.wpFocus = null;
+      renderWinprob();
+    });
+  }
+
+  function renderWpResults(rows, title) {
     const box = $("#wpResults");
     if (!rows.length) {
-      box.innerHTML = "";
+      box.innerHTML = state.wpFocus
+        ? `<div class="concede-title">${escapeHtml(title || "Pinned graded picks")}</div><p class="lede empty-live">No picks in this slice.</p>`
+        : "";
       return;
     }
     const items = rows
@@ -1615,15 +1841,19 @@
         const mark = r.correct
           ? `<span class="wp-mark hit" title="Pick was right">✓</span>`
           : `<span class="wp-mark miss" title="Pick was wrong">✗</span>`;
+        const league = r.league_chiclet
+          ? `<span class="wp-result-league">${escapeHtml(r.league_chiclet)}</span>`
+          : "";
         return `<div class="wp-result-row${r.correct ? " hit" : " miss"}">
           ${mark}
           <span class="date">${escapeHtml(r.date)}</span>
+          ${league}
           <span class="teams">${escapeHtml(r.home)} vs ${escapeHtml(r.away)}</span>
-          <span class="meta">picked <b>${escapeHtml(r.pick === "draw" ? "Draw" : r.pick_team)}</b> ${wpPct(r.pick_prob)} · FT ${escapeHtml(r.ft)}</span>
+          <span class="meta">picked <b>${escapeHtml(r.pick === "draw" ? "Draw" : r.pick_team)}</b> ${wpPct(r.pick_prob)} · ${escapeHtml(r.bucket || "")} · FT ${escapeHtml(r.ft)}</span>
         </div>`;
       })
       .join("");
-    box.innerHTML = `<div class="concede-title">Recent graded picks</div>${items}`;
+    box.innerHTML = `<div class="concede-title">${escapeHtml(title || "Recent graded picks")}</div>${items}`;
   }
 
   function wpFormRows(form) {
