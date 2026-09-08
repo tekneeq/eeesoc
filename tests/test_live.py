@@ -181,6 +181,99 @@ def test_kickoff_passed_pre_match_counts_as_live():
     assert promote_started_match(by_id["later"], now).state == "pre"
 
 
+def test_fetch_live_board_keeps_finished_games_when_not_live_only():
+    clear_live_cache()
+    payload = {
+        "content": {
+            "sbData": {
+                "leagues": [{"name": "Italian Serie A"}],
+                "events": [
+                    {
+                        "id": "1",
+                        "date": "2026-09-07T18:45Z",
+                        "competitions": [
+                            {
+                                "status": {"type": {"state": "post", "detail": "FT", "shortDetail": "FT"}},
+                                "competitors": [
+                                    {"homeAway": "home", "score": "1", "team": {"displayName": "Udinese", "id": "118"}},
+                                    {"homeAway": "away", "score": "2", "team": {"displayName": "Lazio", "id": "112"}},
+                                ],
+                            }
+                        ],
+                    },
+                    {
+                        "id": "2",
+                        "date": "2026-09-07T20:45Z",
+                        "competitions": [
+                            {
+                                "status": {"type": {"state": "in", "detail": "60'"}, "displayClock": "60'"},
+                                "competitors": [
+                                    {"homeAway": "home", "score": "0", "team": {"displayName": "A"}},
+                                    {"homeAway": "away", "score": "0", "team": {"displayName": "B"}},
+                                ],
+                            }
+                        ],
+                    },
+                ],
+            }
+        }
+    }
+    seen_urls: list[str] = []
+
+    def fake_fetch(url: str):
+        seen_urls.append(url)
+        return payload
+
+    live = fetch_live_board(live_only=True, leagues=[("ita.1", "Serie A")], fetcher=fake_fetch, use_cache=False)
+    assert live["total"] == 1 and live["post_total"] == 0
+
+    board = fetch_live_board(
+        live_only=False, days_back=1, leagues=[("ita.1", "Serie A")], fetcher=fake_fetch, use_cache=False
+    )
+    assert board["total"] == 2
+    assert board["live_total"] == 1
+    assert board["post_total"] == 1
+    assert board["chiclets"][0]["post_count"] == 1
+    states = {m["home"]: m["state"] for m in board["leagues"][0]["matches"]}
+    assert states == {"Udinese": "post", "A": "in"}
+    # days_back widens the scoreboard window to a range
+    assert any("dates=" in u and "-" in u.split("dates=")[-1] for u in seen_urls[-2:])
+
+
+def test_scoreboard_dates_days_back():
+    from eeesoc.live import _scoreboard_dates
+
+    noon = datetime(2026, 9, 7, 12, 0, tzinfo=timezone.utc)
+    assert _scoreboard_dates(noon) == "20260907"
+    assert _scoreboard_dates(noon, days_back=1) == "20260906-20260907"
+    late = datetime(2026, 9, 7, 21, 0, tzinfo=timezone.utc)
+    assert _scoreboard_dates(late, days_back=1) == "20260906-20260908"
+
+
+def test_timeline_marks_final_and_caches_longer():
+    from eeesoc.live import _timeline_cache, build_event_timeline, clear_timeline_cache
+
+    clear_timeline_cache()
+    items = [
+        {"type": {"type": "pass"}, "clock": {"displayValue": "88'"}, "team": {"$ref": ".../teams/1"},
+         "fieldPositionX": 50.0, "fieldPositionY": 50.0},
+    ]
+    calls = {"n": 0}
+
+    def fetch(url):
+        calls["n"] += 1
+        return {"pageCount": 1, "items": items}
+
+    tl = build_event_timeline("ita.1", "77", home="A", away="B", home_id="1", away_id="2", clock="FT", fetcher=fetch)
+    assert tl["final"] is True and tl["frozen"] is True
+    # Age the entry past the live TTL but inside the full-time TTL — still served from cache.
+    ts, payload = _timeline_cache["tl:ita.1:77"]
+    _timeline_cache["tl:ita.1:77"] = (ts - 60, payload)
+    build_event_timeline("ita.1", "77", home="A", away="B", home_id="1", away_id="2", clock="FT", fetcher=fetch)
+    assert calls["n"] == 1
+    clear_timeline_cache()
+
+
 def test_fetch_live_board_includes_kickoff_passed_pre_epl():
     clear_live_cache()
     now = datetime.now(timezone.utc)
@@ -487,6 +580,98 @@ def test_territory_midfield_battle_label():
     terr = _build_territory(pts)
     assert terr["label"] == "midfield"
     assert terr["thirds"]["mid"] == 1.0
+
+
+def test_territory_attacking_tilt_beats_midfield_label():
+    from eeesoc.live import _build_territory
+
+    # Middle third still holds most actions, but the away side owns the final third:
+    # 12 mid, 9 away-attacking (mirrored to home-defensive), 3 home-attacking.
+    pts = [(50.0, 50.0, "home") for _ in range(12)]
+    pts += [(85.0, 50.0, "away") for _ in range(9)]
+    pts += [(85.0, 50.0, "home") for _ in range(3)]
+    terr = _build_territory(pts)
+    assert terr["thirds"]["mid"] == 0.5
+    assert terr["label"] == "away_attacking"
+
+
+def test_pressure_window_flags_late_siege_the_territory_map_hides():
+    from eeesoc.live import _build_pressure
+
+    # First half: home camps in the away final third. Second half: away returns the favour.
+    pts = [(m, 85.0, 50.0, "home", None) for m in range(5, 40)]
+    pts += [(m, 40.0, 50.0, "away", None) for m in range(5, 40)]
+    pts += [(m, 40.0, 50.0, "home", None) for m in range(60, 89)]
+    pts += [(m, 85.0, 50.0, "away", "shot" if m % 7 == 0 else None) for m in range(60, 89)]
+    pts += [(m, 95.0, 50.0, "away", "corner") for m in range(80, 88, 2)]
+
+    early = _build_pressure(pts, now_minute=30)
+    assert early["from_minute"] == 16
+    assert early["leader"] == "home"
+    assert early["share"]["home"] == 1.0
+
+    late = _build_pressure(pts, now_minute=88)
+    assert late["window"] == 15
+    assert late["from_minute"] == 74
+    assert late["leader"] == "away"
+    assert late["share"]["away"] == 1.0
+    assert late["away"]["final_third"] == 15 + 4
+    assert late["away"]["box"] == 15 + 4
+    assert late["away"]["corners"] == 4
+    assert late["away"]["shots"] == 2  # minutes 77 and 84
+    assert late["home"]["final_third"] == 0
+
+
+def test_pressure_quiet_when_too_little_data():
+    from eeesoc.live import _build_pressure
+
+    pts = [(m, 85.0, 50.0, "away", None) for m in range(80, 85)]
+    p = _build_pressure(pts, now_minute=85)
+    assert p["label"] == "quiet"
+    assert p["leader"] is None
+
+
+def test_timeline_payload_includes_pressure():
+    from eeesoc.live import build_event_timeline, clear_timeline_cache
+
+    clear_timeline_cache()
+    items = []
+    for i in range(30):
+        items.append(
+            {
+                "type": {"type": "pass"},
+                "clock": {"displayValue": f"{61 + i // 2}'"},
+                "team": {"$ref": ".../teams/2"},
+                "fieldPositionX": 88.0,
+                "fieldPositionY": 50.0,
+            }
+        )
+    for i in range(10):
+        items.append(
+            {
+                "type": {"type": "pass"},
+                "clock": {"displayValue": f"{60 + i}'"},
+                "team": {"$ref": ".../teams/1"},
+                "fieldPositionX": 30.0,
+                "fieldPositionY": 50.0,
+            }
+        )
+    tl = build_event_timeline(
+        "ita.1",
+        "9",
+        home="Udinese",
+        away="Lazio",
+        home_id="1",
+        away_id="2",
+        clock="75'",
+        fetcher=lambda url: {"pageCount": 1, "items": items},
+        use_cache=False,
+    )
+    p = tl["pressure"]
+    assert p["to_minute"] == 75
+    assert p["leader"] == "away"
+    assert p["away"]["final_third"] == 30
+    assert p["home"]["final_third"] == 0
 
 
 def test_timeline_score_prefers_plays_over_stale_board():
