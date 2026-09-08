@@ -25,6 +25,9 @@ uv run eeesoc --warm EPL:2025
 # Similar lookalikes for a match at minute 53
 uv run eeesoc --similar Everton --minute 53
 
+# Discord !soc bot (needs DISCORD_BOT_TOKEN in .env)
+uv run eeesoc --discord
+
 uv run pytest
 ```
 
@@ -43,7 +46,7 @@ Flow on every push/merge to `main`:
 # Docker + git (same box as julia is fine — install Docker if missing)
 git clone https://github.com/tekneeq/eeesoc.git ~/eeesoc
 cd ~/eeesoc
-chmod +x deploy.sh restart.sh scripts/*.sh
+chmod +x deploy.sh restart.sh restart-discord-bot.sh scripts/*.sh
 
 # If `docker` is not on PATH (fresh Amazon Linux):
 ./scripts/install-docker-amazon-linux.sh
@@ -63,6 +66,44 @@ CERTBOT_EMAIL=you@example.com ./scripts/install-https-letsencrypt.sh
 ```
 
 Then browse `https://eeesoc.com/`. HTTP redirects to HTTPS. Domains without DNS are skipped automatically; re-run after adding `www` to expand the cert. Certs auto-renew via certbot’s timer.
+
+### Discord `!soc` bot (optional)
+
+Same lifecycle as [tekneeq/julia](https://github.com/tekneeq/julia)’s `!lia` bot: a Discord application talks to the dashboard container, started detached after deploy.
+
+Create a **new** Discord application at https://discord.com/developers/applications (do not reuse another bot's token), then:
+
+1. **Bot → Privileged Gateway Intents** → enable **Message Content Intent** (required)
+2. Invite the bot (OAuth2 → URL Generator: scope `bot`, Send Messages / Read History)
+3. Add to `.env` on the eeesoc EC2 host:
+
+```bash
+DISCORD_BOT_TOKEN=...          # required to start the bot
+DISCORD_CHANNEL_ID=...         # optional — channel for the ready greeting
+# Optional: timezone for "today" kickoffs (default America/New_York)
+# EEESOC_TZ=America/New_York
+```
+
+`./restart.sh` loads `.env` into the container. `./deploy.sh` starts the bot afterward. If `DISCORD_BOT_TOKEN` is unset, deploy skips the bot and continues.
+
+```bash
+./restart-discord-bot.sh           # start / restart
+./restart-discord-bot.sh --status
+./restart-discord-bot.sh --logs
+./restart-discord-bot.sh --stop
+```
+
+The bot **only** responds to `!soc …` (or `!eee …`) messages:
+
+```
+!soc help
+!soc live [league]         # in-play scoreboard
+!soc upcoming [league]     # today's remaining kickoffs
+!soc finished [league]     # today's / yesterday's full-time
+!soc winprob               # EPL picks + 30-day record
+!soc fixture HOME AWAY     # WinProb detail
+!soc similar TEAM [minute] # historical lookalikes (needs warmed cache)
+```
 
 ### Auto-deploy on push
 

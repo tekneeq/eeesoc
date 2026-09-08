@@ -37,6 +37,12 @@ jobs:
             echo
             echo "=== recent container logs ==="
             docker logs --tail 60 eeesoc-dashboard 2>&1 || true
+            echo "=== discord bot ==="
+            if [ -x ./restart-discord-bot.sh ]; then
+              ./restart-discord-bot.sh --status || true
+            else
+              echo "(no restart-discord-bot.sh)"
+            fi
             echo "=== cache ==="
             du -sh data/cache 2>/dev/null || echo "(no data/cache yet)"
             ls -la data/cache/seasons 2>/dev/null || true

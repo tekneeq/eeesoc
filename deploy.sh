@@ -8,7 +8,7 @@
 # Called automatically by .github/workflows/deploy-ec2.yml on pushes to
 # main (via SSH). Safe to run by hand any time.
 #
-# Mirrors tekneeq/julia's deploy.sh (without julia's scheduler/poller steps).
+# Mirrors tekneeq/julia's deploy.sh (Discord bot after the dashboard is healthy).
 
 set -euo pipefail
 
@@ -19,8 +19,14 @@ log() { echo "[$(ts)] $*"; }
 
 log "=== deploy start (cwd=$(pwd), rev=$(git rev-parse --short HEAD 2>/dev/null || echo '?')) ==="
 
-log "1/2  rebuild dashboard container (git pull + docker build/run)"
+log "1/3  rebuild dashboard container (git pull + docker build/run)"
 ./restart.sh
+# PID files live on the host-mounted logs/ volume and survive container
+# recreates — clear them so we never SIGTERM a recycled PID.
+if docker exec eeesoc-dashboard rm -f logs/discord-bot.pid >/dev/null 2>&1 \
+   || sudo docker exec eeesoc-dashboard rm -f logs/discord-bot.pid >/dev/null 2>&1; then
+    true
+fi
 
 sleep 3
 if ! docker ps --format '{{.Names}}' 2>/dev/null | grep -qx eeesoc-dashboard \
@@ -29,7 +35,7 @@ if ! docker ps --format '{{.Names}}' 2>/dev/null | grep -qx eeesoc-dashboard \
     exit 1
 fi
 
-log "2/2  health check"
+log "2/3  health check"
 # Cached starts bind immediately; first-boot still needs a CSV warm.
 for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
     if curl -fsS "http://127.0.0.1:8081/health" >/dev/null 2>&1; then
@@ -50,6 +56,10 @@ for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
     fi
     sleep 3
 done
+
+log "3/3  restart Discord soccer bot (skipped if DISCORD_BOT_TOKEN unset)"
+./restart-discord-bot.sh
+./restart-discord-bot.sh --status || true
 
 log "=== deploy done (rev=$(git rev-parse --short HEAD)) ==="
 docker ps --filter name=eeesoc-dashboard --format '{{.Names}} {{.Status}} {{.Image}}' 2>/dev/null \
