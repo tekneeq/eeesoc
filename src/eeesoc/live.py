@@ -388,6 +388,7 @@ BALL_TYPES = SHOT_TYPES | PASS_TYPES | {
     "free-kick",
     "corner-awarded",
     "goal-kick",
+    "own-goal",
 }
 
 _track_cache: dict[str, tuple[float, dict[str, Any]]] = {}
@@ -397,6 +398,74 @@ _TRACK_TTL_S = 5.0
 def _play_type(play: dict[str, Any]) -> str:
     t = play.get("type") or {}
     return str(t.get("type") or t.get("text") or "").lower()
+
+
+_OWN_GOAL_BY_RE = re.compile(r"own\s+goal\s+by\s+.+?,\s*([^.\[]+)", re.I)
+_OWN_GOAL_PAREN_RE = re.compile(r"\(([^)]+)\)\s*own\s+goal", re.I)
+
+
+def _is_own_goal(ptype: str, play: dict[str, Any] | None = None) -> bool:
+    """ESPN own goals: type ``own-goal``, ``ownGoal: true``, or 'Own Goal' copy."""
+    if play is not None and play.get("ownGoal") is True:
+        return True
+    blob = (ptype or "").lower().replace("_", "-").replace(" ", "-")
+    if "own-goal" in blob:
+        return True
+    if play:
+        text = " ".join(
+            str(play.get(k) or "") for k in ("text", "shortText", "alternativeText")
+        ).lower()
+        if "own goal" in text or "own-goal" in text:
+            return True
+    return False
+
+
+def _name_in_text(name: str, haystack: str) -> bool:
+    if not name or not haystack:
+        return False
+    h = haystack.lower()
+    n = name.lower()
+    if n in h:
+        return True
+    token = name.split()[-1]
+    return len(token) > 3 and token.lower() in h
+
+
+def _side_for_own_goal(
+    team_id: str | None,
+    *,
+    home_id: str,
+    away_id: str,
+    home: str,
+    away: str,
+    play: dict[str, Any],
+) -> str | None:
+    """
+    Side that *benefits* from the own goal.
+
+    ESPN's ``team`` $ref is the scoring (benefiting) side, not the player
+    who put it in. Text fallbacks name the conceding club ("Own Goal by
+    X, Newcastle United") so those must be flipped.
+    """
+    if team_id and home_id and team_id == home_id:
+        return "home"
+    if team_id and away_id and team_id == away_id:
+        return "away"
+    text = " ".join(str(play.get(k) or "") for k in ("text", "shortText", "alternativeText"))
+    scorer = ""
+    matched = _OWN_GOAL_BY_RE.search(text)
+    if matched:
+        scorer = matched.group(1).strip()
+    else:
+        matched = _OWN_GOAL_PAREN_RE.search(text)
+        if matched:
+            scorer = matched.group(1).strip()
+    if scorer:
+        if _name_in_text(home, scorer):
+            return "away"
+        if _name_in_text(away, scorer):
+            return "home"
+    return None
 
 
 def _clock_label(play: dict[str, Any]) -> str:
@@ -491,13 +560,16 @@ def build_pitch_track(
 
     for play in plays:
         ptype = _play_type(play)
+        own = _is_own_goal(ptype, play)
+        if own:
+            ptype = "own-goal"
         if ptype in PASS_TYPES:
             counts["passes"] += 1
         if ptype in SHOT_TYPES:
             counts["shots"] += 1
         if ptype in {"shot-on-target", "goal", "penalty-goal"}:
             counts["shots_on"] += 1
-        if ptype in {"goal", "penalty-goal"}:
+        if ptype in {"goal", "penalty-goal"} or own:
             counts["goals"] += 1
         if ptype == "foul":
             counts["fouls"] += 1
@@ -517,11 +589,12 @@ def build_pitch_track(
             "x2": x2,
             "y2": y2,
             "scoring": bool(play.get("scoringPlay")),
+            "own_goal": own,
         }
 
         if ptype in PASS_TYPES and x is not None and y is not None:
             passes.append(entry)
-        if ptype in SHOT_TYPES and x is not None and y is not None:
+        if (ptype in SHOT_TYPES or own) and x is not None and y is not None:
             shots.append(entry)
 
         # Ball = end of latest positioned action
@@ -728,15 +801,22 @@ def build_live_situation(
     # Running tallies so each goal can snapshot "what each team had when this happened"
     for play in plays:
         ptype = _play_type(play)
+        own = _is_own_goal(ptype, play)
         tid = _team_id_from_play(play)
-        side = _side_for_team(
-            tid, home_id=home_id, away_id=away_id, home=home, away=away, play=play
+        side = (
+            _side_for_own_goal(
+                tid, home_id=home_id, away_id=away_id, home=home, away=away, play=play
+            )
+            if own
+            else _side_for_team(
+                tid, home_id=home_id, away_id=away_id, home=home, away=away, play=play
+            )
         )
         pmin = _play_minute(play) or minute
 
-        is_shot = ptype in SHOT_TYPES
-        is_sot = ptype in {"shot-on-target", "goal", "penalty-goal"}
-        is_goal = ptype in {"goal", "penalty-goal"} or bool(play.get("scoringPlay"))
+        is_shot = (not own) and ptype in SHOT_TYPES
+        is_sot = (not own) and ptype in {"shot-on-target", "goal", "penalty-goal"}
+        is_goal = own or ptype in {"goal", "penalty-goal"} or bool(play.get("scoringPlay"))
 
         if is_shot and side == "home":
             home_shots += 1
@@ -760,6 +840,7 @@ def build_live_situation(
                     "team": side,
                     "team_name": home if side == "home" else away,
                     "opponent_name": away if side == "home" else home,
+                    "own_goal": own,
                     "text": scorer,
                     "home_shots": home_shots,
                     "away_shots": away_shots,
@@ -847,6 +928,8 @@ def _is_final_clock(clock: str) -> bool:
 
 
 def _normalize_play_type(ptype: str) -> str:
+    if _is_own_goal(ptype):
+        return "own-goal"
     if ptype.startswith("penalty") and "scor" in ptype:
         return "penalty---scored"
     # ESPN variants: goal---header, goal---volley — but not goal-kick
@@ -856,7 +939,9 @@ def _normalize_play_type(ptype: str) -> str:
 
 
 def _event_kind(ptype: str, *, scoring: bool) -> str | None:
-    """Most specific marker: goal > shot_on > blocked > shot > corner."""
+    """Most specific marker: own_goal > goal > shot_on > blocked > shot > corner."""
+    if ptype == "own-goal" or _is_own_goal(ptype):
+        return "own_goal"
     if ptype in GOAL_TYPES or (scoring and ptype in SHOT_ON_TYPES):
         return "goal"
     if ptype in SHOT_ON_TYPES:
@@ -1093,6 +1178,7 @@ def build_event_timeline(
         "shot_on": 0,
         "blocked": 0,
         "goal": 0,
+        "own_goal": 0,
         "corner": 0,
         "home_shot": 0,
         "away_shot": 0,
@@ -1102,6 +1188,8 @@ def build_event_timeline(
         "away_blocked": 0,
         "home_goal": 0,
         "away_goal": 0,
+        "home_own_goal": 0,
+        "away_own_goal": 0,
         "home_corner": 0,
         "away_corner": 0,
         "foul": 0,
@@ -1115,16 +1203,33 @@ def build_event_timeline(
 
     for play in plays:
         ptype = _normalize_play_type(_play_type(play))
+        own = _is_own_goal(ptype, play)
+        if own:
+            ptype = "own-goal"
         pmin = _play_minute(play)
         tid = _team_id_from_play(play)
-        side = _side_for_team(
-            tid, home_id=home_id, away_id=away_id, home=home, away=away, play=play
+        side = (
+            _side_for_own_goal(
+                tid, home_id=home_id, away_id=away_id, home=home, away=away, play=play
+            )
+            if own
+            else _side_for_team(
+                tid, home_id=home_id, away_id=away_id, home=home, away=away, play=play
+            )
         )
         xg = _safe_float(play.get("expectedGoals"))
-        if xg is not None and pmin is not None and side in {"home", "away"} and xg > 0:
+        if (
+            xg is not None
+            and pmin is not None
+            and side in {"home", "away"}
+            and xg > 0
+            and not own
+        ):
             (home_xg_pts if side == "home" else away_xg_pts).append((pmin, xg))
 
         kind = _event_kind(ptype, scoring=bool(play.get("scoringPlay")))
+        if own:
+            kind = "own_goal"
 
         if side in {"home", "away"}:
             px = _coord(play, "fieldPositionX")
@@ -1157,8 +1262,8 @@ def build_event_timeline(
             counts[f"{side}_{kind}"] = counts.get(f"{side}_{kind}", 0) + 1
 
     events.sort(key=lambda e: (e["minute"], e["kind"]))
-    play_home = int(counts.get("home_goal") or 0)
-    play_away = int(counts.get("away_goal") or 0)
+    play_home = int(counts.get("home_goal") or 0) + int(counts.get("home_own_goal") or 0)
+    play_away = int(counts.get("away_goal") or 0) + int(counts.get("away_own_goal") or 0)
     # Plays often land a goal before the scoreboard tick — never show a
     # chiclet score behind bars already drawn on the strip.
     resolved_home = max(int(home_score or 0), play_home)

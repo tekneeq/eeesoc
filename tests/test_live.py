@@ -694,6 +694,193 @@ def test_timeline_payload_includes_pressure():
     assert p["home"]["final_third"] == 0
 
 
+def test_own_goal_is_not_a_regular_goal_tick():
+    """ESPN own-goal plays must not render as the green goal marker."""
+    from eeesoc.live import (
+        _event_kind,
+        _is_own_goal,
+        _normalize_play_type,
+        _side_for_own_goal,
+        build_event_timeline,
+        build_live_situation,
+        build_pitch_track,
+        clear_situation_cache,
+        clear_timeline_cache,
+        clear_track_cache,
+    )
+
+    assert _is_own_goal("own-goal", {"ownGoal": True})
+    assert _is_own_goal("goal---own-goal")
+    assert _normalize_play_type("goal---own-goal") == "own-goal"
+    assert _normalize_play_type("own-goal") == "own-goal"
+    assert _event_kind("own-goal", scoring=True) == "own_goal"
+    assert _event_kind("goal", scoring=True) == "goal"
+
+    # ESPN team $ref is the benefiting side (Bournemouth), not the scorer.
+    og_play = {
+        "type": {"id": "97", "text": "Own Goal", "type": "own-goal"},
+        "ownGoal": True,
+        "scoringPlay": True,
+        "shortText": "Malick Thiaw Own Goal",
+        "text": "Own Goal by Malick Thiaw, Newcastle United. Newcastle United 0, Bournemouth 2.",
+        "clock": {"displayValue": "35'"},
+        "team": {"$ref": ".../teams/349"},
+        "fieldPositionX": 95.8,
+        "fieldPositionY": 56.7,
+    }
+    assert (
+        _side_for_own_goal(
+            "349",
+            home_id="361",
+            away_id="349",
+            home="Newcastle United",
+            away="Bournemouth",
+            play=og_play,
+        )
+        == "away"
+    )
+    # Without a team id, "Own Goal by X, Newcastle United" is the conceding club.
+    assert (
+        _side_for_own_goal(
+            None,
+            home_id="361",
+            away_id="349",
+            home="Newcastle United",
+            away="Bournemouth",
+            play=og_play,
+        )
+        == "away"
+    )
+
+    clear_timeline_cache()
+    plays = {
+        "pageCount": 1,
+        "items": [
+            {
+                "type": {"type": "goal"},
+                "scoringPlay": True,
+                "ownGoal": False,
+                "shortText": "Marcus Tavernier Goal",
+                "text": "Marcus Tavernier (Bournemouth) Goal at 12'",
+                "clock": {"displayValue": "12'"},
+                "team": {"$ref": ".../teams/349"},
+            },
+            og_play,
+            {
+                "type": {"type": "shot-on-target"},
+                "shortText": "Home SOT",
+                "clock": {"displayValue": "20'"},
+                "team": {"$ref": ".../teams/361"},
+            },
+        ],
+    }
+    tl = build_event_timeline(
+        "eng.1",
+        "401879286",
+        home="Newcastle United",
+        away="Bournemouth",
+        home_id="361",
+        away_id="349",
+        clock="40'",
+        home_score=0,
+        away_score=2,
+        fetcher=lambda url: plays,
+        use_cache=False,
+    )
+    kinds = [e["kind"] for e in tl["events"]]
+    assert kinds == ["goal", "shot_on", "own_goal"]
+    og = next(e for e in tl["events"] if e["kind"] == "own_goal")
+    assert og["team"] == "away"
+    assert og["type"] == "own-goal"
+    assert tl["counts"]["goal"] == 1
+    assert tl["counts"]["own_goal"] == 1
+    assert tl["counts"]["away_goal"] == 1
+    assert tl["counts"]["away_own_goal"] == 1
+    assert tl["counts"]["home_goal"] == 0
+    assert tl["play_away_score"] == 2
+    assert tl["away_score"] == 2
+    # Own goals are not shots / SOT for either side
+    assert tl["counts"]["home_shot_on"] == 1
+    assert tl["counts"]["away_shot_on"] == 0
+
+    clear_situation_cache()
+    sit = build_live_situation(
+        "eng.1",
+        "401879286",
+        home="Newcastle United",
+        away="Bournemouth",
+        home_score=0,
+        away_score=2,
+        clock="40'",
+        home_id="361",
+        away_id="349",
+        fetcher=lambda url: plays,
+        use_cache=False,
+    )
+    assert sit["snapshot"]["away_goals"] == 2
+    assert sit["snapshot"]["home_goals"] == 0
+    assert sit["goals"][1]["own_goal"] is True
+    assert sit["goals"][1]["team"] == "away"
+    assert sit["snapshot"]["away_sot"] == 1  # Tavernier goal only; OG is not SOT
+    assert sit["snapshot"]["away_shots"] == 1
+
+    clear_track_cache()
+    track = build_pitch_track(
+        "eng.1",
+        "401879286",
+        home="Newcastle United",
+        away="Bournemouth",
+        fetcher=lambda url: plays,
+        use_cache=False,
+    )
+    assert track["counts"]["goals"] == 2
+    assert any(s.get("own_goal") for s in track["shots"])
+    assert any(s.get("type") == "own-goal" for s in track["shots"])
+
+    js = Path("src/eeesoc/static/app.js").read_text(encoding="utf-8")
+    assert 'ev.kind === "own_goal"' in js
+    assert "tl-og" in js
+    html = Path("src/eeesoc/static/index.html").read_text(encoding="utf-8")
+    assert "Own goal" in html
+
+
+def test_typed_goal_with_own_goal_copy_is_not_a_green_tick():
+    """Some feeds send type=goal plus 'Own Goal' text — still an OG, not a goal tick."""
+    from eeesoc.live import build_event_timeline, clear_timeline_cache
+
+    clear_timeline_cache()
+    plays = {
+        "pageCount": 1,
+        "items": [
+            {
+                "type": {"type": "goal"},
+                "scoringPlay": True,
+                "shortText": "João Pedro Own Goal",
+                "text": "Own Goal by João Pedro, Chelsea. Chelsea 3, Brighton and Hove Albion 2.",
+                "clock": {"displayValue": "71'"},
+                "team": {"$ref": ".../teams/331"},
+            }
+        ],
+    }
+    tl = build_event_timeline(
+        "eng.1",
+        "2",
+        home="Chelsea",
+        away="Brighton and Hove Albion",
+        home_id="363",
+        away_id="331",
+        clock="75'",
+        home_score=3,
+        away_score=2,
+        fetcher=lambda url: plays,
+        use_cache=False,
+    )
+    assert [e["kind"] for e in tl["events"]] == ["own_goal"]
+    assert tl["events"][0]["team"] == "away"
+    assert tl["counts"]["goal"] == 0
+    assert tl["play_away_score"] == 1
+
+
 def test_timeline_score_prefers_plays_over_stale_board():
     from eeesoc.live import build_event_timeline, clear_timeline_cache
 
