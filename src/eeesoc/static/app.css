@@ -2260,8 +2260,23 @@ main {
    --------------------------------------------------------------------------- */
 
 .ht-profile:empty,
-.ht-similar:empty {
+.ht-similar:empty,
+.ht-profile[hidden],
+.ht-similar[hidden],
+.match-chiclet-grid[hidden] {
   display: none;
+}
+
+.ht-no-xg {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 3rem;
+  border: 1px dashed var(--line);
+  border-radius: 0.4rem;
+  font-family: var(--mono);
+  font-size: 0.66rem;
+  color: var(--muted);
 }
 
 .ht-card {

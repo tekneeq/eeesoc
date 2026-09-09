@@ -287,6 +287,34 @@ def test_feature_distance_and_match_pct_scale():
     assert match_pct(50) == 0
 
 
+def test_leagues_without_xg_feed_do_not_read_as_quiet():
+    with_xg = side_features(_quiet_half())
+    no_xg_events = [{**e, "xg": None} for e in _quiet_half()]
+    without_xg = side_features(no_xg_events)
+    assert with_xg["has_xg"] and not without_xg["has_xg"]
+    # Same shot pattern → identical once xG terms are dropped, not penalised for missing xG.
+    assert feature_distance(with_xg, without_xg) == 0
+    busier = side_features([{**e, "xg": None} for e in _quiet_half(extra=[_ev(30, "shot_on", "home"), _ev(31, "shot_on", "home")])])
+    assert feature_distance(without_xg, busier) > 0
+
+    rec_xg = record_from_timeline(_timeline(_quiet_half(), event_id="x"), {"start": "2026-09-01T14:00Z"})
+    rec_no = record_from_timeline(_timeline(no_xg_events, event_id="y"), {"start": "2026-09-01T14:00Z"})
+    assert rec_xg["has_xg"] and not rec_no["has_xg"]
+    prof = profile_zero_zero([rec_xg, rec_no])
+    assert prof["n"] == 2 and prof["n_xg"] == 1
+    assert prof["bands"]["xg"]["p50"] == pytest.approx(rec_xg["first_half"]["total"]["xg"], abs=0.01)
+    assert prof["sides"]["home"]["xg"] == pytest.approx(rec_xg["first_half"]["home"]["xg"], abs=0.01)
+    # Records archived before the flag existed fall back to scanning events.
+    legacy = {k: v for k, v in rec_no.items() if k != "has_xg"}
+    assert profile_zero_zero([rec_xg, legacy])["n_xg"] == 1
+
+    live = _timeline(no_xg_events[:5], final=False, clock="30'", minute=30)
+    out = similar_zero_zero(live, [rec_xg, rec_no], limit=2)
+    assert out["rank"]["xg_pct"] is None
+    assert out["rank"]["xg_n"] == 1
+    assert not out["live"]["has_xg"]
+
+
 def _scoreboard_payload(events):
     return {"leagues": [{"name": "English Premier League"}], "events": events}
 

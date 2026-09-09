@@ -123,6 +123,11 @@ def _second_half_goals(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return out
 
 
+def has_xg(events: list[dict[str, Any]]) -> bool:
+    """ESPN publishes expectedGoals for most but not all leagues (e.g. Eredivisie / Primeira lack it)."""
+    return any((ev.get("xg") or 0) > 0 for ev in events or [])
+
+
 def side_features(
     events: list[dict[str, Any]],
     *,
@@ -173,7 +178,13 @@ def side_features(
         key: round(sides["home"][key] + sides["away"][key], 3)
         for key in ("shots", "sot", "blocked", "corners", "goals", "xg")
     }
-    return {"minute": minute, "home": sides["home"], "away": sides["away"], "total": total}
+    return {
+        "minute": minute,
+        "home": sides["home"],
+        "away": sides["away"],
+        "total": total,
+        "has_xg": has_xg(events),
+    }
 
 
 def record_from_timeline(tl: dict[str, Any], meta: dict[str, Any] | None = None) -> dict[str, Any] | None:
@@ -218,6 +229,7 @@ def record_from_timeline(tl: dict[str, Any], meta: dict[str, Any] | None = None)
         "ht_away": int(ht["away"]["goals"]),
         "ht_goals": int(ht["total"]["goals"]),
         "n_events": len(events),
+        "has_xg": has_xg(events),
         "first_half": ht,
         "second_half_goals": _second_half_goals(events),
         "events": trimmed_events,
@@ -293,6 +305,13 @@ def clear_record_cache() -> None:
 # ---------------------------------------------------------------------------
 # 0-0 profile
 # ---------------------------------------------------------------------------
+
+
+def _record_has_xg(rec: dict[str, Any]) -> bool:
+    flag = rec.get("has_xg")
+    if flag is None:
+        flag = has_xg(rec.get("events") or [])
+    return bool(flag)
 
 
 def zero_zero_records(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -371,20 +390,26 @@ def profile_zero_zero(records: list[dict[str, Any]], *, minute: int = HALF_MINUT
         r["first_half"] if minute >= HALF_MINUTE and r.get("first_half") else side_features(r.get("events") or [], minute=minute)
         for r in rows
     ]
+    # xG bands only over halves where ESPN actually published xG — a league
+    # without the feed must not read as "0.00 xG".
+    xg_feats = [f for r, f in zip(rows, feats) if _record_has_xg(r)]
     totals = {
         "shots": [float(f["total"]["shots"]) for f in feats],
         "sot": [float(f["total"]["sot"]) for f in feats],
         "blocked": [float(f["total"]["blocked"]) for f in feats],
         "corners": [float(f["total"]["corners"]) for f in feats],
-        "xg": [float(f["total"]["xg"]) for f in feats],
+        "xg": [float(f["total"]["xg"]) for f in xg_feats],
     }
     bands = {
         key: _band(vals, digits=2 if key == "xg" else 1) for key, vals in totals.items()
     }
     sides = {
         side: {
-            key: round(mean(float(f[side][key]) for f in feats), 2)
-            for key in ("shots", "sot", "blocked", "corners", "xg")
+            **{
+                key: round(mean(float(f[side][key]) for f in feats), 2)
+                for key in ("shots", "sot", "blocked", "corners")
+            },
+            "xg": round(mean(float(f[side]["xg"]) for f in xg_feats), 2) if xg_feats else 0.0,
         }
         for side in ("home", "away")
     }
@@ -394,7 +419,7 @@ def profile_zero_zero(records: list[dict[str, Any]], *, minute: int = HALF_MINUT
             break
         vals = [
             float(f["home"]["xg_at"].get(str(cp), 0.0)) + float(f["away"]["xg_at"].get(str(cp), 0.0))
-            for f in feats
+            for f in xg_feats
         ]
         xg_curve.append({"minute": cp, **_band(vals, digits=2)})
 
@@ -425,6 +450,7 @@ def profile_zero_zero(records: list[dict[str, Any]], *, minute: int = HALF_MINUT
 
     return {
         "n": n,
+        "n_xg": len(xg_feats),
         "minute": minute,
         "bands": bands,
         "sides": sides,
@@ -466,6 +492,7 @@ def _trim_record_for_client(rec: dict[str, Any]) -> dict[str, Any]:
         "ft_away": rec.get("ft_away"),
         "ht_home": rec.get("ht_home"),
         "ht_away": rec.get("ht_away"),
+        "has_xg": _record_has_xg(rec),
         "first_half": rec.get("first_half"),
         "second_half_goals": rec.get("second_half_goals") or [],
         # Chiclet-shaped timeline payload, cut at 45'.
@@ -606,15 +633,35 @@ def is_zero_zero_first_half(tl: dict[str, Any]) -> bool:
 
 
 def feature_distance(a: dict[str, Any], b: dict[str, Any]) -> float:
+    """
+    Weighted L1 distance between two cut-feature sets.
+
+    When either half has no xG feed the xG terms are dropped and the rest is
+    rescaled to the full weight, so xG-less leagues are still comparable on
+    shots / SOT / blocked / corners instead of looking artificially quiet.
+    """
+    use_xg = bool(a.get("has_xg", True)) and bool(b.get("has_xg", True))
     d = 0.0
+    weight_used = 0.0
+    weight_full = 0.0
     for side in ("home", "away"):
         fa, fb = a[side], b[side]
         for key, (weight, scale) in _FEATURE_WEIGHTS.items():
+            weight_full += weight
+            if key == "xg" and not use_xg:
+                continue
+            weight_used += weight
             d += weight * abs(float(fa[key]) - float(fb[key])) / scale
         w, s = _CHECKPOINT_WEIGHT
         for cp, va in (fa.get("xg_at") or {}).items():
+            weight_full += w
+            if not use_xg:
+                continue
+            weight_used += w
             vb = (fb.get("xg_at") or {}).get(cp, 0.0)
             d += w * abs(float(va) - float(vb)) / s
+    if weight_used and weight_used < weight_full:
+        d *= weight_full / weight_used
     return round(d, 4)
 
 
@@ -653,7 +700,9 @@ def similar_zero_zero(
     for rec in zeros:
         feat = side_features(rec.get("events") or [], minute=minute)
         scored.append((feature_distance(live_feat, feat), rec, feat))
-    scored.sort(key=lambda t: (t[0], str(t[1].get("start") or "")))
+    # Ties (common early in a half) go to the most recent game.
+    scored.sort(key=lambda t: str(t[1].get("start") or ""), reverse=True)
+    scored.sort(key=lambda t: t[0])
     top = scored[: max(1, int(limit))]
     lookalikes = []
     for dist, rec, feat in top:
@@ -665,7 +714,7 @@ def similar_zero_zero(
     top_records = [rec for _, rec, _ in top]
     population = profile_zero_zero(zeros, minute=minute)
     pop_shots = [float(f["total"]["shots"]) for _, _, f in scored]
-    pop_xg = [float(f["total"]["xg"]) for _, _, f in scored]
+    pop_xg = [float(f["total"]["xg"]) for _, rec, f in scored if _record_has_xg(rec)]
     pop_sot = [float(f["total"]["sot"]) for _, _, f in scored]
     return {
         "event_id": live_tl.get("event_id"),
@@ -680,7 +729,8 @@ def similar_zero_zero(
         "rank": {
             "shots_pct": _rank_pct(float(live_feat["total"]["shots"]), pop_shots),
             "sot_pct": _rank_pct(float(live_feat["total"]["sot"]), pop_sot),
-            "xg_pct": _rank_pct(float(live_feat["total"]["xg"]), pop_xg),
+            "xg_pct": _rank_pct(float(live_feat["total"]["xg"]), pop_xg) if live_feat["has_xg"] else None,
+            "xg_n": len(pop_xg),
         },
         "lookalikes": lookalikes,
         "lookalike_outcomes": profile_zero_zero(top_records).get("outcomes") if top_records else None,

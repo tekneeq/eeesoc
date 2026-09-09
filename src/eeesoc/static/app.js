@@ -2269,12 +2269,20 @@
   function htCutStats(fh) {
     const h = fh?.home || {};
     const a = fh?.away || {};
+    const xg = fh?.has_xg === false ? htStatPair("xG", "—", "—") : htStatPair("xG", Number(h.xg || 0).toFixed(2), Number(a.xg || 0).toFixed(2));
     return (
       htStatPair("Shots", h.shots || 0, a.shots || 0) +
       htStatPair("On target", h.sot || 0, a.sot || 0) +
       htStatPair("Corners", h.corners || 0, a.corners || 0) +
-      htStatPair("xG", Number(h.xg || 0).toFixed(2), Number(a.xg || 0).toFixed(2))
+      xg
     );
+  }
+
+  function htXgChart(tl, hasXg) {
+    if (hasXg === false) {
+      return `<span class="mc-xg ht-no-xg" title="ESPN publishes no expected-goals feed for this competition">no xG feed for this league</span>`;
+    }
+    return `<span class="mc-xg" aria-label="First-half expected goals">${xgSvg(tl)}</span>`;
   }
 
   // p10–p90 range drawn as a bar on a fixed scale, median as a tick.
@@ -2319,10 +2327,15 @@
     if (!p || !p.n) {
       return `<div class="ht-card ht-empty">${escapeHtml(opts.empty || "No 0-0 first halves archived yet — full-time games land here as they finish, or hit Backfill.")}</div>`;
     }
-    const curve = (p.xg_curve || [])
-      .map((c) => `<span class="ht-pill">by ${c.minute}′ xG <b>${Number(c.p10).toFixed(2)}–${Number(c.p90).toFixed(2)}</b></span>`)
-      .join("");
+    const hasXg = Number(p.n_xg) > 0;
+    const curve = hasXg
+      ? (p.xg_curve || [])
+          .map((c) => `<span class="ht-pill">by ${c.minute}′ xG <b>${Number(c.p10).toFixed(2)}–${Number(c.p90).toFixed(2)}</b></span>`)
+          .join("") +
+        (p.n_xg < p.n ? `<span class="ht-pill" title="Leagues without an ESPN xG feed are left out of the xG bands">xG from <b>${p.n_xg}</b> halves with an xG feed</span>` : "")
+      : `<span class="ht-pill">no xG feed for these leagues</span>`;
     const s = p.sides || {};
+    const xgSide = (side) => (hasXg ? ` · xG ${Number(s[side]?.xg || 0).toFixed(2)}` : "");
     const minuteBit = p.minute && p.minute < 45 ? ` · cut at ${p.minute}′` : "";
     return `<div class="ht-card">
       <div class="ht-card-head">
@@ -2336,10 +2349,10 @@
           ${htBandLine("On target", p.bands?.sot, 0, 8)}
           ${htBandLine("Blocked", p.bands?.blocked, 0, 8)}
           ${htBandLine("Corners", p.bands?.corners, 0, 12)}
-          ${htBandLine("xG", p.bands?.xg, 2, 2)}
+          ${hasXg ? htBandLine("xG", p.bands?.xg, 2, 2) : ""}
           <div class="ht-sides">
-            <span class="mc-h">home avg ${Number(s.home?.shots || 0).toFixed(1)} sh · ${Number(s.home?.sot || 0).toFixed(1)} sot · xG ${Number(s.home?.xg || 0).toFixed(2)}</span>
-            <span class="mc-a">away avg ${Number(s.away?.shots || 0).toFixed(1)} sh · ${Number(s.away?.sot || 0).toFixed(1)} sot · xG ${Number(s.away?.xg || 0).toFixed(2)}</span>
+            <span class="mc-h">home avg ${Number(s.home?.shots || 0).toFixed(1)} sh · ${Number(s.home?.sot || 0).toFixed(1)} sot${xgSide("home")}</span>
+            <span class="mc-a">away avg ${Number(s.away?.shots || 0).toFixed(1)} sh · ${Number(s.away?.sot || 0).toFixed(1)} sot${xgSide("away")}</span>
           </div>
           <div class="ht-pills">${curve}</div>
         </div>
@@ -2382,7 +2395,7 @@
       <span class="mc-stats">${htCutStats(rec.first_half)}</span>
       <div class="mc-charts ht-charts">
         <span class="mc-timeline" aria-label="First-half event timeline">${timelineSvg(tl)}</span>
-        <span class="mc-xg" aria-label="First-half expected goals">${xgSvg(tl)}</span>
+        ${htXgChart(tl, rec.has_xg)}
       </div>
     </div>`;
   }
@@ -2458,7 +2471,9 @@
         <div class="match-chiclet-league-label">
           <span class="league-chiclet-tag">${escapeHtml(g.chiclet || "")}</span>
           <span>${escapeHtml(g.name || g.slug)}</span>
-          <span class="league-count">${g.matches.length} × 0-0 HT · ${o.ended_0_0_pct ?? 0}% stayed 0-0 · ${o.any_2h_goal_pct ?? 0}% saw a 2H goal · median xG ${Number(g.profile?.bands?.xg?.p50 || 0).toFixed(2)}</span>
+          <span class="league-count">${g.matches.length} × 0-0 HT · ${o.ended_0_0_pct ?? 0}% stayed 0-0 · ${o.any_2h_goal_pct ?? 0}% saw a 2H goal${
+            Number(g.profile?.n_xg) > 0 ? ` · median xG ${Number(g.profile?.bands?.xg?.p50 || 0).toFixed(2)}` : " · no xG feed"
+          }</span>
         </div>
         <div class="match-chiclet-row">${g.matches.map(htArchiveCard).join("")}</div>`;
       grid.appendChild(section);
@@ -2491,7 +2506,9 @@
           <span class="ht-look-when">${escapeHtml(htWhen(rec))}</span>
           <span class="ht-look-teams"><span class="mc-h">${escapeHtml(shortName(rec.home))}</span> <b>${rec.ft_home}–${rec.ft_away}</b> <span class="mc-a">${escapeHtml(shortName(rec.away))}</span> <span class="ht-ft-tag">FT</span></span>
         </span>
-        <span class="ht-look-cut">at ${minute}′ · ${cut.shots || 0} sh · ${cut.sot || 0} sot · ${cut.corners || 0} ck · xG ${Number(cut.xg || 0).toFixed(2)}</span>
+        <span class="ht-look-cut">at ${minute}′ · ${cut.shots || 0} sh · ${cut.sot || 0} sot · ${cut.corners || 0} ck${
+          rec.has_xg === false ? " · no xG feed" : ` · xG ${Number(cut.xg || 0).toFixed(2)}`
+        }</span>
         <span class="ht-2h"><span class="ht-2h-label">2H</span>${htGoalsHtml(rec.second_half_goals)}</span>
       </span>
       <span class="ht-look-strip">${timelineSvg(tl)}</span>
@@ -2526,18 +2543,24 @@
     const rank = data.rank || {};
     const lo = data.lookalike_outcomes;
     const looks = data.lookalikes || [];
-    return `${head}
+    const early =
+      minute < 10
+        ? `<p class="ht-live-note">Early doors — with ${minute}′ played most archived halves still look alike; the match % separates as shots and corners land.</p>`
+        : "";
+    return `${head}${early}
       <span class="mc-stats">${htCutStats(live)}</span>
       <div class="mc-charts ht-charts">
         <span class="mc-timeline" aria-label="Live first-half event timeline">${timelineSvg(tl)}</span>
-        <span class="mc-xg" aria-label="Live first-half expected goals">${xgSvg(tl)}</span>
+        ${htXgChart(tl, live.has_xg)}
       </div>
       <div class="ht-verdicts">
-        <div class="ht-sub">Against ${pop.n || 0} archived 0-0 halves cut at ${minute}′ (${htFilterLabel() === "all leagues" ? "all leagues" : "same filter"})</div>
+        <div class="ht-sub">Against ${pop.n || 0} archived 0-0 halves cut at ${minute}′ · all leagues</div>
         ${htBandVerdict(live.total?.shots, pop.bands?.shots, "Shots", 0)}
         ${htBandVerdict(live.total?.sot, pop.bands?.sot, "On target", 0)}
-        ${htBandVerdict(live.total?.xg, pop.bands?.xg, "xG", 2)}
-        <span class="ht-pill">busier than <b>${rank.shots_pct || 0}%</b> on shots · <b>${rank.xg_pct || 0}%</b> on xG</span>
+        ${live.has_xg && Number(pop.n_xg) > 0 ? htBandVerdict(live.total?.xg, pop.bands?.xg, "xG", 2) : ""}
+        <span class="ht-pill">busier than <b>${rank.shots_pct || 0}%</b> on shots · <b>${rank.sot_pct || 0}%</b> on target${
+          rank.xg_pct != null ? ` · <b>${rank.xg_pct}%</b> on xG` : ""
+        }</span>
       </div>
       <div class="ht-look-summary">
         <div class="ht-sub">Closest ${looks.length} lookalikes · avg match <b>${data.avg_match_pct || 0}%</b> · how they finished</div>
