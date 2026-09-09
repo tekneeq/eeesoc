@@ -475,6 +475,108 @@ def _clock_label(play: dict[str, Any]) -> str:
     return ""
 
 
+_GENERIC_PLAYER = {
+    "goal",
+    "header",
+    "header goal",
+    "penalty",
+    "penalty goal",
+    "own goal",
+    "substitution",
+}
+_GOAL_SHORT_RE = re.compile(
+    r"^(?P<name>.+?)\s+(?:Own Goal|Goal(?:\s*-\s*\S+)?|Penalty\s*-\s*Scored)\s*$",
+    re.I,
+)
+_GOAL_BANG_RE = re.compile(
+    r"Goal!\s*.+?\.\s*(?P<name>.+?)\s*\([^)]+\)",
+    re.I,
+)
+_GOAL_PAREN_RE = re.compile(
+    r"^(?P<name>.+?)\s*\([^)]+\)\s*(?:Goal|Own Goal|Penalty)\b",
+    re.I,
+)
+_OG_PLAYER_RE = re.compile(r"Own Goal by\s+(?P<name>.+?)\s*,", re.I)
+_SUB_TEXT_RE = re.compile(
+    r"Substitution,\s*(?P<team>.+?)\.\s*(?P<on>.+?)\s+replaces\s+(?P<off>.+?)(?:\s+because|\.|$)",
+    re.I,
+)
+_SUB_SHORT_RE = re.compile(r"^(?P<on>.+?)\s+Substitut", re.I)
+
+
+def _clean_player(name: str | None) -> str | None:
+    text = re.sub(r"\s+", " ", (name or "").strip().strip(".,;"))
+    if not text or text.lower() in _GENERIC_PLAYER:
+        return None
+    return text
+
+
+def _is_substitution(ptype: str, play: dict[str, Any] | None = None) -> bool:
+    if play is not None and play.get("substitution") is True:
+        return True
+    return "substitut" in (ptype or "").lower()
+
+
+def _is_penalty_goal(ptype: str, play: dict[str, Any] | None = None) -> bool:
+    blob = (ptype or "").lower()
+    if "penalty" in blob and ("scor" in blob or blob in {"penalty-goal", "penalty"}):
+        return True
+    if play:
+        short = str(play.get("shortText") or "").lower()
+        if "penalty" in short and "scor" in short:
+            return True
+    return False
+
+
+def _player_name_from_goal(play: dict[str, Any], *, own: bool = False) -> str | None:
+    short = str(play.get("shortText") or "")
+    text = str(play.get("text") or play.get("alternativeText") or "")
+    if own:
+        m = _OG_PLAYER_RE.search(text)
+        named = _clean_player(m.group("name") if m else None)
+        if named:
+            return named
+        m = _GOAL_SHORT_RE.search(short)
+        return _clean_player(m.group("name") if m else None)
+    for raw, rx in (
+        (text, _GOAL_BANG_RE),
+        (text, _GOAL_PAREN_RE),
+        (short, _GOAL_PAREN_RE),
+        (short, _GOAL_SHORT_RE),
+    ):
+        m = rx.search(raw)
+        named = _clean_player(m.group("name") if m else None)
+        if named:
+            return named
+    return None
+
+
+_STOPPAGE_RE = re.compile(r"(\d+)\s*'?\s*\+\s*(\d+)")
+
+
+def _bulletin_sort_key(row: dict[str, Any]) -> tuple:
+    """Order by clock, including 90'+n stoppage, then elapsed seconds."""
+    clock = str(row.get("clock") or "")
+    added = 0
+    base = int(row.get("minute") or 0)
+    hit = _STOPPAGE_RE.search(clock)
+    if hit:
+        base = int(hit.group(1))
+        added = int(hit.group(2))
+    elapsed = row.get("elapsed")
+    return (base, added, elapsed if elapsed is not None else 10**6, str(row.get("kind") or ""))
+
+
+def _sub_players(play: dict[str, Any]) -> tuple[str | None, str | None]:
+    text = str(play.get("text") or play.get("alternativeText") or "")
+    short = str(play.get("shortText") or "")
+    m = _SUB_TEXT_RE.search(text)
+    if m:
+        return _clean_player(m.group("on")), _clean_player(m.group("off"))
+    m = _SUB_SHORT_RE.search(short)
+    return (_clean_player(m.group("on") if m else None), None)
+
+
 def _coord(play: dict[str, Any], key: str) -> float | None:
     val = play.get(key)
     if val is None:
@@ -1200,6 +1302,7 @@ def build_event_timeline(
     away_xg_pts: list[tuple[int, float]] = []
     territory_pts: list[tuple[float, float, str]] = []
     pressure_pts: list[tuple[int, float, float, str, str | None]] = []
+    bulletin: list[dict[str, Any]] = []
 
     for play in plays:
         ptype = _normalize_play_type(_play_type(play))
@@ -1243,9 +1346,29 @@ def build_event_timeline(
             counts["foul"] += 1
             counts[f"{side}_foul"] += 1
 
+        clock = _clock_label(play)
+        elapsed = _play_elapsed_seconds(play)
+        if _is_substitution(ptype, play) and pmin is not None and side in {"home", "away"}:
+            player_on, player_off = _sub_players(play)
+            bulletin.append(
+                {
+                    "minute": pmin,
+                    "elapsed": elapsed,
+                    "clock": clock or f"{pmin}'",
+                    "kind": "sub",
+                    "team": side,
+                    "player": player_on,
+                    "player_on": player_on,
+                    "player_off": player_off,
+                    "penalty": False,
+                    "text": str(play.get("shortText") or play.get("text") or "Substitution"),
+                }
+            )
+
         if not kind or pmin is None:
             continue
         text = str(play.get("shortText") or play.get("text") or kind)
+        player = _player_name_from_goal(play, own=own) if kind in {"goal", "own_goal"} else None
         events.append(
             {
                 "minute": pmin,
@@ -1253,15 +1376,32 @@ def build_event_timeline(
                 "type": ptype,
                 "team": side,
                 "text": text,
-                "clock": _clock_label(play),
+                "clock": clock,
                 "xg": xg,
+                "player": player,
             }
         )
+        if kind in {"goal", "own_goal"} and side in {"home", "away"}:
+            bulletin.append(
+                {
+                    "minute": pmin,
+                    "elapsed": elapsed,
+                    "clock": clock or f"{pmin}'",
+                    "kind": kind,
+                    "team": side,
+                    "player": player,
+                    "player_on": None,
+                    "player_off": None,
+                    "penalty": _is_penalty_goal(ptype, play),
+                    "text": text,
+                }
+            )
         counts[kind] += 1
         if side in {"home", "away"}:
             counts[f"{side}_{kind}"] = counts.get(f"{side}_{kind}", 0) + 1
 
     events.sort(key=lambda e: (e["minute"], e["kind"]))
+    bulletin.sort(key=_bulletin_sort_key)
     play_home = int(counts.get("home_goal") or 0) + int(counts.get("home_own_goal") or 0)
     play_away = int(counts.get("away_goal") or 0) + int(counts.get("away_own_goal") or 0)
     # Plays often land a goal before the scoreboard tick — never show a
@@ -1290,6 +1430,7 @@ def build_event_timeline(
         "home_score": resolved_home,
         "away_score": resolved_away,
         "events": events,
+        "bulletin": bulletin,
         "counts": counts,
         "territory": _build_territory(territory_pts),
         "pressure": _build_pressure(pressure_pts, now_minute=minute),

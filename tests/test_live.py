@@ -881,6 +881,158 @@ def test_typed_goal_with_own_goal_copy_is_not_a_green_tick():
     assert tl["play_away_score"] == 1
 
 
+def test_bulletin_lists_scorers_and_substitutions():
+    from eeesoc.live import (
+        _player_name_from_goal,
+        _sub_players,
+        build_event_timeline,
+        clear_timeline_cache,
+    )
+
+    assert (
+        _player_name_from_goal(
+            {
+                "shortText": "Bryan Mbeumo Goal",
+                "text": "Goal! Everton 0, Manchester United 1. Bryan Mbeumo (Manchester United) left footed shot.",
+            }
+        )
+        == "Bryan Mbeumo"
+    )
+    assert (
+        _player_name_from_goal(
+            {"shortText": "Serhou Guirassy Penalty - Scored", "text": ""},
+        )
+        == "Serhou Guirassy"
+    )
+    assert (
+        _player_name_from_goal(
+            {
+                "shortText": "Renato Veiga Own Goal",
+                "text": "Own Goal by Renato Veiga, Villarreal. Borussia Dortmund 1, Villarreal 0.",
+            },
+            own=True,
+        )
+        == "Renato Veiga"
+    )
+    assert _sub_players(
+        {
+            "shortText": "Jack Grealish Substitution",
+            "text": "Substitution, Everton. Jack Grealish replaces Brennan Johnson.",
+        }
+    ) == ("Jack Grealish", "Brennan Johnson")
+    assert _sub_players(
+        {
+            "shortText": "Ainsley Maitland-Niles Substitution",
+            "text": "Substitution, Everton. Ainsley Maitland-Niles replaces James Garner because of an injury.",
+        }
+    ) == ("Ainsley Maitland-Niles", "James Garner")
+
+    clear_timeline_cache()
+    plays = {
+        "pageCount": 1,
+        "items": [
+            {
+                "type": {"type": "goal"},
+                "scoringPlay": True,
+                "shortText": "Bryan Mbeumo Goal",
+                "text": "Goal! Everton 0, Manchester United 1. Bryan Mbeumo (Manchester United) left footed shot.",
+                "clock": {"displayValue": "46'", "value": 2760.0},
+                "team": {"$ref": ".../teams/360"},
+            },
+            {
+                "type": {"type": "substitution"},
+                "substitution": True,
+                "shortText": "Jack Grealish Substitution",
+                "text": "Substitution, Everton. Jack Grealish replaces Brennan Johnson.",
+                "clock": {"displayValue": "66'", "value": 3960.0},
+                "team": {"$ref": ".../teams/368"},
+            },
+            {
+                "type": {"type": "goal---header"},
+                "scoringPlay": True,
+                "shortText": "Benjamin Sesko Goal - Header",
+                "text": "Goal! Everton 1, Manchester United 2. Benjamin Sesko (Manchester United) header.",
+                "clock": {"displayValue": "88'", "value": 5280.0},
+                "team": {"$ref": ".../teams/360"},
+            },
+            {
+                "type": {"type": "penalty---scored"},
+                "scoringPlay": True,
+                "shortText": "Serhou Guirassy Penalty - Scored",
+                "text": "Goal! Home 1, Away 0. Serhou Guirassy (Everton) converts the penalty.",
+                "clock": {"displayValue": "85'", "value": 5100.0},
+                "team": {"$ref": ".../teams/368"},
+            },
+        ],
+    }
+    tl = build_event_timeline(
+        "eng.1",
+        "401879291",
+        home="Everton",
+        away="Manchester United",
+        home_id="368",
+        away_id="360",
+        clock="90'",
+        home_score=1,
+        away_score=2,
+        fetcher=lambda url: plays,
+        use_cache=False,
+    )
+    kinds = [e["kind"] for e in tl["bulletin"]]
+    assert kinds == ["goal", "sub", "goal", "goal"]
+    # 90'+1 before 90'+6 even if ESPN elapsed is messy
+    late = build_event_timeline(
+        "eng.1",
+        "late",
+        home="Everton",
+        away="Manchester United",
+        home_id="368",
+        away_id="360",
+        clock="FT",
+        fetcher=lambda url: {
+            "pageCount": 1,
+            "items": [
+                {
+                    "type": {"type": "goal"},
+                    "scoringPlay": True,
+                    "shortText": "Late Goal",
+                    "text": "Goal! Everton 2, Manchester United 2. Ainsley Maitland-Niles (Everton) shot.",
+                    "clock": {"displayValue": "90'+6'", "value": 5400.0},
+                    "team": {"$ref": ".../teams/368"},
+                },
+                {
+                    "type": {"type": "substitution"},
+                    "substitution": True,
+                    "shortText": "Noussair Mazraoui Substitution",
+                    "text": "Substitution, Manchester United. Noussair Mazraoui replaces Luke Shaw.",
+                    "clock": {"displayValue": "90'+1'", "value": 5460.0},
+                    "team": {"$ref": ".../teams/360"},
+                },
+            ],
+        },
+        use_cache=False,
+    )
+    assert [e["clock"] for e in late["bulletin"]] == ["90'+1'", "90'+6'"]
+    by_clock = {e["clock"]: e for e in tl["bulletin"]}
+    assert by_clock["46'"]["player"] == "Bryan Mbeumo"
+    assert by_clock["46'"]["team"] == "away"
+    assert by_clock["66'"]["kind"] == "sub"
+    assert by_clock["66'"]["player_on"] == "Jack Grealish"
+    assert by_clock["66'"]["player_off"] == "Brennan Johnson"
+    assert by_clock["66'"]["team"] == "home"
+    assert by_clock["88'"]["player"] == "Benjamin Sesko"
+    assert by_clock["85'"]["player"] == "Serhou Guirassy"
+    assert by_clock["85'"]["penalty"] is True
+    assert by_clock["85'"]["team"] == "home"
+    # Subs stay off the shot/goal strip
+    assert "sub" not in [e["kind"] for e in tl["events"]]
+    assert tl["events"][0]["player"] == "Bryan Mbeumo"
+
+    js = Path("src/eeesoc/static/app.js").read_text(encoding="utf-8")
+    assert "function chicletBulletinHtml" in js
+    assert "data-bulletin-for" in js
+
+
 def test_timeline_score_prefers_plays_over_stale_board():
     from eeesoc.live import build_event_timeline, clear_timeline_cache
 

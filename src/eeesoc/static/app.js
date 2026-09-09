@@ -579,6 +579,34 @@
     });
   }
 
+  function chicletBulletinHtml(tl) {
+    const rows = tl?.bulletin || [];
+    if (!rows.length) return "";
+    const line = (r) => {
+      const clock = escapeHtml(r.clock || `${r.minute}'`);
+      if (r.kind === "sub") {
+        const on = escapeHtml(r.player_on || r.player || "sub");
+        const off = r.player_off
+          ? ` <span class="mc-bl-arrow">←</span> ${escapeHtml(r.player_off)}`
+          : "";
+        return `<div class="mc-bl-row sub"><span class="mc-bl-min">${clock}</span><span class="mc-bl-who">${on}${off}</span></div>`;
+      }
+      const name = escapeHtml(r.player || (r.kind === "own_goal" ? "Own goal" : "Goal"));
+      const tag =
+        r.kind === "own_goal"
+          ? ` <span class="mc-bl-tag og">OG</span>`
+          : r.penalty
+            ? ` <span class="mc-bl-tag pen">P</span>`
+            : "";
+      return `<div class="mc-bl-row ${r.kind === "own_goal" ? "og" : "goal"}"><span class="mc-bl-min">${clock}</span><span class="mc-bl-who">${name}${tag}</span></div>`;
+    };
+    const col = (side) => {
+      const items = rows.filter((r) => r.team === side);
+      return `<div class="mc-bulletin-col ${side}">${items.map(line).join("")}</div>`;
+    };
+    return `${col("home")}${col("away")}`;
+  }
+
   function chicletStatsHtml(tl) {
     if (!tl) {
       return `<span class="mc-stat mc-stat-empty">shots · on target · corners · xG</span>`;
@@ -651,6 +679,7 @@
         <span class="mc-score"><b class="mc-score-h">${shown.home}</b><span class="mc-score-sep">–</span><b class="mc-score-a">${shown.away}</b></span>
         <span class="mc-away"><i class="mc-key mc-key-away" title="Away — blue in charts"></i><span class="mc-name">${escapeHtml(shortName(m.away))}</span></span>
       </span>
+      ${withTimeline && !upcoming ? `<div class="mc-bulletin" data-bulletin-for="${escapeHtml(m.event_id)}">${cached ? chicletBulletinHtml(cached) : ""}</div>` : ""}
       ${chartPlaceholder}
     `;
     btn.addEventListener("click", () => {
@@ -809,7 +838,8 @@
       const dir = home ? -1 : 1;
       const laneY = (kind) => axisY + dir * (TL_LANES[kind] || 8);
       const xgBit = ev.xg != null ? ` · xG ${Number(ev.xg).toFixed(2)}` : "";
-      const title = `${ev.clock || ev.minute + "'"} ${ev.kind}${xgBit} — ${ev.text || ""}`;
+      const playerBit = ev.player ? ` · ${ev.player}` : "";
+      const title = `${ev.clock || ev.minute + "'"} ${ev.kind}${playerBit}${xgBit} — ${ev.text || ""}`;
       if (ev.kind === "goal") {
         const y1 = home ? axisY - 24 : axisY + 2;
         const y2 = home ? axisY - 2 : axisY + 24;
@@ -1050,6 +1080,8 @@
       if (xgMount && xgMount.isConnected) xgMount.innerHTML = xgSvg(tl);
       const stats = document.querySelector(`.mc-stats[data-stats-for="${CSS.escape(String(m.event_id))}"]`);
       if (stats) stats.innerHTML = chicletStatsHtml(tl);
+      const board = document.querySelector(`.mc-bulletin[data-bulletin-for="${CSS.escape(String(m.event_id))}"]`);
+      if (board) board.innerHTML = chicletBulletinHtml(tl);
       const terr = document.querySelector(`.mc-territory[data-terr-for="${CSS.escape(String(m.event_id))}"]`);
       if (terr) terr.innerHTML = territorySvg(tl);
       const card = mount.closest(".match-chiclet");
@@ -1063,7 +1095,8 @@
       JSON.stringify({
         minute: tl.minute,
         max: tl.max_minute,
-        events: (tl.events || []).map((e) => [e.minute, e.kind, e.team, e.xg]),
+        events: (tl.events || []).map((e) => [e.minute, e.kind, e.team, e.xg, e.player]),
+        bulletin: (tl.bulletin || []).map((e) => [e.minute, e.kind, e.team, e.player, e.player_off]),
         xh: tl.xg?.home_total,
         xa: tl.xg?.away_total,
         fouls: [tl.counts?.home_foul, tl.counts?.away_foul],

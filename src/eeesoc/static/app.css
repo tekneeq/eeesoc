@@ -1418,6 +1418,86 @@ main {
   font-size: 0.95rem;
 }
 
+.mc-bulletin {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.2rem 0.75rem;
+  width: 100%;
+  max-height: 8.5rem;
+  overflow-y: auto;
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  line-height: 1.35;
+}
+
+.mc-bulletin:empty {
+  display: none;
+}
+
+.mc-bulletin-col {
+  display: flex;
+  flex-direction: column;
+  gap: 0.08rem;
+  min-width: 0;
+}
+
+.mc-bulletin-col.home {
+  align-items: flex-end;
+  text-align: right;
+  color: var(--accent);
+}
+
+.mc-bulletin-col.away {
+  align-items: flex-start;
+  text-align: left;
+  color: rgba(125, 200, 255, 0.95);
+}
+
+.mc-bl-row {
+  display: flex;
+  align-items: baseline;
+  gap: 0.35rem;
+  max-width: 100%;
+}
+
+.mc-bulletin-col.home .mc-bl-row {
+  flex-direction: row-reverse;
+}
+
+.mc-bl-min {
+  flex: none;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.mc-bl-who {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mc-bl-row.sub {
+  color: var(--muted);
+}
+
+.mc-bl-arrow {
+  opacity: 0.7;
+}
+
+.mc-bl-tag {
+  font-size: 0.58rem;
+  letter-spacing: 0.04em;
+  opacity: 0.85;
+}
+
+.mc-bl-tag.og {
+  color: var(--warn);
+}
+
+.mc-bl-tag.pen {
+  color: var(--warn);
+}
+
 .mc-league {
   font-family: var(--mono);
   font-size: 0.62rem;
