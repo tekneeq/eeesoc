@@ -783,6 +783,18 @@ def _team_id_from_play(play: dict[str, Any]) -> str | None:
     return None
 
 
+def _play_period(play: dict[str, Any]) -> int | None:
+    """ESPN period number (1 = first half, 2 = second half); None when absent."""
+    period = play.get("period")
+    if isinstance(period, dict):
+        period = period.get("number")
+    try:
+        n = int(period)
+    except (TypeError, ValueError):
+        return None
+    return n if n > 0 else None
+
+
 def _play_minute(play: dict[str, Any]) -> int | None:
     clock = play.get("clock") or {}
     if isinstance(clock, dict):
@@ -1348,6 +1360,7 @@ def build_event_timeline(
 
         clock = _clock_label(play)
         elapsed = _play_elapsed_seconds(play)
+        period = _play_period(play)
         if _is_substitution(ptype, play) and pmin is not None and side in {"home", "away"}:
             player_on, player_off = _sub_players(play)
             bulletin.append(
@@ -1379,6 +1392,7 @@ def build_event_timeline(
                 "clock": clock,
                 "xg": xg,
                 "player": player,
+                "period": period,
             }
         )
         if kind in {"goal", "own_goal"} and side in {"home", "away"}:

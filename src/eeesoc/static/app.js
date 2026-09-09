@@ -21,7 +21,15 @@
     selectedWpId: null,
     wpFocus: null, // {kind:'day', date} | {kind:'bucket', league, bucket}
     liveScope: "live", // "live" | "upcoming" (today, not started) | "finished"
+    htBoard: null, // /api/halftime/zero payload
+    htFilter: null, // null = all; Set of league slugs
+    htScope: "archive", // "archive" | "similar"
+    htSimilar: {}, // event_id → /api/halftime/similar payload
+    htTimer: null,
+    htLoading: false,
   };
+
+  const HT_POLL_MS = 20000;
 
   const LIVE_POLL_MS = 8000;
   const TIMELINE_FRESH_MS = 5000;
@@ -260,6 +268,8 @@
     });
     if (name === "live" || name === "similar") refreshLive();
     if (name === "winprob") refreshWinprob();
+    if (name === "halftime") refreshHalftime();
+    else stopHalftimeTimer();
   }
 
   function escapeHtml(s) {
@@ -815,13 +825,20 @@
   // shots hug the axis, corners sit furthest out, goals span the lane stack.
   const TL_LANES = { shot: 6, shot_on: 11, blocked: 16, corner: 21 };
 
+  // A chart cut at 45' (0-0 HT tab) shows 15'/30' ticks instead of the HT mark.
+  function chartAxis(tl) {
+    const view = Number(tl.view_max_minute) || 0;
+    const maxM = view > 0 ? view : Math.max(90, Number(tl.max_minute) || 90);
+    const ticks = maxM <= 45 ? [15, 30] : [45];
+    return { maxM, ticks, now: Math.min(maxM, liveNowMinutes(tl)) };
+  }
+
   function timelineSvg(tl) {
     const W = 320;
     const H = 68;
     const pad = 10;
     const axisY = 32;
-    const maxM = Math.max(90, Number(tl.max_minute) || 90);
-    const now = liveNowMinutes(tl);
+    const { maxM, ticks, now } = chartAxis(tl);
     const xAt = (m) => pad + ((Number(m) / maxM) * (W - pad * 2));
     const marks = [];
     // Same minute + side + kind → nudge horizontally instead of stacking.
@@ -876,14 +893,19 @@
       }
     }
     const nowX = xAt(now).toFixed(1);
-    const htX = xAt(45).toFixed(1);
-    return `<svg class="mc-tl-svg" viewBox="0 0 ${W} ${H}" width="100%" height="${H}" role="img" aria-label="0 to 90 minute event timeline" data-pad-l="${pad}" data-pad-r="${pad}" data-width="${W}" data-max="${maxM}">
+    const tickMarks = ticks
+      .map((t) => {
+        const tx = xAt(t).toFixed(1);
+        return `<line x1="${tx}" y1="${axisY - 6}" x2="${tx}" y2="${axisY + 6}" class="tl-ht"/>
+      <text x="${tx}" y="${H - 4}" class="tl-label" text-anchor="middle">${t}'</text>`;
+      })
+      .join("");
+    return `<svg class="mc-tl-svg" viewBox="0 0 ${W} ${H}" width="100%" height="${H}" role="img" aria-label="0 to ${maxM} minute event timeline" data-pad-l="${pad}" data-pad-r="${pad}" data-width="${W}" data-max="${maxM}">
       <line x1="${pad}" y1="${axisY}" x2="${W - pad}" y2="${axisY}" class="tl-axis"/>
       <line x1="${pad}" y1="${axisY}" x2="${nowX}" y2="${axisY}" class="tl-progress"/>
-      <line x1="${htX}" y1="${axisY - 6}" x2="${htX}" y2="${axisY + 6}" class="tl-ht"/>
+      ${tickMarks}
       <text x="${pad}" y="${H - 4}" class="tl-label">0'</text>
-      <text x="${htX}" y="${H - 4}" class="tl-label" text-anchor="middle">45'</text>
-      <text x="${W - pad}" y="${H - 4}" class="tl-label" text-anchor="end">90'</text>
+      <text x="${W - pad}" y="${H - 4}" class="tl-label" text-anchor="end">${maxM}'</text>
       <line x1="${nowX}" y1="4" x2="${nowX}" y2="${H - 14}" class="tl-now"/>
       ${marks.join("")}
     </svg>`;
@@ -916,8 +938,7 @@
     const padR = 10;
     const padT = 12;
     const padB = 18;
-    const maxM = Math.max(90, Number(tl.max_minute) || 90);
-    const now = liveNowMinutes(tl);
+    const { maxM, ticks, now } = chartAxis(tl);
     const xg = tl.xg || { home: [], away: [], home_total: 0, away_total: 0 };
     const yMax = Math.max(0.5, xg.home_total || 0, xg.away_total || 0) * 1.15;
     const xAt = (m) => padL + ((Number(m) / maxM) * (W - padL - padR));
@@ -925,10 +946,16 @@
     const homePath = xgSeriesPath(xg.home, xAt, yAt, now);
     const awayPath = xgSeriesPath(xg.away, xAt, yAt, now);
     const nowX = xAt(now).toFixed(1);
-    const htX = xAt(45).toFixed(1);
     const y0 = yAt(0).toFixed(1);
     const yMid = yAt(yMax / 2).toFixed(1);
     const yTop = yAt(yMax).toFixed(1);
+    const tickMarks = ticks
+      .map((t) => {
+        const tx = xAt(t).toFixed(1);
+        return `<line x1="${tx}" y1="${padT}" x2="${tx}" y2="${y0}" class="tl-ht"/>
+      <text x="${tx}" y="${H - 4}" class="tl-label" text-anchor="middle">${t}'</text>`;
+      })
+      .join("");
     return `<svg class="mc-xg-svg" viewBox="0 0 ${W} ${H}" width="100%" height="${H}" role="img" aria-label="Expected goals versus game time" data-pad-l="${padL}" data-pad-r="${padR}" data-width="${W}" data-max="${maxM}">
       <text x="4" y="${Number(yTop) + 3}" class="tl-label">${yMax.toFixed(1)}</text>
       <text x="4" y="${Number(yMid) + 3}" class="tl-label">${(yMax / 2).toFixed(1)}</text>
@@ -936,13 +963,12 @@
       <line x1="${padL}" y1="${yTop}" x2="${W - padR}" y2="${yTop}" class="tl-grid"/>
       <line x1="${padL}" y1="${yMid}" x2="${W - padR}" y2="${yMid}" class="tl-grid"/>
       <line x1="${padL}" y1="${y0}" x2="${W - padR}" y2="${y0}" class="tl-axis"/>
-      <line x1="${htX}" y1="${padT}" x2="${htX}" y2="${y0}" class="tl-ht"/>
+      ${tickMarks}
       <line x1="${nowX}" y1="${padT}" x2="${nowX}" y2="${y0}" class="tl-now"/>
       ${homePath ? `<path d="${homePath}" class="xg-home" fill="none"/>` : ""}
       ${awayPath ? `<path d="${awayPath}" class="xg-away" fill="none"/>` : ""}
       <text x="${padL}" y="${H - 4}" class="tl-label">0'</text>
-      <text x="${htX}" y="${H - 4}" class="tl-label" text-anchor="middle">45'</text>
-      <text x="${W - padR}" y="${H - 4}" class="tl-label" text-anchor="end">90'</text>
+      <text x="${W - padR}" y="${H - 4}" class="tl-label" text-anchor="end">${maxM}'</text>
       <text x="${W - padR}" y="11" class="tl-xg-total" text-anchor="end">xG <tspan class="tl-xg-h">${Number(xg.home_total || 0).toFixed(2)}</tspan>–<tspan class="tl-xg-a">${Number(xg.away_total || 0).toFixed(2)}</tspan></text>
     </svg>`;
   }
@@ -1284,6 +1310,8 @@
       clock: isFinishedMatch(m) ? "FT" : m.clock || "",
       clock_s: m.clock_seconds != null ? String(m.clock_seconds) : "",
       chiclet: m.league_chiclet || "",
+      league_name: m.league_name || "",
+      start: m.start || "",
       home_id: m.home_id || "",
       away_id: m.away_id || "",
     });
@@ -2214,6 +2242,416 @@
     }
   }
 
+  // ---------------------------------------------------------------------------
+  // 0-0 HT tab — archived goalless first halves + live lookalike matching
+  // ---------------------------------------------------------------------------
+
+  function stopHalftimeTimer() {
+    if (state.htTimer) clearInterval(state.htTimer);
+    state.htTimer = null;
+  }
+
+  function htIsActive() {
+    const panel = $("#panel-halftime");
+    return !!panel && !panel.hidden;
+  }
+
+  function htWhen(rec) {
+    const d = rec?.start ? new Date(rec.start) : null;
+    if (!d || Number.isNaN(d.getTime())) return rec?.date || "";
+    return d.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" });
+  }
+
+  function htStatPair(label, h, a) {
+    return `<span class="mc-stat" title="${label} — home vs away"><span class="mc-stat-label">${label}</span><b class="mc-h">${h}</b><span class="mc-stat-sep">–</span><b class="mc-a">${a}</b></span>`;
+  }
+
+  function htCutStats(fh) {
+    const h = fh?.home || {};
+    const a = fh?.away || {};
+    return (
+      htStatPair("Shots", h.shots || 0, a.shots || 0) +
+      htStatPair("On target", h.sot || 0, a.sot || 0) +
+      htStatPair("Corners", h.corners || 0, a.corners || 0) +
+      htStatPair("xG", Number(h.xg || 0).toFixed(2), Number(a.xg || 0).toFixed(2))
+    );
+  }
+
+  // p10–p90 range drawn as a bar on a fixed scale, median as a tick.
+  function htBandLine(label, band, digits, scaleMax) {
+    if (!band) return "";
+    const f = (v) => Number(v || 0).toFixed(digits);
+    const pct = (v) => Math.max(0, Math.min(100, (Number(v || 0) / scaleMax) * 100));
+    const left = pct(band.p10);
+    const width = Math.max(1.5, pct(band.p90) - left);
+    return `<div class="ht-band">
+      <span class="ht-band-label">${label}</span>
+      <span class="ht-band-bar" aria-hidden="true"><i style="left:${left.toFixed(1)}%;width:${width.toFixed(1)}%"></i><em style="left:${pct(band.p50).toFixed(1)}%"></em></span>
+      <span class="ht-band-range"><b>${f(band.p10)}</b>–<b>${f(band.p90)}</b></span>
+      <span class="ht-band-med">med ${f(band.p50)}</span>
+    </div>`;
+  }
+
+  function htOutcomeBar(o) {
+    if (!o) return "";
+    const h = Number(o.home_win_pct) || 0;
+    const d = Number(o.draw_pct) || 0;
+    const a = Math.max(0, 100 - h - d);
+    return `<div class="ht-outcome-bar" role="img" aria-label="Full-time results: home ${h}%, draw ${d}%, away ${a}%">
+      <i class="home" style="width:${h}%"><span>H ${h}%</span></i><i class="draw" style="width:${d}%"><span>D ${d}%</span></i><i class="away" style="width:${a}%"><span>A ${a}%</span></i>
+    </div>`;
+  }
+
+  function htOutcomePills(o) {
+    if (!o) return "";
+    const fg = o.first_2h_goal_pct || {};
+    return `<div class="ht-pills">
+      <span class="ht-pill"><b>${o.any_2h_goal_pct}%</b> saw a goal after the break</span>
+      <span class="ht-pill"><b>${o.ended_0_0_pct}%</b> stayed 0-0</span>
+      <span class="ht-pill"><b>${o.over_1_5_pct}%</b> went over 1.5</span>
+      <span class="ht-pill"><b>${Number(o.avg_2h_goals || 0).toFixed(2)}</b> 2H goals avg</span>
+      <span class="ht-pill" title="Minute window of the first second-half goal, share of all 0-0 halves">1st goal <b>46–60′ ${fg["46-60"] || 0}%</b> · <b>61–75′ ${fg["61-75"] || 0}%</b> · <b>76–90′ ${fg["76-90+"] || 0}%</b></span>
+      ${o.with_first_goal ? `<span class="ht-pill" title="When a goal did come, how often the side with more first-half xG scored it"><b>${o.xg_leader_scored_first_pct}%</b> first goal to the xG leader</span>` : ""}
+    </div>`;
+  }
+
+  function htProfileHtml(p, opts = {}) {
+    if (!p || !p.n) {
+      return `<div class="ht-card ht-empty">${escapeHtml(opts.empty || "No 0-0 first halves archived yet — full-time games land here as they finish, or hit Backfill.")}</div>`;
+    }
+    const curve = (p.xg_curve || [])
+      .map((c) => `<span class="ht-pill">by ${c.minute}′ xG <b>${Number(c.p10).toFixed(2)}–${Number(c.p90).toFixed(2)}</b></span>`)
+      .join("");
+    const s = p.sides || {};
+    const minuteBit = p.minute && p.minute < 45 ? ` · cut at ${p.minute}′` : "";
+    return `<div class="ht-card">
+      <div class="ht-card-head">
+        <span class="ht-card-title">${escapeHtml(opts.title || "What a 0-0 first half looks like")}</span>
+        <span class="ht-card-n">${p.n} halves${minuteBit}</span>
+      </div>
+      <div class="ht-card-body">
+        <div class="ht-bands">
+          <div class="ht-sub">80% of them fall inside these bands · both teams combined · p10–p90</div>
+          ${htBandLine("Shots", p.bands?.shots, 0, 20)}
+          ${htBandLine("On target", p.bands?.sot, 0, 8)}
+          ${htBandLine("Blocked", p.bands?.blocked, 0, 8)}
+          ${htBandLine("Corners", p.bands?.corners, 0, 12)}
+          ${htBandLine("xG", p.bands?.xg, 2, 2)}
+          <div class="ht-sides">
+            <span class="mc-h">home avg ${Number(s.home?.shots || 0).toFixed(1)} sh · ${Number(s.home?.sot || 0).toFixed(1)} sot · xG ${Number(s.home?.xg || 0).toFixed(2)}</span>
+            <span class="mc-a">away avg ${Number(s.away?.shots || 0).toFixed(1)} sh · ${Number(s.away?.sot || 0).toFixed(1)} sot · xG ${Number(s.away?.xg || 0).toFixed(2)}</span>
+          </div>
+          <div class="ht-pills">${curve}</div>
+        </div>
+        <div class="ht-outcomes">
+          <div class="ht-sub">After the break · full-time results</div>
+          ${htOutcomeBar(p.outcomes)}
+          ${htOutcomePills(p.outcomes)}
+        </div>
+      </div>
+    </div>`;
+  }
+
+  function htGoalsHtml(goals) {
+    if (!goals || !goals.length) return `<span class="ht-g none">stayed 0-0</span>`;
+    return goals
+      .map((g) => {
+        const who = g.player ? shortName(g.player) : g.kind === "own_goal" ? "Own goal" : "Goal";
+        const tag = g.kind === "own_goal" ? ` <span class="mc-bl-tag og">OG</span>` : "";
+        return `<span class="ht-g ${g.team === "away" ? "away" : "home"}"><span class="ht-g-min">${escapeHtml(g.clock || `${g.minute}'`)}</span> ${escapeHtml(who)}${tag}</span>`;
+      })
+      .join("");
+  }
+
+  function htArchiveCard(rec) {
+    const tl = rec.timeline || {};
+    return `<div class="match-chiclet match-chiclet-tl match-chiclet-ft ht-chiclet" role="listitem" data-event-id="${escapeHtml(rec.event_id || "")}">
+      <span class="mc-top">
+        <span class="mc-top-left">
+          <span class="mc-live-badge mc-ft-badge" title="Level at the break"><span class="mc-clock-text">HT 0-0</span></span>
+          <span class="mc-ft-when">${escapeHtml(htWhen(rec))}</span>
+        </span>
+        <span class="mc-top-right"><span class="mc-league">${escapeHtml(rec.league_chiclet || "")}</span></span>
+      </span>
+      <span class="mc-teams">
+        <span class="mc-home"><span class="mc-name">${escapeHtml(shortName(rec.home))}</span><i class="mc-key mc-key-home" title="Home — green in charts"></i></span>
+        <span class="mc-score" title="Full-time score"><b class="mc-score-h">${rec.ft_home}</b><span class="mc-score-sep">–</span><b class="mc-score-a">${rec.ft_away}</b><span class="ht-ft-tag">FT</span></span>
+        <span class="mc-away"><i class="mc-key mc-key-away" title="Away — blue in charts"></i><span class="mc-name">${escapeHtml(shortName(rec.away))}</span></span>
+      </span>
+      <div class="ht-2h"><span class="ht-2h-label">2H</span>${htGoalsHtml(rec.second_half_goals)}</div>
+      <span class="mc-stats">${htCutStats(rec.first_half)}</span>
+      <div class="mc-charts ht-charts">
+        <span class="mc-timeline" aria-label="First-half event timeline">${timelineSvg(tl)}</span>
+        <span class="mc-xg" aria-label="First-half expected goals">${xgSvg(tl)}</span>
+      </div>
+    </div>`;
+  }
+
+  function htFilterLabel() {
+    const board = state.htBoard;
+    if (!(state.htFilter instanceof Set) || !board) return "all leagues";
+    const labels = (board.chiclets || []).filter((c) => state.htFilter.has(c.slug)).map((c) => c.label);
+    return labels.join(", ") || "all leagues";
+  }
+
+  function renderHtLeagueChiclets() {
+    const row = $("#htLeagueChiclets");
+    row.innerHTML = "";
+    const board = state.htBoard;
+    if (!board) return;
+    const filter = state.htFilter;
+    const allBtn = document.createElement("button");
+    allBtn.type = "button";
+    allBtn.className = "chiclet" + (filter == null ? " on" : "");
+    allBtn.innerHTML = `<span class="chiclet-label">ALL</span><span class="chiclet-count">${board.zero_total || 0}</span>`;
+    allBtn.addEventListener("click", () => {
+      state.htFilter = null;
+      refreshHalftime();
+    });
+    row.appendChild(allBtn);
+    for (const c of board.chiclets || []) {
+      const n = Number(c.count) || 0;
+      const active = filter instanceof Set && filter.has(c.slug);
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "chiclet" + (active ? " on" : "") + (!n ? " dim" : "");
+      btn.disabled = !n && !active;
+      btn.title = `${c.archived || 0} archived games · ${n} were 0-0 at half time`;
+      btn.innerHTML = `<span class="chiclet-label">${escapeHtml(c.label)}</span><span class="chiclet-count">${n}</span>`;
+      btn.addEventListener("click", () => {
+        if (!n) return;
+        if (state.htFilter instanceof Set && state.htFilter.has(c.slug) && state.htFilter.size === 1) {
+          state.htFilter = null;
+        } else {
+          state.htFilter = new Set([c.slug]);
+        }
+        refreshHalftime();
+      });
+      row.appendChild(btn);
+    }
+  }
+
+  function renderHtArchive() {
+    const board = state.htBoard;
+    const grid = $("#htArchiveGrid");
+    const profile = $("#htProfile");
+    if (!board) return;
+    profile.innerHTML = htProfileHtml(board.profile, {
+      title: `What a 0-0 first half looks like — ${htFilterLabel()}`,
+    });
+    grid.innerHTML = "";
+    const leagues = board.leagues || [];
+    if (!leagues.length) {
+      const running = board.backfill?.running;
+      grid.innerHTML = `<p class="lede empty-live">${
+        running
+          ? "Backfilling recent full-time games from ESPN — 0-0 halves appear here as they land."
+          : "No 0-0 first halves archived for this filter yet."
+      }</p>`;
+      return;
+    }
+    for (const g of leagues) {
+      const o = g.profile?.outcomes || {};
+      const section = document.createElement("div");
+      section.className = "match-chiclet-league";
+      section.innerHTML = `
+        <div class="match-chiclet-league-label">
+          <span class="league-chiclet-tag">${escapeHtml(g.chiclet || "")}</span>
+          <span>${escapeHtml(g.name || g.slug)}</span>
+          <span class="league-count">${g.matches.length} × 0-0 HT · ${o.ended_0_0_pct ?? 0}% stayed 0-0 · ${o.any_2h_goal_pct ?? 0}% saw a 2H goal · median xG ${Number(g.profile?.bands?.xg?.p50 || 0).toFixed(2)}</span>
+        </div>
+        <div class="match-chiclet-row">${g.matches.map(htArchiveCard).join("")}</div>`;
+      grid.appendChild(section);
+    }
+  }
+
+  function htFirstHalfClock(m) {
+    const c = String(m?.clock || "").toUpperCase();
+    if (c.includes("HT") || c.includes("HALF")) return true;
+    const mm = c.match(/(\d+)/);
+    if (!mm) return true; // just kicked off, no clock yet
+    return Number(mm[1]) <= 45;
+  }
+
+  function htLiveZeroRows() {
+    return flatLiveMatches(state.htFilter, "live").filter(
+      (m) => !Number(m.home_score) && !Number(m.away_score) && htFirstHalfClock(m)
+    );
+  }
+
+  function htLookalikeHtml(rec, minute) {
+    const tl = { ...(rec.timeline || {}), elapsed_seconds: Math.max(1, minute) * 60 };
+    const cut = rec.cut?.total || {};
+    const pct = Number(rec.match_pct) || 0;
+    return `<div class="ht-look" style="--pct:${pct}">
+      <span class="ht-look-pct" title="Similarity of the first ${minute}′ — shots, on target, blocked, corners, xG shape">${pct}%</span>
+      <span class="ht-look-body">
+        <span class="ht-look-head">
+          <span class="mc-league">${escapeHtml(rec.league_chiclet || "")}</span>
+          <span class="ht-look-when">${escapeHtml(htWhen(rec))}</span>
+          <span class="ht-look-teams"><span class="mc-h">${escapeHtml(shortName(rec.home))}</span> <b>${rec.ft_home}–${rec.ft_away}</b> <span class="mc-a">${escapeHtml(shortName(rec.away))}</span> <span class="ht-ft-tag">FT</span></span>
+        </span>
+        <span class="ht-look-cut">at ${minute}′ · ${cut.shots || 0} sh · ${cut.sot || 0} sot · ${cut.corners || 0} ck · xG ${Number(cut.xg || 0).toFixed(2)}</span>
+        <span class="ht-2h"><span class="ht-2h-label">2H</span>${htGoalsHtml(rec.second_half_goals)}</span>
+      </span>
+      <span class="ht-look-strip">${timelineSvg(tl)}</span>
+    </div>`;
+  }
+
+  function htBandVerdict(value, band, label, digits) {
+    if (!band) return "";
+    const v = Number(value) || 0;
+    const f = (x) => Number(x || 0).toFixed(digits);
+    const where = v < band.p10 ? "quieter than" : v > band.p90 ? "busier than" : "inside";
+    const cls = where === "inside" ? "in" : "out";
+    return `<span class="ht-pill ht-verdict ${cls}">${label} <b>${f(v)}</b> — ${where} the 80% band (${f(band.p10)}–${f(band.p90)})</span>`;
+  }
+
+  function htLiveCardHtml(m, data) {
+    const tl = { ...(data.timeline || {}), view_max_minute: 45, _ts: Date.now(), _syncedAt: Date.now() };
+    const minute = Number(data.minute) || 1;
+    const head = `<div class="ht-live-head">
+        <span class="mc-live-badge"><span class="live-dot"></span><span class="mc-clock-text">${escapeHtml(m.clock || "LIVE")}</span></span>
+        <span class="mc-league">${escapeHtml(m.league_chiclet || "")}</span>
+        <span class="ht-live-teams"><span class="mc-h">${escapeHtml(m.home)}</span> <b>0–0</b> <span class="mc-a">${escapeHtml(m.away)}</span></span>
+      </div>`;
+    if (!data.is_zero_zero_first_half) {
+      return `${head}<p class="ht-live-note">No longer a goalless first half (a goal landed or the second half is under way) — it drops from the 0-0 pool.</p>`;
+    }
+    if (!data.archive_n) {
+      return `${head}<p class="ht-live-note">Nothing to compare against yet — the archive has no 0-0 first halves. Hit Backfill.</p>`;
+    }
+    const live = data.live || {};
+    const pop = data.population || {};
+    const rank = data.rank || {};
+    const lo = data.lookalike_outcomes;
+    const looks = data.lookalikes || [];
+    return `${head}
+      <span class="mc-stats">${htCutStats(live)}</span>
+      <div class="mc-charts ht-charts">
+        <span class="mc-timeline" aria-label="Live first-half event timeline">${timelineSvg(tl)}</span>
+        <span class="mc-xg" aria-label="Live first-half expected goals">${xgSvg(tl)}</span>
+      </div>
+      <div class="ht-verdicts">
+        <div class="ht-sub">Against ${pop.n || 0} archived 0-0 halves cut at ${minute}′ (${htFilterLabel() === "all leagues" ? "all leagues" : "same filter"})</div>
+        ${htBandVerdict(live.total?.shots, pop.bands?.shots, "Shots", 0)}
+        ${htBandVerdict(live.total?.sot, pop.bands?.sot, "On target", 0)}
+        ${htBandVerdict(live.total?.xg, pop.bands?.xg, "xG", 2)}
+        <span class="ht-pill">busier than <b>${rank.shots_pct || 0}%</b> on shots · <b>${rank.xg_pct || 0}%</b> on xG</span>
+      </div>
+      <div class="ht-look-summary">
+        <div class="ht-sub">Closest ${looks.length} lookalikes · avg match <b>${data.avg_match_pct || 0}%</b> · how they finished</div>
+        ${htOutcomeBar(lo)}
+        ${htOutcomePills(lo)}
+      </div>
+      <div class="ht-looks">${looks.map((r) => htLookalikeHtml(r, minute)).join("")}</div>`;
+  }
+
+  async function loadHtSimilar(m, card) {
+    try {
+      const qs = liveQuery(m);
+      qs.set("limit", "6");
+      const data = await (await fetch(`/api/halftime/similar?${qs}`)).json();
+      state.htSimilar[m.event_id] = data;
+      if (!card.isConnected) return;
+      card.innerHTML = htLiveCardHtml(m, data);
+    } catch (err) {
+      if (card.isConnected && !card.querySelector(".ht-live-head")) {
+        card.innerHTML = `<div class="ht-live-loading">similar feed error — retrying…</div>`;
+      }
+    }
+  }
+
+  async function renderHtSimilar() {
+    const wrap = $("#htSimilar");
+    if (!state.live) await refreshLive();
+    const rows = htLiveZeroRows();
+    if (!rows.length) {
+      wrap.innerHTML = `<p class="lede empty-live">No live 0-0 first halves right now — ${
+        state.live?.live_total || 0
+      } games in play. Cards appear here at kickoff while a game is still 0-0 in the first half, and drop off at the first goal or the restart.</p>`;
+      return;
+    }
+    const wanted = new Set(rows.map((m) => String(m.event_id)));
+    for (const el of [...wrap.querySelectorAll(".ht-live-card")]) {
+      if (!wanted.has(el.dataset.eventId)) el.remove();
+    }
+    const stray = wrap.querySelector(".empty-live");
+    if (stray) stray.remove();
+    for (const m of rows) {
+      let card = wrap.querySelector(`.ht-live-card[data-event-id="${CSS.escape(String(m.event_id))}"]`);
+      if (!card) {
+        card = document.createElement("div");
+        card.className = "ht-live-card";
+        card.dataset.eventId = String(m.event_id);
+        card.innerHTML = `<div class="ht-live-loading">matching ${escapeHtml(m.home)} v ${escapeHtml(m.away)} against the archive…</div>`;
+        wrap.appendChild(card);
+      }
+      loadHtSimilar(m, card);
+    }
+  }
+
+  function htStampText(board) {
+    const bf = board?.backfill || {};
+    let bit = `${board?.zero_total || 0} × 0-0 HT of ${board?.archive_total || 0} archived`;
+    if (bf.running) {
+      bit += ` · backfilling ${bf.days_back}d (${bf.archived || 0}/${Math.max(0, (bf.scanned || 0) - (bf.skipped || 0))} new)…`;
+    }
+    return bit;
+  }
+
+  function setHtScope(scope) {
+    if (scope !== "archive" && scope !== "similar") return;
+    state.htScope = scope;
+    document.querySelectorAll(".ht-scope-btn").forEach((b) => b.classList.toggle("on", b.dataset.htscope === scope));
+    refreshHalftime();
+  }
+
+  async function refreshHalftime() {
+    const similar = state.htScope === "similar";
+    $("#htProfile").hidden = similar;
+    $("#htArchiveGrid").hidden = similar;
+    $("#htSimilar").hidden = !similar;
+    if (state.htLoading) return;
+    state.htLoading = true;
+    try {
+      const q =
+        state.htFilter instanceof Set && state.htFilter.size
+          ? `?league=${encodeURIComponent([...state.htFilter].join(","))}`
+          : "";
+      const board = await (await fetch(`/api/halftime/zero${q}`)).json();
+      state.htBoard = board;
+      $("#htStamp").textContent = `${htStampText(board)} · updated ${new Date().toLocaleTimeString()}`;
+      renderHtLeagueChiclets();
+      if (similar) await renderHtSimilar();
+      else renderHtArchive();
+    } catch (err) {
+      $("#htStamp").textContent = "0-0 archive error";
+    } finally {
+      state.htLoading = false;
+    }
+    stopHalftimeTimer();
+    state.htTimer = setInterval(() => {
+      if (document.hidden || !htIsActive()) return;
+      if (state.htScope === "similar") renderHtSimilar();
+      else if (state.htBoard?.backfill?.running) refreshHalftime();
+    }, HT_POLL_MS);
+  }
+
+  async function triggerHtBackfill() {
+    const btn = $("#htBackfill");
+    if (btn) btn.disabled = true;
+    try {
+      await fetch("/api/halftime/backfill?days=30");
+    } catch (err) {
+      /* stamp shows the archive error state on the next refresh */
+    }
+    setTimeout(() => {
+      if (btn) btn.disabled = false;
+      refreshHalftime();
+    }, 2500);
+  }
+
   async function refreshLive() {
     try {
       // One board for both scopes: in-play rows are state "in", full-time rows are "post".
@@ -2304,6 +2742,10 @@
     };
     $("#similarCollapseAll")?.addEventListener("click", () => setAllCollapsed(similarGroupIds(), true));
     $("#similarExpandAll")?.addEventListener("click", () => setAllCollapsed(similarGroupIds(), false));
+    document.querySelectorAll(".ht-scope-btn").forEach((b) => {
+      b.addEventListener("click", () => setHtScope(b.dataset.htscope));
+    });
+    $("#htBackfill")?.addEventListener("click", triggerHtBackfill);
 
     await refreshLive();
     state.liveTimer = setInterval(() => {

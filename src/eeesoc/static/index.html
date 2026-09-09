@@ -24,6 +24,7 @@
         <button class="tab" data-tab="winprob" role="tab" aria-selected="false">WinProb</button>
         <button class="tab" data-tab="matches" role="tab" aria-selected="false">Matches</button>
         <button class="tab" data-tab="similar" role="tab" aria-selected="false">Similar</button>
+        <button class="tab" data-tab="halftime" role="tab" aria-selected="false">0-0 HT</button>
       </nav>
     </header>
 
@@ -155,6 +156,46 @@
         <div id="scorelineEval" class="scoreline-eval" hidden></div>
         <div id="concedeSummary" class="concede-summary" hidden></div>
         <div id="similarList" class="similar-list"></div>
+      </section>
+
+      <section id="panel-halftime" class="panel" role="tabpanel" hidden>
+        <div class="panel-head live-head">
+          <div>
+            <h1>0-0 at half time</h1>
+            <p class="lede">
+              Every archived game that went in level at 0-0, broken out by league and cut at 45′ —
+              the same event strip and xG chart as Live, so you can read what a goalless half
+              actually looks like. The profile card gives the 80% band (the middle of the pack,
+              10th to 90th percentile) for shots, on-target, corners and xG, and what happened after
+              the break. Switch to <b>Similar live</b> to score today’s 0-0 first halves against the
+              archive, minute for minute, and see how the closest lookalikes finished.
+            </p>
+          </div>
+          <div class="live-status">
+            <span class="pulse" aria-hidden="true"></span>
+            <span id="htStamp">loading…</span>
+            <span class="chiclet-tools">
+              <span class="scope-switch" role="group" aria-label="Archive or similar live">
+                <button type="button" class="chiclet-tool ht-scope-btn on" data-htscope="archive">Archive</button>
+                <button type="button" class="chiclet-tool ht-scope-btn" data-htscope="similar">Similar live</button>
+              </span>
+              <button type="button" class="chiclet-tool" id="htBackfill" title="Pull the last 30 days of full-time games into the archive">Backfill 30d</button>
+            </span>
+          </div>
+        </div>
+        <div class="chiclet-row" id="htLeagueChiclets" role="toolbar" aria-label="0-0 league filters"></div>
+        <div class="tl-legend" aria-hidden="true">
+          <span><i class="tl-mark tl-corner"></i> Corner</span>
+          <span><i class="tl-mark tl-shot"></i> Shot</span>
+          <span><i class="tl-mark tl-blocked"></i> Blocked</span>
+          <span><i class="tl-mark tl-sot"></i> On target</span>
+          <span><i class="tl-mark tl-xg-home"></i> Home xG</span>
+          <span><i class="tl-mark tl-xg-away"></i> Away xG</span>
+          <span class="tl-legend-note">home ↑ · away ↓ · 0′ → 45′</span>
+        </div>
+        <div class="ht-profile" id="htProfile"></div>
+        <div class="match-chiclet-grid" id="htArchiveGrid" role="list"></div>
+        <div class="ht-similar" id="htSimilar" hidden></div>
       </section>
     </main>
 
