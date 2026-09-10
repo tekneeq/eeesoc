@@ -95,7 +95,9 @@ The **Signals** tab replays the archive minute by minute: what 0–0 halves look
 held rates by box habit and entries so far, calibration (does 70% mean 70%?), log loss against a
 time-only baseline, and the **trigger policy** table — for each confidence threshold, how many games would
 have fired inside the betting window, at what average minute and how often the half really stayed goalless
-— plus the live record and the log of every signal the monitor has fired.
+— plus the live record. Fires are stacked as a **daily bar** (green held, red busted); click a day to
+open those game chiclets with the same strip / xG / territory as the Live tab. The table under the
+chart is the same log, newest first.
 
 The monitor runs as a background thread inside the dashboard, fires **once per game per half** when
 `P(no goal)` clears the threshold inside the window, tracks the signal to **held** / **busted** (with the

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import math
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -344,6 +345,7 @@ def test_poll_fires_once_then_busts(quiet_env):
     assert "QUI" in msgs[0]
     sig = store["signals"]["1001:1"]
     assert sig["status"] == "open" and sig["fired_minute"] == 27 and sig["half_goals_at_fire"] == 0
+    assert sig["home_id"] == "" and sig["league_name"] == "Quiet League"
     assert evals["1001"]["signal"] == {"status": "open", "fired_minute": 27}
     assert evals["1001"]["ready"] is True
 
@@ -362,6 +364,7 @@ def test_poll_fires_once_then_busts(quiet_env):
     assert "Record: 0/1 held (0%)" in msgs[0]
     sig = store["signals"]["1001:1"]
     assert sig["status"] == "busted" and sig["resolved_minute"] == 39
+    assert sig["final_score"] == [0, 1]
     assert evals["1001"]["signal"]["status"] == "busted"
 
     # Nothing further once resolved.
@@ -466,9 +469,42 @@ def test_state_roundtrip_and_signal_log(tmp_path: Path):
     log = nogoal_monitor.signal_log(path)
     assert [s["fired_at"] for s in log["signals"]] == [40.0, 30.0, 20.0, 10.0]
     assert log["held"] == 1 and log["resolved"] == 2 and log["open"] == 1 and log["hit_pct"] == 50
+    assert "daily" in log
 
     path.write_text("not json")
     assert nogoal_monitor.load_state(path) == {"signals": {}}
+
+
+def test_daily_record_buckets_by_utc_day():
+    t_wed = datetime(2026, 9, 9, 21, 0, tzinfo=timezone.utc).timestamp()
+    t_thu = datetime(2026, 9, 10, 16, 30, tzinfo=timezone.utc).timestamp()
+    signals = {
+        "roma:2": {
+            "key": "roma:2",
+            "status": "busted",
+            "fired_at": t_thu,
+            "home": "Roma",
+            "away": "Inter",
+        },
+        "a:1": {"key": "a:1", "status": "held", "fired_at": t_wed},
+        "b:1": {"key": "b:1", "status": "held", "fired_at": t_thu},
+        "c:1": {"key": "c:1", "status": "open", "fired_at": t_thu},
+    }
+    days = nogoal_monitor.daily_record(signals)
+    assert [d["date"] for d in days] == ["2026-09-09", "2026-09-10"]
+    assert days[0] == {
+        "date": "2026-09-09",
+        "held": 1,
+        "busted": 0,
+        "open": 0,
+        "void": 0,
+        "fired": 1,
+        "keys": ["a:1"],
+        "hit_pct": 100,
+    }
+    assert days[1]["held"] == 1 and days[1]["busted"] == 1 and days[1]["open"] == 1
+    assert days[1]["fired"] == 3 and days[1]["hit_pct"] == 50
+    assert "roma:2" in days[1]["keys"]
 
 
 def test_save_state_trims_log(tmp_path: Path, monkeypatch):

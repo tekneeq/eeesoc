@@ -27,6 +27,7 @@ import threading
 import time
 import traceback
 import urllib.request
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
@@ -266,8 +267,12 @@ def poll(
                 "event_id": event_id,
                 "league_slug": match.get("league_slug") or "",
                 "league_chiclet": match.get("league_chiclet") or "",
+                "league_name": match.get("league_name") or "",
                 "home": match.get("home") or "?",
                 "away": match.get("away") or "?",
+                "home_id": match.get("home_id") or "",
+                "away_id": match.get("away_id") or "",
+                "start": match.get("start") or "",
                 "period": ev["period"],
                 "fired_at": now,
                 "fired_minute": ev["minute"],
@@ -314,11 +319,13 @@ def poll(
             signal["resolved_minute"] = int(last.get("minute") or 0) if last else None
             scorer = signal["home"] if last and last.get("team") == "home" else signal["away"] if last else ""
             signal["resolved_note"] = f" at {signal['resolved_minute']}′ ({scorer})" if last else ""
+            signal["final_score"] = [int(tl.get("home_score") or 0), int(tl.get("away_score") or 0)]
             messages.append(format_resolution(signal, signals))
         elif _half_over(tl, period):
             signal["status"] = "held"
             signal["resolved_at"] = now
             signal["resolved_minute"] = HALF_END[period]
+            signal["final_score"] = [int(tl.get("home_score") or 0), int(tl.get("away_score") or 0)]
             messages.append(format_resolution(signal, signals))
         if evals.get(str(signal["event_id"])) is not None and evals[str(signal["event_id"])]["period"] == period:
             evals[str(signal["event_id"])]["signal"] = {
@@ -373,6 +380,33 @@ def latest(*, max_age_s: float = 60.0) -> dict[str, Any]:
     return {"live": snapshot, "at": _latest["at"], "webhook": bool(webhook_url())}
 
 
+def _utc_day(ts: float) -> str:
+    return datetime.fromtimestamp(float(ts or 0), tz=timezone.utc).strftime("%Y-%m-%d")
+
+
+def daily_record(signals: dict[str, Any] | list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """UTC-day buckets: how many signals held / busted / open / void."""
+    rows = signals.values() if isinstance(signals, dict) else signals
+    buckets: dict[str, dict[str, Any]] = {}
+    for signal in rows:
+        day = _utc_day(float(signal.get("fired_at") or 0))
+        bucket = buckets.setdefault(
+            day,
+            {"date": day, "held": 0, "busted": 0, "open": 0, "void": 0, "fired": 0, "keys": []},
+        )
+        status = signal.get("status") or "open"
+        if status in {"held", "busted", "open", "void"}:
+            bucket[status] += 1
+        bucket["fired"] += 1
+        if signal.get("key"):
+            bucket["keys"].append(signal["key"])
+    out = sorted(buckets.values(), key=lambda r: r["date"])
+    for bucket in out:
+        done = bucket["held"] + bucket["busted"]
+        bucket["hit_pct"] = int(round(100 * bucket["held"] / done)) if done else None
+    return out
+
+
 def signal_log(path: Path | None = None) -> dict[str, Any]:
     signals = load_state(path)["signals"]
     rows = sorted(signals.values(), key=lambda s: float(s.get("fired_at") or 0), reverse=True)
@@ -383,6 +417,7 @@ def signal_log(path: Path | None = None) -> dict[str, Any]:
         "resolved": total,
         "open": sum(1 for s in rows if s.get("status") == "open"),
         "hit_pct": int(round(100 * held / total)) if total else None,
+        "daily": daily_record(signals),
     }
 
 
