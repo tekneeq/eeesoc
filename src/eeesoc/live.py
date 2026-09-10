@@ -1600,3 +1600,203 @@ def build_event_timeline(
 
 def clear_timeline_cache() -> None:
     _timeline_cache.clear()
+
+
+# —— Lineups: formation, XI, subs and a match power number ——
+
+SUMMARY_URL = "https://site.api.espn.com/apis/site/v2/sports/soccer/{league}/summary?event={event_id}"
+
+_lineup_cache: dict[str, tuple[float, dict[str, Any]]] = {}
+_LINEUP_TTL_S = 60.0
+_LINEUP_FINAL_TTL_S = 15 * 60.0
+
+# Stats ESPN files per player in the match summary (name → payload key).
+_LINEUP_STATS = {
+    "totalGoals": "goals",
+    "goalAssists": "assists",
+    "totalShots": "shots",
+    "shotsOnTarget": "sot",
+    "saves": "saves",
+    "goalsConceded": "goals_conceded",
+    "foulsCommitted": "fouls",
+    "foulsSuffered": "fouls_suffered",
+    "yellowCards": "yellow",
+    "redCards": "red",
+    "offsides": "offsides",
+}
+
+
+def _lineup_stat_values(entry: dict[str, Any]) -> dict[str, int]:
+    out = {v: 0 for v in _LINEUP_STATS.values()}
+    for stat in entry.get("stats") or []:
+        key = _LINEUP_STATS.get(str(stat.get("name") or ""))
+        if key is None:
+            continue
+        try:
+            out[key] = int(float(stat.get("value") or 0))
+        except (TypeError, ValueError):
+            continue
+    return out
+
+
+def player_power(stats: dict[str, int], *, is_keeper: bool) -> int:
+    """
+    FIFA-flavoured match power on a 40–99 scale, from ESPN's per-player match
+    stats (no tracking data exists in the feed): 65 = quiet-but-fine game.
+    """
+    score = 65.0
+    score += 12.0 * stats.get("goals", 0)
+    score += 8.0 * stats.get("assists", 0)
+    sot = stats.get("sot", 0)
+    score += 4.0 * sot
+    score += 1.5 * max(0, stats.get("shots", 0) - sot)
+    score += 1.0 * stats.get("fouls_suffered", 0)
+    score -= 1.5 * stats.get("fouls", 0)
+    score -= 1.0 * stats.get("offsides", 0)
+    score -= 4.0 * stats.get("yellow", 0)
+    score -= 12.0 * stats.get("red", 0)
+    if is_keeper:
+        score += 3.0 * stats.get("saves", 0)
+        score -= 3.0 * stats.get("goals_conceded", 0)
+    return int(round(max(40.0, min(99.0, score))))
+
+
+def _sub_minute(entry: dict[str, Any]) -> int | None:
+    for play in entry.get("plays") or []:
+        if play.get("substitution"):
+            clock = play.get("clock") or {}
+            label = str(clock.get("displayValue") or "") if isinstance(clock, dict) else str(clock)
+            if label:
+                return parse_clock_minute(label, default=0) or None
+    return None
+
+
+def _short_athlete(entry: dict[str, Any]) -> str:
+    athlete = entry.get("athlete") or {}
+    return str(athlete.get("shortName") or athlete.get("displayName") or "")
+
+
+def _parse_side_roster(side: dict[str, Any]) -> dict[str, Any]:
+    entries = side.get("roster") or []
+    formation = str(side.get("formation") or "")
+    # Starter places 1–11; substitutes inherit the place of whoever they replaced
+    # (chains resolve because each hop lands on a starter or an earlier sub).
+    place_by_jersey: dict[str, int] = {}
+    for e in entries:
+        try:
+            place = int(e.get("formationPlace") or 0)
+        except (TypeError, ValueError):
+            place = 0
+        if place > 0:
+            place_by_jersey[str(e.get("jersey") or "")] = place
+
+    def resolve_place(entry: dict[str, Any], hops: int = 0) -> int:
+        try:
+            place = int(entry.get("formationPlace") or 0)
+        except (TypeError, ValueError):
+            place = 0
+        if place > 0 or hops > 4:
+            return place
+        replaced = entry.get("subbedInFor") or {}
+        jersey = str(replaced.get("jersey") or "")
+        if jersey in place_by_jersey:
+            return place_by_jersey[jersey]
+        for other in entries:
+            if str(other.get("jersey") or "") == jersey:
+                return resolve_place(other, hops + 1)
+        return 0
+
+    players: list[dict[str, Any]] = []
+    for e in entries:
+        starter = bool(e.get("starter"))
+        sub_in = bool(e.get("subbedIn"))
+        sub_out = bool(e.get("subbedOut"))
+        if not starter and not sub_in:
+            continue  # unused bench player
+        pos = e.get("position") or {}
+        pos_abbr = str(pos.get("abbreviation") or "")
+        is_keeper = pos_abbr.upper().startswith("G") or str(pos.get("name") or "").lower() == "goalkeeper"
+        stats = _lineup_stat_values(e)
+        minute = _sub_minute(e)
+        place = resolve_place(e)
+        if sub_in and place > 0:
+            place_by_jersey.setdefault(str(e.get("jersey") or ""), place)
+        players.append(
+            {
+                "name": str((e.get("athlete") or {}).get("displayName") or ""),
+                "short": _short_athlete(e),
+                "jersey": str(e.get("jersey") or ""),
+                "pos": pos_abbr,
+                "place": place,
+                "starter": starter,
+                "on_pitch": not sub_out,
+                "in_minute": minute if sub_in else 0,
+                "out_minute": minute if sub_out else None,
+                "sub_for": _short_athlete(e.get("subbedInFor") or {}) if sub_in else "",
+                "sub_by": _short_athlete(e.get("subbedOutFor") or {}) if sub_out else "",
+                "stats": stats,
+                "power": player_power(stats, is_keeper=is_keeper),
+            }
+        )
+    return {
+        "team": str((side.get("team") or {}).get("displayName") or ""),
+        "formation": formation,
+        "players": players,
+    }
+
+
+def build_lineups(
+    league_slug: str,
+    event_id: str,
+    *,
+    fetcher: Callable[[str], dict[str, Any]] | None = None,
+    use_cache: bool = True,
+) -> dict[str, Any]:
+    """
+    Formation + XI per side from the ESPN match summary: who is on the pitch,
+    where they line up, sub in/out minutes and replacements, per-player match
+    stats and the derived power number. ``available`` is False before ESPN
+    publishes lineups (roughly an hour before kickoff).
+    """
+    cache_key = f"lu:{league_slug}:{event_id}"
+    if use_cache and cache_key in _lineup_cache:
+        ts, payload = _lineup_cache[cache_key]
+        ttl = _LINEUP_FINAL_TTL_S if payload.get("final") else _LINEUP_TTL_S
+        if time.time() - ts < ttl:
+            return payload
+
+    fetch = fetcher or _fetch_json
+    url = SUMMARY_URL.format(
+        league=urllib.parse.quote(league_slug, safe="."),
+        event_id=urllib.parse.quote(str(event_id), safe=""),
+    )
+    try:
+        data = fetch(url)
+    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, OSError):
+        data = {}
+
+    sides = {str(r.get("homeAway") or ""): r for r in data.get("rosters") or []}
+    home = _parse_side_roster(sides.get("home") or {})
+    away = _parse_side_roster(sides.get("away") or {})
+    status = {}
+    try:
+        status = ((data.get("header") or {}).get("competitions") or [{}])[0].get("status") or {}
+    except (AttributeError, IndexError, TypeError):
+        status = {}
+    final = str((status.get("type") or {}).get("state") or "") == "post"
+    payload = {
+        "event_id": str(event_id),
+        "league_slug": league_slug,
+        "available": bool(home["players"] or away["players"]),
+        "final": final,
+        "home": home,
+        "away": away,
+        "fetched_at": time.time(),
+    }
+    if use_cache and payload["available"]:
+        _lineup_cache[cache_key] = (time.time(), payload)
+    return payload
+
+
+def clear_lineup_cache() -> None:
+    _lineup_cache.clear()

@@ -1266,3 +1266,119 @@ def test_live_chiclets_use_pointer_drag():
     assert 'addEventListener("pointerdown"' in js
     assert "btn.draggable = true" not in js
     assert "makeChicletDropZone" not in js
+
+
+# —— Lineups: formation, subs, power ——
+
+
+def _lu_player(
+    jersey,
+    name,
+    place,
+    pos="M",
+    *,
+    starter=True,
+    stats=None,
+    subbed_in=False,
+    subbed_out=False,
+    sub_minute=None,
+    in_for=None,
+    out_for=None,
+):
+    entry = {
+        "starter": starter,
+        "jersey": jersey,
+        "athlete": {"displayName": name, "shortName": name},
+        "position": {"name": pos, "abbreviation": pos},
+        "formationPlace": str(place),
+        "subbedIn": subbed_in,
+        "subbedOut": subbed_out,
+        "stats": [{"name": k, "value": v} for k, v in (stats or {}).items()],
+    }
+    if sub_minute is not None:
+        entry["plays"] = [{"substitution": True, "clock": {"displayValue": f"{sub_minute}'"}}]
+    if in_for:
+        entry["subbedInFor"] = {"jersey": in_for[0], "athlete": {"shortName": in_for[1]}}
+    if out_for:
+        entry["subbedOutFor"] = {"jersey": out_for[0], "athlete": {"shortName": out_for[1]}}
+    return entry
+
+
+def _lu_summary():
+    home_roster = [
+        _lu_player("1", "Keeper", 1, "G", stats={"saves": 3, "goalsConceded": 1}),
+        _lu_player(
+            "2", "Right Back", 2, "RB", subbed_out=True, sub_minute=57, out_for=("27", "New Legs")
+        ),
+        _lu_player("9", "Striker", 9, "F", stats={"totalGoals": 1, "totalShots": 2, "shotsOnTarget": 1}),
+        _lu_player(
+            "27", "New Legs", 0, "SUB", starter=False, subbed_in=True, sub_minute=57, in_for=("2", "Right Back")
+        ),
+        _lu_player("30", "Bench Only", 0, "SUB", starter=False),
+    ]
+    away_roster = [_lu_player("13", "Away Keeper", 1, "G")]
+    return {
+        "rosters": [
+            {"homeAway": "home", "formation": "4-2-3-1", "team": {"displayName": "Alpha"}, "roster": home_roster},
+            {"homeAway": "away", "formation": "4-4-2", "team": {"displayName": "Beta"}, "roster": away_roster},
+        ],
+        "header": {"competitions": [{"status": {"type": {"state": "in"}}}]},
+    }
+
+
+def test_build_lineups_formation_subs_and_power():
+    from eeesoc.live import build_lineups, clear_lineup_cache
+
+    clear_lineup_cache()
+    payload = build_lineups("eng.1", "42", fetcher=lambda url: _lu_summary(), use_cache=False)
+    assert payload["available"] is True
+    assert payload["final"] is False
+    home = payload["home"]
+    assert home["team"] == "Alpha" and home["formation"] == "4-2-3-1"
+    by_jersey = {p["jersey"]: p for p in home["players"]}
+    assert set(by_jersey) == {"1", "2", "9", "27"}  # bench-only player dropped
+
+    keeper = by_jersey["1"]
+    assert keeper["place"] == 1 and keeper["on_pitch"] is True
+    assert keeper["power"] == 65 + 3 * 3 - 3  # saves help, conceded hurts
+
+    rb = by_jersey["2"]
+    assert rb["on_pitch"] is False and rb["out_minute"] == 57 and rb["sub_by"] == "New Legs"
+
+    sub = by_jersey["27"]
+    assert sub["place"] == 2  # inherits the replaced player's formation place
+    assert sub["in_minute"] == 57 and sub["sub_for"] == "Right Back" and sub["on_pitch"] is True
+
+    striker = by_jersey["9"]
+    assert striker["power"] == 65 + 12 + 4 + 1  # goal + SOT + off-target shot (int round of 1.5)
+
+    assert payload["away"]["formation"] == "4-4-2"
+
+
+def test_player_power_bounds():
+    from eeesoc.live import player_power
+
+    assert player_power({"goals": 3, "sot": 5, "assists": 2}, is_keeper=False) == 99
+    assert player_power({"red": 2, "fouls": 6, "yellow": 2}, is_keeper=False) == 40
+    assert player_power({}, is_keeper=False) == 65
+
+
+def test_build_lineups_unavailable_and_cache():
+    from eeesoc.live import build_lineups, clear_lineup_cache
+
+    clear_lineup_cache()
+    empty = build_lineups("eng.1", "43", fetcher=lambda url: {}, use_cache=True)
+    assert empty["available"] is False and empty["home"]["players"] == []
+
+    calls = []
+
+    def fetcher(url):
+        calls.append(url)
+        return _lu_summary()
+
+    clear_lineup_cache()
+    first = build_lineups("eng.1", "44", fetcher=fetcher)
+    second = build_lineups("eng.1", "44", fetcher=fetcher)
+    assert first is second and len(calls) == 1
+    assert "summary?event=44" in calls[0]
+    clear_lineup_cache()

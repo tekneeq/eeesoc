@@ -1753,6 +1753,129 @@ main {
   gap: 0.25rem;
 }
 
+/* Formation lineups under the live pitch */
+.pitch-lineups {
+  margin-top: 0.85rem;
+}
+
+.lu-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.6rem;
+  font-family: var(--mono);
+  font-size: 0.74rem;
+  margin-bottom: 0.35rem;
+}
+
+.lu-title {
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 0.64rem;
+}
+
+.lu-team-home {
+  color: var(--accent);
+}
+
+.lu-team-away {
+  color: rgba(125, 200, 255, 0.95);
+  text-align: right;
+}
+
+.lu-svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.lu-player {
+  cursor: default;
+}
+
+.lu-home .lu-dot {
+  fill: rgba(18, 68, 44, 0.95);
+  stroke: var(--accent);
+  stroke-width: 2;
+}
+
+.lu-away .lu-dot {
+  fill: rgba(12, 42, 66, 0.95);
+  stroke: rgba(125, 200, 255, 0.95);
+  stroke-width: 2;
+}
+
+.lu-jersey {
+  fill: rgba(235, 250, 242, 0.96);
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.lu-name {
+  fill: rgba(230, 245, 238, 0.92);
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 11.5px;
+  paint-order: stroke;
+  stroke: rgba(7, 20, 14, 0.8);
+  stroke-width: 3px;
+}
+
+.lu-power {
+  fill: rgba(20, 28, 24, 0.92);
+  stroke: rgba(180, 210, 200, 0.5);
+  stroke-width: 1;
+}
+
+.lu-power.hot {
+  stroke: var(--accent);
+}
+
+.lu-power.cold {
+  stroke: var(--danger);
+}
+
+.lu-power-num {
+  fill: rgba(235, 250, 242, 0.96);
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.lu-stam-bg {
+  fill: rgba(255, 255, 255, 0.14);
+}
+
+.lu-stam.ok {
+  fill: var(--accent);
+}
+
+.lu-stam.warn {
+  fill: var(--warn);
+}
+
+.lu-stam.low {
+  fill: var(--danger);
+}
+
+.lu-goal {
+  font-size: 12px;
+}
+
+.lu-card.yellow {
+  fill: #ffd75e;
+}
+
+.lu-card.red {
+  fill: var(--danger);
+}
+
+.lu-note {
+  margin-top: 0.4rem;
+  font-size: 0.78rem;
+}
+
 .feed-row {
   display: grid;
   grid-template-columns: 3rem 7.5rem 1fr;

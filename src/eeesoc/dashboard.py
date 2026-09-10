@@ -14,7 +14,13 @@ from urllib.parse import parse_qs, urlparse
 
 from eeesoc import clinical, halftime, nogoal, nogoal_monitor
 from eeesoc.data import load_season, previous_season_label
-from eeesoc.live import build_event_timeline, build_live_situation, build_pitch_track, fetch_live_board
+from eeesoc.live import (
+    build_event_timeline,
+    build_lineups,
+    build_live_situation,
+    build_pitch_track,
+    fetch_live_board,
+)
 from eeesoc.models import Match, MatchSnapshot
 from eeesoc.scorelines import build_live_scoreline_eval, score_path
 from eeesoc.similar import find_similar, opponent_scored_context
@@ -300,6 +306,15 @@ def make_handler(state: DashboardState):
                     except OSError:
                         pass
                 return self._send(200, _json_bytes(timeline), "application/json")
+
+            if path == "/api/live/lineups":
+                league = (qs.get("league") or [None])[0]
+                event_id = (qs.get("event_id") or [None])[0]
+                if not league or not event_id:
+                    return self._send(
+                        400, _json_bytes({"error": "league and event_id required"}), "application/json"
+                    )
+                return self._send(200, _json_bytes(build_lineups(league, event_id)), "application/json")
 
             if path == "/api/clinical":
                 board = clinical.clinical_board()
