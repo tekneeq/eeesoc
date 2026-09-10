@@ -15,6 +15,13 @@ club took, the xG ESPN attached to it, and the goals that followed.
 * ``rank`` is the club's place in its league table of power (1 = most
   clinical), over clubs with at least ``MIN_GAMES`` archived games.
 
+Offence power is the superset of clinical: everything that leads to goals.
+Each of the club's per-game rates — xG created, shots, shots on target,
+corners (sustained pressure) and goals — is divided by the league's rate,
+shrunk toward par, and blended with ``OFFENSE_WEIGHTS_*``.  100 = a
+league-typical attack; 130 = creates ~30% more than the league.  ``potent``
+is True above 100, otherwise the attack is blunt.
+
 Defence power is the mirror image: how little chance quality the club
 allows.  ``defense_power`` is league-average xG conceded per game over the
 club's own xG conceded per game (shrunk toward par), so 100 = allows exactly
@@ -37,8 +44,12 @@ MIN_GAMES = 2
 # Prior weight in xG (or SOT for the fallback) that pulls thin samples to par.
 PRIOR_XG = 2.0
 PRIOR_SOT = 5.0
-# Prior weight in games for the per-game defensive rates.
+# Prior weight in games for the per-game offensive / defensive rates.
 PRIOR_GAMES = 2.0
+# Offence composite: each per-game rate is divided by the league's, then blended.
+# Chance quality leads; volume, pressure (corners) and goals actually scored follow.
+OFFENSE_WEIGHTS_XG = {"xg": 0.40, "shots": 0.20, "sot": 0.15, "corners": 0.10, "goals": 0.15}
+OFFENSE_WEIGHTS_SOT = {"shots": 0.35, "sot": 0.25, "corners": 0.15, "goals": 0.25}
 _CACHE_TTL_S = 300.0
 
 _lock = threading.Lock()
@@ -76,6 +87,7 @@ def _team_totals(records: list[dict[str, Any]]) -> dict[str, dict[str, dict[str,
                     "shots": 0,
                     "sot": 0,
                     "xg": 0.0,
+                    "corners": 0,
                     "conceded": 0,
                     "shots_against": 0,
                     "sot_against": 0,
@@ -98,6 +110,8 @@ def _team_totals(records: list[dict[str, Any]]) -> dict[str, dict[str, dict[str,
                         row["sot"] += 1
                     if kind == "goal":
                         row["goals"] += 1
+                    if kind == "corner":
+                        row["corners"] += 1
                     xg = ev.get("xg")
                     if xg and kind != "own_goal" and has_xg:
                         row["xg"] += float(xg)
@@ -127,9 +141,31 @@ def _league_table(slug: str, teams: dict[str, dict[str, Any]], label: str) -> di
     tot_games = sum(r["games"] for r in rows)
     par_xga = (sum(r["xg_against"] for r in rows) / xg_games) if xg_games else 0.0
     par_sota = (sum(r["sot_against"] for r in rows) / tot_games) if tot_games else 0.0
+    # League-typical attacking output per team-game, for the offence composite.
+    par_rates = {
+        "xg": (tot_xg / xg_games) if xg_games else 0.0,
+        "shots": (sum(r["shots"] for r in rows) / tot_games) if tot_games else 0.0,
+        "sot": (tot_sot / tot_games) if tot_games else 0.0,
+        "corners": (sum(r["corners"] for r in rows) / tot_games) if tot_games else 0.0,
+        "goals": (tot_goals / tot_games) if tot_games else 0.0,
+    }
+    weights = OFFENSE_WEIGHTS_XG if basis == "xg" else OFFENSE_WEIGHTS_SOT
+
+    def _offense(r: dict[str, Any]) -> float:
+        score = 0.0
+        for key, weight in weights.items():
+            par = par_rates[key]
+            games = r["games_xg"] if key == "xg" else r["games"]
+            if par <= 0:
+                score += weight
+                continue
+            rate = (r[key] + PRIOR_GAMES * par) / (games + PRIOR_GAMES)
+            score += weight * (rate / par)
+        return 100.0 * score
 
     out_rows = []
     for r in rows:
+        offense = _offense(r)
         if basis == "xg":
             # Goals per 100 xG; the prior adds two league-typical xG worth of chances.
             power = 100.0 * (r["goals"] + PRIOR_XG * par_ratio) / (r["xg"] + PRIOR_XG)
@@ -150,6 +186,11 @@ def _league_table(slug: str, teams: dict[str, dict[str, Any]], label: str) -> di
             "goals_per_game": round(r["goals"] / r["games"], 2) if r["games"] else 0.0,
             "xg_per_game": round(r["xg"] / r["games_xg"], 2) if r["games_xg"] else 0.0,
             "clinical": power > 100.0,
+            "offense_power": int(round(offense)),
+            "potent": offense > 100.0,
+            "shots_per_game": round(r["shots"] / r["games"], 2) if r["games"] else 0.0,
+            "sot_per_game": round(r["sot"] / r["games"], 2) if r["games"] else 0.0,
+            "corners_per_game": round(r["corners"] / r["games"], 2) if r["games"] else 0.0,
             "defense_power": int(round(defense)),
             "solid": defense > 100.0,
             "conceded_per_game": round(r["conceded"] / r["games"], 2) if r["games"] else 0.0,
@@ -158,6 +199,7 @@ def _league_table(slug: str, teams: dict[str, dict[str, Any]], label: str) -> di
             "basis": basis,
             "ranked": r["games"] >= MIN_GAMES,
             "rank": None,
+            "offense_rank": None,
             "defense_rank": None,
         }
         out_rows.append(row)
@@ -166,6 +208,9 @@ def _league_table(slug: str, teams: dict[str, dict[str, Any]], label: str) -> di
     ranked.sort(key=lambda r: (-r["power"], -r["goals"], r["team"]))
     for i, r in enumerate(ranked, start=1):
         r["rank"] = i
+    by_offense = sorted(ranked, key=lambda r: (-r["offense_power"], -r["xg"], -r["shots"], r["team"]))
+    for i, r in enumerate(by_offense, start=1):
+        r["offense_rank"] = i
     by_defense = sorted(ranked, key=lambda r: (-r["defense_power"], r["conceded"], r["team"]))
     for i, r in enumerate(by_defense, start=1):
         r["defense_rank"] = i
@@ -176,6 +221,8 @@ def _league_table(slug: str, teams: dict[str, dict[str, Any]], label: str) -> di
         "basis": basis,
         "teams_ranked": len(ranked),
         "par_conversion_pct": int(round(100 * par_conv)),
+        "par_rates": {k: round(v, 2) for k, v in par_rates.items()},
+        "offense_weights": weights,
         "par_xga_per_game": round(par_xga, 2),
         "par_sot_against_per_game": round(par_sota, 2),
         "teams": out_rows,

@@ -12,6 +12,11 @@ archived finished games this season, shrunk toward league par for thin samples. 
 exactly what its chances are worth; above 100 is tagged *clinical*, below *wasteful*; the rank is its place
 in the league's power table (clubs with 2+ archived games). Leagues without an ESPN xG feed use
 shots-on-target conversion against the league's own rate on the same 100 = par scale.
+**🎯 Offence power** is the superset of clinical — everything that leads to goals: the club's per-game xG
+created, shots, shots on target, corners (a proxy for sustained pressure) and goals are each divided by the
+league's rate, shrunk toward par, and blended (xG 40%, shots 20%, SOT 15%, corners 10%, goals 15%; without
+an xG feed: shots 35%, SOT 25%, corners 15%, goals 25%). 100 = a league-typical attack, above 100 is
+*potent*, below *blunt*, ranked within the league.
 **🛡 Defence power** is the mirror: league-average xG allowed per game over the club's own (shrunk toward
 par), so 100 = allows the league's typical chances, above 100 is *solid*, below *leaky*, ranked the same way
 (shots on target allowed where there is no xG feed).

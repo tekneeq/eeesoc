@@ -5,7 +5,16 @@ from __future__ import annotations
 import pytest
 
 from eeesoc import clinical, halftime
-from eeesoc.clinical import PRIOR_XG, build_clinical_board, clinical_board, lookup_team, team_key
+from eeesoc.clinical import (
+    OFFENSE_WEIGHTS_SOT,
+    OFFENSE_WEIGHTS_XG,
+    PRIOR_GAMES,
+    PRIOR_XG,
+    build_clinical_board,
+    clinical_board,
+    lookup_team,
+    team_key,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -104,6 +113,63 @@ def test_power_ranks_finishing_over_xg_with_prior():
     assert [t["team"] for t in epl["teams"]][0] == "Sharp FC"
 
 
+def _expected_offense(row, par, weights):
+    score = 0.0
+    for key, w in weights.items():
+        games = row["games_xg"] if key == "xg" else row["games"]
+        if par[key] <= 0:
+            score += w
+            continue
+        rate = (row[key] + PRIOR_GAMES * par[key]) / (games + PRIOR_GAMES)
+        score += w * rate / par[key]
+    return round(100 * score)
+
+
+def test_offense_power_blends_creation_volume_and_goals_vs_league():
+    board = build_clinical_board(_records())
+    epl = board["leagues"]["eng.1"]
+    assert epl["offense_weights"] == OFFENSE_WEIGHTS_XG
+    # 4 team-games: 4.0 xG, 11 shots, 8 SOT, 0 corners, 4 goals.
+    assert epl["par_rates"] == {"xg": 1.0, "shots": 2.75, "sot": 2.0, "corners": 0.0, "goals": 1.0}
+    par = epl["par_rates"]
+    by = {t["team"]: t for t in epl["teams"]}
+
+    sharp = by["Sharp FC"]
+    assert sharp["shots_per_game"] == 2.5 and sharp["sot_per_game"] == 2.0 and sharp["corners_per_game"] == 0.0
+    # Most clinical club in the league, but creates less than par per game → blunt attack.
+    assert sharp["offense_power"] == _expected_offense(sharp, par, OFFENSE_WEIGHTS_XG) == 93
+    assert sharp["potent"] is False
+    assert sharp["rank"] == 1 and sharp["offense_rank"] == 1  # only ranked club
+
+    blunt = by["Blunt Town"]
+    # Wasteful in front of goal (0 from 2.0 xG) yet creates well above par → potent.
+    assert blunt["clinical"] is False
+    assert blunt["offense_power"] == _expected_offense(blunt, par, OFFENSE_WEIGHTS_XG) == 111
+    assert blunt["potent"] is True
+    assert blunt["offense_rank"] is None  # single game
+
+    par_utd = by["Par United"]
+    assert par_utd["offense_power"] == 98 and par_utd["potent"] is False
+
+
+def test_offense_rank_counts_corners_as_pressure():
+    base = [_ev(10, "shot_on", "home", 0.3), _ev(20, "shot_on", "away", 0.3)]
+    recs = [
+        _rec("1", "Calm FC", "Press Town", "1", "2", base + [_ev(30, "corner", "away"), _ev(40, "corner", "away"), _ev(70, "corner", "away")]),
+        _rec("2", "Press Town", "Calm FC", "2", "1", base + [_ev(50, "corner", "home"), _ev(60, "corner", "home")]),
+    ]
+    board = build_clinical_board(recs)
+    epl = board["leagues"]["eng.1"]
+    assert epl["par_rates"]["corners"] == 1.25  # 5 corners over 4 team-games
+    by = {t["team"]: t for t in epl["teams"]}
+    # Identical shooting; only the corner count separates the two attacks.
+    assert by["Press Town"]["corners"] == 5 and by["Calm FC"]["corners"] == 0
+    assert by["Press Town"]["power"] == by["Calm FC"]["power"]
+    assert by["Press Town"]["offense_power"] > 100 > by["Calm FC"]["offense_power"]
+    assert by["Press Town"]["potent"] and not by["Calm FC"]["potent"]
+    assert by["Press Town"]["offense_rank"] == 1 and by["Calm FC"]["offense_rank"] == 2
+
+
 def test_defense_power_rewards_allowing_fewer_chances():
     board = build_clinical_board(_records())
     epl = board["leagues"]["eng.1"]
@@ -169,6 +235,12 @@ def test_league_without_xg_falls_back_to_sot_conversion():
     assert by["Ajax"]["defense_power"] > 100 and by["Ajax"]["solid"]
     assert by["Twente"]["defense_power"] < 100 and not by["Twente"]["solid"]
     assert by["Ajax"]["defense_rank"] == 1 and by["Twente"]["defense_rank"] == 2
+    # Offence drops the xG term without an xG feed: shots / SOT / corners / goals only.
+    assert ned["offense_weights"] == OFFENSE_WEIGHTS_SOT
+    assert ned["par_rates"]["xg"] == 0.0
+    assert by["Ajax"]["offense_power"] == _expected_offense(by["Ajax"], ned["par_rates"], OFFENSE_WEIGHTS_SOT)
+    assert by["Ajax"]["offense_power"] > 100 > by["Twente"]["offense_power"]
+    assert by["Ajax"]["offense_rank"] == 1 and by["Twente"]["offense_rank"] == 2
 
 
 def test_lookup_by_id_then_name_and_cache_tracks_archive():

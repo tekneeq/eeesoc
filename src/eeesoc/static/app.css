@@ -2314,6 +2314,16 @@ main {
   color: var(--warn);
 }
 
+.mc-power-side.potent .mc-power-num,
+.mc-power-side.potent .mc-power-tag {
+  color: rgba(255, 170, 90, 0.95);
+}
+
+.mc-power-side.blunt .mc-power-num,
+.mc-power-side.blunt .mc-power-tag {
+  color: var(--muted);
+}
+
 .mc-power-side.solid .mc-power-num,
 .mc-power-side.solid .mc-power-tag {
   color: rgba(125, 200, 255, 0.95);
