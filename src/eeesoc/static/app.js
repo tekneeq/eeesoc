@@ -824,22 +824,137 @@
     },
   ];
 
+  // ---------------------------------------------------------------------------
+  // Goals-per-half odds — 1st-half total goals before the break, 2nd-half total goals
+  // after it given the half-time score, from each club's archived games
+  // ---------------------------------------------------------------------------
+
+  const GOAL_BUCKETS = ["0", "1", "2", "3+"];
+
+  // { phase: "1h" | "ht" | "2h", htHome, htAway, unknown } or null when the game is over.
+  function halfPhase(m) {
+    if (!m || isFinishedMatch(m) || isDeadMatch(m)) return null;
+    if (m.state === "pre") return { phase: "1h" };
+    const tl = state.timelines?.[m.event_id];
+    const text = `${m.detail || ""} ${m.clock || ""}`.toLowerCase();
+    let phase = null;
+    if (/half\s*-?\s*time|\bht\b/.test(text)) phase = "ht";
+    else if (/2nd|second/.test(text)) phase = "2h";
+    else if (/1st|first/.test(text)) phase = "1h";
+    const events = tl?.events || [];
+    if (events.some((e) => Number(e.period) >= 2)) phase = "2h";
+    if (!phase) {
+      const clockMin = parseInt(String(m.clock || ""), 10);
+      const min = Number.isFinite(clockMin) ? clockMin : Number(tl?.minute) || 0;
+      phase = min > 45 ? "2h" : "1h";
+    }
+    if (phase === "1h") return { phase };
+    if (phase === "ht") {
+      const shown = displayedScore(m, tl);
+      return { phase, htHome: shown.home, htAway: shown.away };
+    }
+    if (!tl) return { phase, unknown: true };
+    let htHome = 0;
+    let htAway = 0;
+    for (const e of events) {
+      if (e.kind !== "goal" && e.kind !== "own_goal") continue;
+      const firstHalf = e.period != null ? Number(e.period) === 1 : Number(e.minute) <= 45;
+      if (!firstHalf) continue;
+      if (e.team === "home") htHome += 1;
+      else if (e.team === "away") htAway += 1;
+    }
+    return { phase, htHome, htAway };
+  }
+
+  function halfGoalsPick(m, side, hp) {
+    const league = state.clinical?.leagues?.[m.league_slug];
+    const name = side === "home" ? m.home : m.away;
+    const row = clinicalFor(m.league_slug, side === "home" ? m.home_id : m.away_id, name);
+    const minN = state.clinical?.leagues?.[m.league_slug]?.half_goals_min_sample || 3;
+    let own = null;
+    let wide = null;
+    let key = "";
+    if (hp.phase === "1h") {
+      own = row?.half_goals?.first || null;
+      wide = league?.half_goals?.first || null;
+    } else if (!hp.unknown) {
+      key = side === "home" ? `${hp.htHome}-${hp.htAway}` : `${hp.htAway}-${hp.htHome}`;
+      own = row?.half_goals?.second_by_ht?.[key] || null;
+      wide = league?.half_goals?.second_by_ht?.[`${hp.htHome}-${hp.htAway}`] || null;
+    }
+    if (own && own.n >= minN) return { dist: own, source: "own", row, name, key, ownN: own.n };
+    if (wide && wide.n) return { dist: wide, source: "league", row, name, key, ownN: own?.n || 0 };
+    return { dist: null, source: "", row, name, key, ownN: own?.n || 0 };
+  }
+
+  function halfGoalsTitle(m, side, hp, pick) {
+    const leagueLabel = state.clinical?.leagues?.[m.league_slug]?.label || m.league_chiclet;
+    const what =
+      hp.phase === "1h"
+        ? "total goals in the first half (both sides)"
+        : `total goals in the second half after a ${pick.key.replace("-", "–")} half-time score from ${pick.name}'s side`;
+    if (hp.unknown) return `${pick.name}: waiting for the timeline to read the half-time score`;
+    if (!pick.dist) return `${pick.name}: no archived games yet to split ${what}`;
+    const n = pick.dist.n;
+    const parts = GOAL_BUCKETS.map((b, i) => `${b} goal${b === "1" ? "" : "s"} ${Math.round((100 * pick.dist.counts[i]) / n)}% (${pick.dist.counts[i]})`).join(" · ");
+    const from =
+      pick.source === "own"
+        ? `${pick.name}'s ${n} archived game${n === 1 ? "" : "s"}`
+        : `${n} ${leagueLabel} game${n === 1 ? "" : "s"} league-wide (${pick.name} has only ${pick.ownN} matching game${pick.ownN === 1 ? "" : "s"} archived)`;
+    return `${pick.name}: ${what} — ${parts}. From ${from}.`;
+  }
+
+  function halfGoalsSideHtml(m, side, hp) {
+    const pick = halfGoalsPick(m, side, hp);
+    const title = escapeHtml(halfGoalsTitle(m, side, hp, pick));
+    if (hp.unknown || !pick.dist) {
+      return `<span class="mc-power-side mc-half-side ${side} none" title="${title}"><b class="mc-power-num">—</b></span>`;
+    }
+    const n = pick.dist.n;
+    const pcts = pick.dist.counts.map((c) => Math.round((100 * c) / n));
+    const top = Math.max(...pcts);
+    const cells = GOAL_BUCKETS.map(
+      (b, i) => `<span class="mc-half-b${pcts[i] === top ? " top" : ""}"><b>${b}</b>${pcts[i]}%</span>`,
+    ).join("");
+    const src = pick.source === "league" ? `<span class="mc-power-rank mc-half-n">${n} lg</span>` : `<span class="mc-power-rank mc-half-n">${n}</span>`;
+    return `<span class="mc-power-side mc-half-side ${side} ${pick.source}" title="${title}">${cells}${src}</span>`;
+  }
+
+  function halfGoalsRowHtml(m) {
+    const hp = halfPhase(m);
+    if (!hp) return "";
+    const label = hp.phase === "1h" ? "🥅 1H goals" : hp.unknown ? "🥅 2H goals" : `🥅 2H after ${hp.htHome}–${hp.htAway}`;
+    const help =
+      hp.phase === "1h"
+        ? "How often each club's first halves this season produced 0 / 1 / 2 / 3+ total goals (both sides). Bold = most common. The small number is the sample; 'lg' means the league-wide split is shown because the club has too few archived games."
+        : "Given this half-time score (from each club's own side), how often its second halves went on to produce 0 / 1 / 2 / 3+ total goals. Bold = most common. The small number is the sample; 'lg' means the league-wide split for this half-time score is shown because the club has too few matching games.";
+    return `${halfGoalsSideHtml(m, "home", hp)}<span class="mc-power-label" title="${escapeHtml(help)}">${label}</span>${halfGoalsSideHtml(m, "away", hp)}`;
+  }
+
   function clinicalRowHtml(m) {
     if (!state.clinical) return "";
-    return POWER_ROWS.map(
+    const rows = POWER_ROWS.map(
       (row) =>
         `${powerSideHtml(m, "home", row.spec)}<span class="mc-power-label" title="${escapeHtml(row.help)}">${row.label}</span>${powerSideHtml(m, "away", row.spec)}`,
-    ).join("\n      ");
+    );
+    const half = halfGoalsRowHtml(m);
+    if (half) rows.push(half);
+    return rows.join("\n      ");
+  }
+
+  function paintPowerRow(card) {
+    const el = card?.querySelector?.(".mc-power[data-power-for]");
+    const m = card?.__match;
+    if (!el || !m) return;
+    const html = clinicalRowHtml(m);
+    // Compare against what we last wrote — the browser re-serialises innerHTML differently.
+    if (el.__powerHtml === html) return;
+    el.__powerHtml = html;
+    el.innerHTML = html;
   }
 
   function paintClinicalRows() {
-    document.querySelectorAll(".mc-power[data-power-for]").forEach((el) => {
-      const card = el.closest(".match-chiclet");
-      const m = card?.__match;
-      if (!m) return;
-      const html = clinicalRowHtml(m);
-      if (el.innerHTML !== html) el.innerHTML = html;
-    });
+    document.querySelectorAll(".mc-power[data-power-for]").forEach((el) => paintPowerRow(el.closest(".match-chiclet")));
   }
 
   async function refreshClinical() {
@@ -1020,6 +1135,8 @@
       }
       const shown = displayedScore(m, tl);
       applyChicletScore(btn, shown.home, shown.away);
+      // The goals-per-half row follows the clock (1st half → HT → 2nd half) and the HT score.
+      paintPowerRow(btn);
       const names = btn.querySelectorAll(".mc-teams .mc-name");
       if (names.length === 2) {
         names[0].textContent = shortName(m.home);
@@ -1392,6 +1509,8 @@
       if (card) {
         const shown = displayedScore(m, tl);
         applyChicletScore(card, shown.home, shown.away);
+        // Period / first-half goals just arrived — the 2H-after-HT row can now resolve.
+        paintPowerRow(card);
       }
       // Skip SVG rewrite when nothing meaningful changed (the ticker keeps the cursor moving).
       if (hasSvg() && prev && chartSig(prev) === chartSig(tl)) return;

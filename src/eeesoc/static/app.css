@@ -2379,6 +2379,50 @@ main {
   font-variant-numeric: tabular-nums;
 }
 
+/* Goals-per-half odds: 0 / 1 / 2 / 3+ cells, the most common bucket highlighted. */
+.mc-half-side {
+  gap: 0.22rem;
+  flex-wrap: wrap;
+}
+
+.mc-half-b {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.12rem;
+  padding: 0.04rem 0.26rem;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 0.2rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.mc-half-b b {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.mc-half-b.top {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.mc-half-b.top b {
+  color: var(--accent);
+}
+
+.mc-half-side.league .mc-half-b.top {
+  border-color: var(--warn);
+}
+
+.mc-half-side.league .mc-half-b.top b {
+  color: var(--warn);
+}
+
+.mc-half-n {
+  font-size: 0.56rem;
+}
+
 /* Companion stat beside the rank: goals scored / allowed per game, recent W D L, results index. */
 .mc-power-stat {
   color: var(--text);

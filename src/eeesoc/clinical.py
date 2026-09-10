@@ -46,6 +46,13 @@ Clean sheets are counted from the final score: ``clean_sheets`` over every
 archived game, ``recent_clean_sheets`` over the last ``FORM_GAMES``, and
 ``clean_sheet_rank`` by total (ties to the club that needed fewer games).
 ``tight`` is True when the club's clean-sheet rate beats the league's.
+
+``half_goals`` is the club's history of goals per half: ``first`` is how
+often its first halves produced 0 / 1 / 2 / 3+ goals (both sides combined),
+and ``second_by_ht`` is the same split for second halves, keyed by the
+half-time score from the club's point of view (``"0-1"`` = trailed 0-1 at the
+break).  The league carries the same tables (home-away view, each game once)
+as a fallback when a club has fewer than ``HALF_GOALS_MIN_SAMPLE`` matches.
 """
 
 from __future__ import annotations
@@ -72,6 +79,8 @@ OFFENSE_WEIGHTS_SOT = {"shots": 0.35, "sot": 0.25, "corners": 0.15, "goals": 0.2
 FORM_GAMES = 5
 # Potential vs results must differ by at least this much to be tagged upside / overachieving.
 POTENTIAL_GAP = 5.0
+# Fewer matching games than this and the chiclet falls back to the league-wide half-goal split.
+HALF_GOALS_MIN_SAMPLE = 3
 _CACHE_TTL_S = 300.0
 
 _lock = threading.Lock()
@@ -130,6 +139,7 @@ def _team_totals(records: list[dict[str, Any]]) -> dict[str, dict[str, dict[str,
             pts = 3 if gf > ga else (1 if gf == ga else 0)
             row["scored"] += gf
             row["points"] += pts
+            ht_known = rec.get("ht_home") is not None and rec.get("ht_away") is not None
             row["results"].append(
                 {
                     "start": str(rec.get("start") or rec.get("date") or ""),
@@ -137,6 +147,8 @@ def _team_totals(records: list[dict[str, Any]]) -> dict[str, dict[str, dict[str,
                     "venue": side,
                     "gf": gf,
                     "ga": ga,
+                    "ht_gf": int(rec.get(f"ht_{side}") or 0) if ht_known else None,
+                    "ht_ga": int(rec.get(f"ht_{other}") or 0) if ht_known else None,
                     "points": pts,
                     "letter": "W" if pts == 3 else ("D" if pts == 1 else "L"),
                 }
@@ -167,6 +179,32 @@ def _team_totals(records: list[dict[str, Any]]) -> dict[str, dict[str, dict[str,
                     if xg and kind != "own_goal" and has_xg:
                         row["xg_against"] += float(xg)
     return leagues
+
+
+GOAL_BUCKETS = ("0", "1", "2", "3+")
+
+
+def _goal_dist(totals: list[int]) -> dict[str, Any]:
+    """How often a half produced 0 / 1 / 2 / 3+ goals: ``counts`` follows ``GOAL_BUCKETS``."""
+    counts = [0, 0, 0, 0]
+    for n in totals:
+        counts[min(n, 3)] += 1
+    return {"n": len(totals), "counts": counts}
+
+
+def half_goals(results: list[dict[str, Any]]) -> dict[str, Any]:
+    """First-half total goals, and second-half totals keyed by the half-time score.
+
+    ``results`` are one side's games (``ht_gf``/``ht_ga`` from that side's view), so
+    ``second_by_ht["0-1"]`` is what happened after the club trailed 0-1 at the break.
+    """
+    known = [g for g in results if g.get("ht_gf") is not None and g.get("ht_ga") is not None]
+    first = [g["ht_gf"] + g["ht_ga"] for g in known]
+    by_ht: dict[str, list[int]] = {}
+    for g in known:
+        second = (g["gf"] - g["ht_gf"]) + (g["ga"] - g["ht_ga"])
+        by_ht.setdefault(f'{g["ht_gf"]}-{g["ht_ga"]}', []).append(max(0, second))
+    return {"first": _goal_dist(first), "second_by_ht": {k: _goal_dist(v) for k, v in sorted(by_ht.items())}}
 
 
 def _league_table(slug: str, teams: dict[str, dict[str, Any]], label: str) -> dict[str, Any]:
@@ -281,6 +319,7 @@ def _league_table(slug: str, teams: dict[str, dict[str, Any]], label: str) -> di
             "clean_sheet_pct": int(round(cs_pct)),
             "recent_clean_sheets": sum(1 for g in recent if g["ga"] == 0),
             "tight": cs_pct > par_cs_pct,
+            "half_goals": half_goals(r["results"]),
             "xg": round(r["xg"], 2),
             "xg_against": round(r["xg_against"], 2),
             "power": int(round(power)),
@@ -336,6 +375,10 @@ def _league_table(slug: str, teams: dict[str, dict[str, Any]], label: str) -> di
         "basis": basis,
         "teams_ranked": len(ranked),
         "form_games": FORM_GAMES,
+        # League-wide fallback for clubs with a thin sample: each game once, home-away view.
+        "half_goals": half_goals([g for r in rows for g in r["results"] if g["venue"] == "home"]),
+        "half_goals_min_sample": HALF_GOALS_MIN_SAMPLE,
+        "goal_buckets": list(GOAL_BUCKETS),
         "par_clean_sheet_pct": int(round(par_cs_pct)),
         "par_points_per_game": round(par_ppg, 2),
         "par_goals_per_game": round(par_scored, 2),

@@ -7,6 +7,7 @@ import pytest
 from eeesoc import clinical, halftime
 from eeesoc.clinical import (
     FORM_GAMES,
+    HALF_GOALS_MIN_SAMPLE,
     OFFENSE_WEIGHTS_SOT,
     OFFENSE_WEIGHTS_XG,
     PRIOR_GAMES,
@@ -34,10 +35,12 @@ def _ev(minute, kind, team, xg=None):
 
 def _rec(eid, home, away, home_id, away_id, events, *, league="eng.1", chiclet="EPL", start=""):
     # Scoreboard goals: an own_goal event is filed under the side it counts for.
-    def goals(side):
-        return sum(1 for e in events if e["team"] == side and e["kind"] in {"goal", "own_goal"})
+    def goals(side, upto=999):
+        return sum(1 for e in events if e["team"] == side and e["kind"] in {"goal", "own_goal"} and e["minute"] <= upto)
 
     return {
+        "ht_home": goals("home", 45),
+        "ht_away": goals("away", 45),
         "event_id": eid,
         "league_slug": league,
         "league_chiclet": chiclet,
@@ -379,6 +382,42 @@ def test_clean_sheet_ties_go_to_fewer_games_and_recent_counts_last_five():
     # Foe 0 and Foe 1 tie on 1 clean sheet from 2 games; Foe X (1 game) is unranked.
     assert {by["Foe 0"]["clean_sheet_rank"], by["Foe 1"]["clean_sheet_rank"]} == {2, 3}
     assert by["Foe X"]["clean_sheet_rank"] is None and by["Foe X"]["clean_sheets"] == 1
+
+
+def test_half_goals_split_first_half_and_second_half_by_ht_score():
+    board = build_clinical_board(_records())
+    epl = board["leagues"]["eng.1"]
+    assert epl["goal_buckets"] == ["0", "1", "2", "3+"]
+    assert epl["half_goals_min_sample"] == HALF_GOALS_MIN_SAMPLE
+    by = {t["team"]: t for t in epl["teams"]}
+
+    # Game 1: Sharp 2-0 Blunt at HT (goals 15', 30'), 3-1 FT → 2 first-half goals, 2 second-half goals.
+    # Game 2: Par 1-0 Sharp at HT (goal 10'), 1-0 FT → 1 first-half goal, 0 second-half goals.
+    sharp = by["Sharp FC"]["half_goals"]
+    assert sharp["first"] == {"n": 2, "counts": [0, 1, 1, 0]}
+    assert sharp["second_by_ht"] == {"0-1": {"n": 1, "counts": [1, 0, 0, 0]}, "2-0": {"n": 1, "counts": [0, 0, 1, 0]}}
+    # The same games from the other side of the pitch flip the half-time key.
+    assert by["Blunt Town"]["half_goals"]["second_by_ht"] == {"0-2": {"n": 1, "counts": [0, 0, 1, 0]}}
+    assert by["Par United"]["half_goals"]["second_by_ht"] == {"1-0": {"n": 1, "counts": [1, 0, 0, 0]}}
+
+    # League table: each game once, home-away view.
+    assert epl["half_goals"]["first"] == {"n": 2, "counts": [0, 1, 1, 0]}
+    assert epl["half_goals"]["second_by_ht"] == {"1-0": {"n": 1, "counts": [1, 0, 0, 0]}, "2-0": {"n": 1, "counts": [0, 0, 1, 0]}}
+
+
+def test_half_goals_buckets_three_plus_and_skips_games_without_ht_score():
+    events = [_ev(5, "goal", "home", 0.3), _ev(20, "goal", "away", 0.3), _ev(40, "goal", "home", 0.3), _ev(44, "goal", "away", 0.3)]
+    events += [_ev(50, "goal", "home", 0.3), _ev(60, "goal", "home", 0.3), _ev(75, "goal", "away", 0.3)]
+    goalfest = _rec("g", "Sharp FC", "Blunt Town", "10", "20", events)  # 2-2 HT, 4-3 FT
+    assert goalfest["ht_home"] == 2 and goalfest["ht_away"] == 2
+    unknown = _rec("u", "Sharp FC", "Par United", "10", "30", [_ev(10, "goal", "home", 0.5)])
+    unknown.pop("ht_home")
+    unknown.pop("ht_away")
+    by = {t["team"]: t for t in build_clinical_board([goalfest, unknown])["leagues"]["eng.1"]["teams"]}
+    hg = by["Sharp FC"]["half_goals"]
+    assert by["Sharp FC"]["games"] == 2
+    assert hg["first"] == {"n": 1, "counts": [0, 0, 0, 1]}  # 4 first-half goals → 3+; the HT-less game is skipped
+    assert hg["second_by_ht"] == {"2-2": {"n": 1, "counts": [0, 0, 0, 1]}}  # 3 second-half goals
 
 
 def test_lookup_by_id_then_name_and_cache_tracks_archive():
