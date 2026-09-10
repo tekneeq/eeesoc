@@ -359,10 +359,7 @@
       const cal = (b.calibration || []).map((c) => [`${c.bucket}%`, c.n, `${c.predicted_pct}%`, `<b>${c.actual_pct}%</b>`]);
       $("#sigCalibration").innerHTML = `<h3>Does 70% mean 70%?</h3><p class="sig-muted">Every game-minute in the archive, bucketed by the model’s probability, against how often the half really stayed goalless (league factor computed leaving the game out).</p>${sigTable(["Predicted", "Game-minutes", "Mean P", "Actually held"], cal)}`;
 
-      const lg = Object.entries(model.leagues || {})
-        .sort((a, b2) => a[1].factor - b2[1].factor)
-        .map(([slug, r]) => [escapeHtml(slug), r.games, r.goals_per_game, `<b>${r.factor}</b>`]);
-      $("#sigLeagues").innerHTML = `<h3>League scoring scale</h3><p class="sig-muted">Goals per game against the archive-wide ${model.goals_per_game ?? "—"}, shrunk toward it over 20 games. Below 1.0 the remaining-goal rate is cut — the same 0–0 at 25′ is a better “no goal” spot in a 0.77 league than a 1.18 one.</p>${sigTable(["League", "Games", "Goals / game", "Factor"], lg)}`;
+      $("#sigLeagues").innerHTML = leagueCardHtml(b, bt, model);
     } catch (err) {
       if (stamp) stamp.textContent = "signals unavailable";
     }
@@ -417,6 +414,34 @@
         </div>
       </div>
       <p class="sig-muted">In the model: remaining goal rate × (fixture box habit)<sup>${edge.habit_beta?.["1"] ?? "—"}</sup> × (entries so far vs the archive pace)<sup>${edge.inplay_beta?.["1"] ?? "—"}</sup>, fitted on top of clock × league × score so nothing is counted twice. That works out to ×${hm.quiet ?? "—"} for a quiet fixture and ×${hm.busy ?? "—"} for a busy one; ×${im.low ?? "—"} when the box has hardly been reached and ×${im.high ?? "—"} when it has been busy. Habit is leave-one-out in the backtest — a club’s own game never feeds its own number. Archive rate: ${edge.per_half?.["1"] ?? "—"} entries per first half, ${edge.per_half?.["2"] ?? "—"} per second.</p>`;
+  }
+
+  function leagueCardHtml(b, bt, model) {
+    const rows = b.leagues || [];
+    const th = Math.round((b.league_threshold ?? bt.threshold ?? 0.65) * 100);
+    const allow = bt.allowed_leagues || [];
+    const split = (c) => (c && c.top_pct != null ? `<b>${c.top_pct}%</b> / ${c.bottom_pct}% <span class="sig-muted">(${c.n})</span>` : c && c.n ? `<span class="sig-muted">n=${c.n}</span>` : "—");
+    const table = rows
+      .filter((r) => r.games >= 3)
+      .map((r) => [
+        `${escapeHtml(r.league)}${r.enabled ? "" : " <span class='sig-warn'>off</span>"}`,
+        r.games,
+        r.goals_per_game ?? "—",
+        r.goals_1h_per_game ?? "—",
+        r.ht_zero_pct != null ? `${r.ht_zero_pct}%` : "—",
+        r.box_1h_per_game ?? "—",
+        `<b>${r.factor ?? "—"}</b>`,
+        r.fired ? `${r.fired} (${r.fired_pct}%)` : "—",
+        r.hit_pct != null ? `<b>${r.hit_pct}%</b>` : "—",
+        r.avg_minute != null ? `${r.avg_minute}′` : "—",
+        split(r.cuts?.["15"]),
+        split(r.cuts?.["25"]),
+      ]);
+    return `
+      <h3>League by league</h3>
+      <p>Every league has its own quirks — Liga Profesional averages ${rows[0]?.goals_per_game ?? "—"} goals a game and is 0–0 at the break ${rows[0]?.ht_zero_pct ?? "—"}% of the time; the Eredivisie ${rows.find((r) => r.league === "ned.1")?.goals_per_game ?? "—"} and ${rows.find((r) => r.league === "ned.1")?.ht_zero_pct ?? "—"}%. The model handles that with the <b>league factor</b> on the goal rate (against the archive-wide ${model.goals_per_game ?? "—"} goals per game, shrunk over 20 games). The box-entry edge was tested league by league as well: measuring “quiet / busy” against each league’s own pace and fitting the exponents per league were both <i>worse</i> out of sample — a busy MLS fixture really is more dangerous than a quiet Liga ARG one, and 20–140 games per league is not enough to fit separately. The same pooled model is used everywhere; this table shows where it earns its keep.</p>
+      <p class="sig-muted">“Fired / held” replays the trigger at the current ${th}% threshold in this league. “Split at 15′ / 25′” takes the league’s own goalless games at that minute and shows the held rate of the more-confident half against the less-confident half (leave-one-out) — the gap is the edge inside that league; equal numbers mean the model cannot tell its games apart. Restrict firing with <code>EEESOC_NOGOAL_LEAGUES=arg.1,eng.2,…</code>${allow.length ? ` — currently <b>${allow.map(escapeHtml).join(", ")}</b>` : " (all leagues on)"}.</p>
+      ${sigTable(["League", "Games", "Goals", "1H goals", "0–0 at HT", "Box / 1H", "Factor", "Fired", "Held", "Avg min", "Split 15′", "Split 25′"], table)}`;
   }
 
   function escapeHtml(s) {
@@ -1129,7 +1154,9 @@
           ? `✅ held (${sig.fired_minute}′)`
           : status === "busted"
             ? `❌ busted ${sig.resolved_minute ?? ""}′`
-            : ev.phase === "ht"
+            : ev.league_enabled === false
+              ? "league off"
+              : ev.phase === "ht"
               ? "HT · window opens 2H"
               : ev.window === "before"
                 ? `window ${ev.window_minutes[0]}′–${ev.window_minutes[1]}′`
