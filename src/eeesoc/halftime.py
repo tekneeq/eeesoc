@@ -696,6 +696,13 @@ def similar_zero_zero(
         zeros = [r for r in zeros if str(r.get("league_slug") or "") in league_filter]
     minute = live_cut_minute(live_tl)
     live_feat = side_features(live_tl.get("events") or [], minute=minute)
+    # Before the first shot a live half has no xG *yet*; whether the league has an
+    # xG feed at all is answered by its archived games.
+    league = str(live_tl.get("league_slug") or "")
+    league_rows = [r for r in records if str(r.get("league_slug") or "") == league]
+    league_xg_feed = any(_record_has_xg(r) for r in league_rows) if league_rows else None
+    if league_xg_feed is not None:
+        live_feat["has_xg"] = bool(league_xg_feed)
     scored: list[tuple[float, dict[str, Any], dict[str, Any]]] = []
     for rec in zeros:
         feat = side_features(rec.get("events") or [], minute=minute)
@@ -724,6 +731,7 @@ def similar_zero_zero(
         "minute": minute,
         "is_zero_zero_first_half": is_zero_zero_first_half(live_tl),
         "live": live_feat,
+        "league_xg_feed": league_xg_feed,
         "archive_n": len(zeros),
         "population": population,
         "rank": {

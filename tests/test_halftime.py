@@ -310,9 +310,21 @@ def test_leagues_without_xg_feed_do_not_read_as_quiet():
 
     live = _timeline(no_xg_events[:5], final=False, clock="30'", minute=30)
     out = similar_zero_zero(live, [rec_xg, rec_no], limit=2)
-    assert out["rank"]["xg_pct"] is None
+    # Same league (eng.1) has an xG feed in the archive → the live half is treated
+    # as xG-capable even though no shot has produced xG yet.
+    assert out["league_xg_feed"] is True
+    assert out["live"]["has_xg"]
+    assert out["rank"]["xg_pct"] == 0
     assert out["rank"]["xg_n"] == 1
-    assert not out["live"]["has_xg"]
+
+    foreign = {**live, "league_slug": "ned.1"}
+    out2 = similar_zero_zero(foreign, [rec_xg, rec_no], limit=2)
+    assert out2["league_xg_feed"] is None  # nothing archived for that league
+    assert not out2["live"]["has_xg"]
+    assert out2["rank"]["xg_pct"] is None
+    no_feed_league = {**rec_no, "league_slug": "ned.1"}
+    out3 = similar_zero_zero(foreign, [rec_xg, no_feed_league], limit=2)
+    assert out3["league_xg_feed"] is False
 
 
 def _scoreboard_payload(events):
