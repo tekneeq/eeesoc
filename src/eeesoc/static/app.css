@@ -2411,11 +2411,28 @@ main {
   color: var(--accent);
 }
 
-.mc-half-side.league .mc-half-b.top {
-  border-color: var(--warn);
+.mc-half-side.scored .mc-half-b.top {
+  border-color: rgba(255, 170, 90, 0.95);
 }
 
-.mc-half-side.league .mc-half-b.top b {
+.mc-half-side.scored .mc-half-b.top b {
+  color: rgba(255, 170, 90, 0.95);
+}
+
+.mc-half-side.allowed .mc-half-b.top {
+  border-color: rgba(125, 200, 255, 0.95);
+}
+
+.mc-half-side.allowed .mc-half-b.top b {
+  color: rgba(125, 200, 255, 0.95);
+}
+
+/* League-wide fallback: dashed cells and an amber sample count. */
+.mc-half-side.league .mc-half-b {
+  border-style: dashed;
+}
+
+.mc-half-side.league .mc-half-n {
   color: var(--warn);
 }
 

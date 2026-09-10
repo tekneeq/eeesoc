@@ -48,11 +48,13 @@ archived game, ``recent_clean_sheets`` over the last ``FORM_GAMES``, and
 ``tight`` is True when the club's clean-sheet rate beats the league's.
 
 ``half_goals`` is the club's history of goals per half: ``first`` is how
-often its first halves produced 0 / 1 / 2 / 3+ goals (both sides combined),
-and ``second_by_ht`` is the same split for second halves, keyed by the
-half-time score from the club's point of view (``"0-1"`` = trailed 0-1 at the
-break).  The league carries the same tables (home-away view, each game once)
-as a fallback when a club has fewer than ``HALF_GOALS_MIN_SAMPLE`` matches.
+often its first halves produced 0 / 1 / 2 / 3+ goals — ``total`` (both sides
+combined), ``scored`` (the club's own) and ``allowed`` — and ``second_by_ht``
+is the same three splits for second halves, keyed by the half-time score from
+the club's point of view (``"0-1"`` = trailed 0-1 at the break).  The league
+carries the same tables (home-away view, each game once, so ``scored`` is the
+home side's) as a fallback when a club has fewer than
+``HALF_GOALS_MIN_SAMPLE`` matches.
 """
 
 from __future__ import annotations
@@ -199,12 +201,21 @@ def half_goals(results: list[dict[str, Any]]) -> dict[str, Any]:
     ``second_by_ht["0-1"]`` is what happened after the club trailed 0-1 at the break.
     """
     known = [g for g in results if g.get("ht_gf") is not None and g.get("ht_ga") is not None]
-    first = [g["ht_gf"] + g["ht_ga"] for g in known]
-    by_ht: dict[str, list[int]] = {}
+
+    def _split(pairs: list[tuple[int, int]]) -> dict[str, Any]:
+        """(scored, allowed) per game → total / scored / allowed bucket splits."""
+        return {
+            "total": _goal_dist([s + a for s, a in pairs]),
+            "scored": _goal_dist([s for s, _ in pairs]),
+            "allowed": _goal_dist([a for _, a in pairs]),
+        }
+
+    first = [(g["ht_gf"], g["ht_ga"]) for g in known]
+    by_ht: dict[str, list[tuple[int, int]]] = {}
     for g in known:
-        second = (g["gf"] - g["ht_gf"]) + (g["ga"] - g["ht_ga"])
-        by_ht.setdefault(f'{g["ht_gf"]}-{g["ht_ga"]}', []).append(max(0, second))
-    return {"first": _goal_dist(first), "second_by_ht": {k: _goal_dist(v) for k, v in sorted(by_ht.items())}}
+        second = (max(0, g["gf"] - g["ht_gf"]), max(0, g["ga"] - g["ht_ga"]))
+        by_ht.setdefault(f'{g["ht_gf"]}-{g["ht_ga"]}', []).append(second)
+    return {"first": _split(first), "second_by_ht": {k: _split(v) for k, v in sorted(by_ht.items())}}
 
 
 def _league_table(slug: str, teams: dict[str, dict[str, Any]], label: str) -> dict[str, Any]:

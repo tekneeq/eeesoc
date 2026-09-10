@@ -882,21 +882,32 @@
       own = row?.half_goals?.second_by_ht?.[key] || null;
       wide = league?.half_goals?.second_by_ht?.[`${hp.htHome}-${hp.htAway}`] || null;
     }
-    if (own && own.n >= minN) return { dist: own, source: "own", row, name, key, ownN: own.n };
-    if (wide && wide.n) return { dist: wide, source: "league", row, name, key, ownN: own?.n || 0 };
-    return { dist: null, source: "", row, name, key, ownN: own?.n || 0 };
+    // The league tables are home–away view, so the away side's "scored" is the league's "allowed".
+    const orient = (split) => {
+      if (!split) return null;
+      if (side === "home") return split;
+      return { total: split.total, scored: split.allowed, allowed: split.scored };
+    };
+    const ownN = own?.total?.n || 0;
+    if (own && ownN >= minN) return { split: own, source: "own", row, name, key, ownN };
+    const wideSplit = orient(wide);
+    if (wideSplit && wideSplit.total?.n) return { split: wideSplit, source: "league", row, name, key, ownN };
+    return { split: null, source: "", row, name, key, ownN };
   }
 
-  function halfGoalsTitle(m, side, hp, pick) {
+  // metric: "total" (both sides), "scored" (the club's own goals) or "allowed"
+  function halfGoalsTitle(m, side, hp, pick, metric) {
     const leagueLabel = state.clinical?.leagues?.[m.league_slug]?.label || m.league_chiclet;
+    const noun = metric === "total" ? "total goals (both sides)" : metric === "scored" ? `goals scored by ${pick.name}` : `goals allowed by ${pick.name}`;
     const what =
       hp.phase === "1h"
-        ? "total goals in the first half (both sides)"
-        : `total goals in the second half after a ${pick.key.replace("-", "–")} half-time score from ${pick.name}'s side`;
+        ? `${noun} in the first half`
+        : `${noun} in the second half after a ${pick.key.replace("-", "–")} half-time score from ${pick.name}'s side`;
     if (hp.unknown) return `${pick.name}: waiting for the timeline to read the half-time score`;
-    if (!pick.dist) return `${pick.name}: no archived games yet to split ${what}`;
-    const n = pick.dist.n;
-    const parts = GOAL_BUCKETS.map((b, i) => `${b} goal${b === "1" ? "" : "s"} ${Math.round((100 * pick.dist.counts[i]) / n)}% (${pick.dist.counts[i]})`).join(" · ");
+    const dist = pick.split?.[metric];
+    if (!dist) return `${pick.name}: no archived games yet to split ${what}`;
+    const n = dist.n;
+    const parts = GOAL_BUCKETS.map((b, i) => `${b} goal${b === "1" ? "" : "s"} ${Math.round((100 * dist.counts[i]) / n)}% (${dist.counts[i]})`).join(" · ");
     const from =
       pick.source === "own"
         ? `${pick.name}'s ${n} archived game${n === 1 ? "" : "s"}`
@@ -904,31 +915,42 @@
     return `${pick.name}: ${what} — ${parts}. From ${from}.`;
   }
 
-  function halfGoalsSideHtml(m, side, hp) {
+  function halfGoalsSideHtml(m, side, hp, metric) {
     const pick = halfGoalsPick(m, side, hp);
-    const title = escapeHtml(halfGoalsTitle(m, side, hp, pick));
-    if (hp.unknown || !pick.dist) {
+    const title = escapeHtml(halfGoalsTitle(m, side, hp, pick, metric));
+    const dist = pick.split?.[metric];
+    if (hp.unknown || !dist) {
       return `<span class="mc-power-side mc-half-side ${side} none" title="${title}"><b class="mc-power-num">—</b></span>`;
     }
-    const n = pick.dist.n;
-    const pcts = pick.dist.counts.map((c) => Math.round((100 * c) / n));
+    const n = dist.n;
+    const pcts = dist.counts.map((c) => Math.round((100 * c) / n));
     const top = Math.max(...pcts);
     const cells = GOAL_BUCKETS.map(
       (b, i) => `<span class="mc-half-b${pcts[i] === top ? " top" : ""}"><b>${b}</b>${pcts[i]}%</span>`,
     ).join("");
     const src = pick.source === "league" ? `<span class="mc-power-rank mc-half-n">${n} lg</span>` : `<span class="mc-power-rank mc-half-n">${n}</span>`;
-    return `<span class="mc-power-side mc-half-side ${side} ${pick.source}" title="${title}">${cells}${src}</span>`;
+    return `<span class="mc-power-side mc-half-side ${side} ${metric} ${pick.source}" title="${title}">${cells}${src}</span>`;
   }
 
-  function halfGoalsRowHtml(m) {
+  const HALF_METRICS = [
+    { metric: "total", word: "goals", noun: "total goals (both sides)" },
+    { metric: "scored", word: "scored", noun: "goals the club itself scored" },
+    { metric: "allowed", word: "allowed", noun: "goals the club allowed" },
+  ];
+
+  function halfGoalsRowsHtml(m) {
     const hp = halfPhase(m);
-    if (!hp) return "";
-    const label = hp.phase === "1h" ? "🥅 1H goals" : hp.unknown ? "🥅 2H goals" : `🥅 2H after ${hp.htHome}–${hp.htAway}`;
-    const help =
-      hp.phase === "1h"
-        ? "How often each club's first halves this season produced 0 / 1 / 2 / 3+ total goals (both sides). Bold = most common. The small number is the sample; 'lg' means the league-wide split is shown because the club has too few archived games."
-        : "Given this half-time score (from each club's own side), how often its second halves went on to produce 0 / 1 / 2 / 3+ total goals. Bold = most common. The small number is the sample; 'lg' means the league-wide split for this half-time score is shown because the club has too few matching games.";
-    return `${halfGoalsSideHtml(m, "home", hp)}<span class="mc-power-label" title="${escapeHtml(help)}">${label}</span>${halfGoalsSideHtml(m, "away", hp)}`;
+    if (!hp) return [];
+    const common = " Bold = most common. The small number is the sample; 'lg' means the league-wide split is shown because the club has too few matching archived games.";
+    return HALF_METRICS.map(({ metric, word, noun }) => {
+      const label =
+        hp.phase === "1h" ? `🥅 1H ${word}` : hp.unknown ? `🥅 2H ${word}` : metric === "total" ? `🥅 2H after ${hp.htHome}–${hp.htAway}` : `🥅 2H ${word}`;
+      const help =
+        hp.phase === "1h"
+          ? `How often each club's first halves this season produced 0 / 1 / 2 / 3+ ${noun}.${common}`
+          : `Given this half-time score (from each club's own side), how often its second halves went on to produce 0 / 1 / 2 / 3+ ${noun}.${common}`;
+      return `${halfGoalsSideHtml(m, "home", hp, metric)}<span class="mc-power-label" title="${escapeHtml(help)}">${label}</span>${halfGoalsSideHtml(m, "away", hp, metric)}`;
+    });
   }
 
   function clinicalRowHtml(m) {
@@ -937,9 +959,7 @@
       (row) =>
         `${powerSideHtml(m, "home", row.spec)}<span class="mc-power-label" title="${escapeHtml(row.help)}">${row.label}</span>${powerSideHtml(m, "away", row.spec)}`,
     );
-    const half = halfGoalsRowHtml(m);
-    if (half) rows.push(half);
-    return rows.join("\n      ");
+    return rows.concat(halfGoalsRowsHtml(m)).join("\n      ");
   }
 
   function paintPowerRow(card) {
