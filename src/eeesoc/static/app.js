@@ -661,7 +661,9 @@
       return `<span class="mc-power-side ${side} none" title="${title}"><b class="mc-power-num">—</b></span>`;
     }
     const tag = row.clinical ? "clinical" : "wasteful";
-    const rank = row.rank ? `#${row.rank}/${row._league?.teams_ranked || "?"}` : `${row.games}g`;
+    const rank = row.rank
+      ? `#${row.rank}/${row._league?.teams_ranked || "?"}`
+      : `${row.games} game${row.games === 1 ? "" : "s"} · n/r`;
     return `<span class="mc-power-side ${side} ${tag}" title="${title}"><b class="mc-power-num">${row.power}</b><span class="mc-power-rank">${rank}</span><span class="mc-power-tag">${tag}</span></span>`;
   }
 

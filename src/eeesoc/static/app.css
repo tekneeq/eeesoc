@@ -2338,6 +2338,19 @@ main {
   display: none;
 }
 
+@media (max-width: 520px) {
+  .mc-power {
+    grid-template-columns: 1fr 1fr;
+    gap: 0.3rem;
+  }
+  .mc-power-label {
+    display: none;
+  }
+  .mc-power-side {
+    flex-wrap: wrap;
+  }
+}
+
 /* ---------------------------------------------------------------------------
    0-0 HT tab
    --------------------------------------------------------------------------- */
