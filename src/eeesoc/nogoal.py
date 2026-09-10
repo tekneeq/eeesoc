@@ -582,6 +582,86 @@ class _EdgeAccumulator:
         return out
 
 
+class _LeagueAccumulator:
+    """
+    Per-league view of the same backtest: the league's own base rates, what the trigger would
+    have done there at the configured threshold, and whether the model separates goalless games
+    *within* the league (held rate of its more-confident half vs its less-confident half).
+    """
+
+    def __init__(self, fire_threshold: float) -> None:
+        self.th = fire_threshold
+        self.rows: dict[str, dict[str, Any]] = {}
+
+    def _row(self, slug: str) -> dict[str, Any]:
+        return self.rows.setdefault(
+            slug,
+            {
+                "games": 0, "goals": 0, "goals_1h": 0, "ht_zero": 0, "box_1h": 0, "box_games": 0,
+                "fired": 0, "held": 0, "tsum": 0.0,
+                "cuts": {t: [] for t in EDGE_MINUTES},
+            },
+        )
+
+    def add_game(self, rec: dict[str, Any], has_box: bool) -> None:
+        row = self._row(str(rec.get("league_slug") or ""))
+        row["games"] += 1
+        row["goals"] += int(rec.get("ft_home") or 0) + int(rec.get("ft_away") or 0)
+        ht = int(rec.get("ht_home") or 0) + int(rec.get("ht_away") or 0)
+        row["goals_1h"] += ht
+        row["ht_zero"] += 1 if ht == 0 else 0
+        if has_box:
+            row["box_games"] += 1
+            row["box_1h"] += sum(_box_totals(rec, 1))
+
+    def add_cut(self, slug: str, t: int, prob: float, held: int) -> None:
+        self._row(slug)["cuts"][t].append((prob, held))
+
+    def add_fire(self, slug: str, t: int, held: bool) -> None:
+        row = self._row(slug)
+        row["fired"] += 1
+        row["held"] += 1 if held else 0
+        row["tsum"] += t
+
+    @staticmethod
+    def _split(pairs: list[tuple[float, int]]) -> dict[str, Any]:
+        n = len(pairs)
+        if n < 10:
+            return {"n": n, "held_pct": _pct(sum(y for _, y in pairs), n), "top_pct": None, "bottom_pct": None}
+        ordered = sorted(pairs, key=lambda x: -x[0])
+        k = n // 2
+        return {
+            "n": n,
+            "held_pct": _pct(sum(y for _, y in pairs), n),
+            "top_pct": _pct(sum(y for _, y in ordered[:k]), k),
+            "bottom_pct": _pct(sum(y for _, y in ordered[-k:]), k),
+        }
+
+    def summary(self, model: dict[str, Any]) -> list[dict[str, Any]]:
+        out = []
+        for slug, r in self.rows.items():
+            g = r["games"]
+            out.append(
+                {
+                    "league": slug,
+                    "games": g,
+                    "goals_per_game": round(r["goals"] / g, 2) if g else None,
+                    "goals_1h_per_game": round(r["goals_1h"] / g, 2) if g else None,
+                    "ht_zero_pct": _pct(r["ht_zero"], g),
+                    "box_1h_per_game": round(r["box_1h"] / r["box_games"], 1) if r["box_games"] else None,
+                    "factor": (model.get("leagues") or {}).get(slug, {}).get("factor"),
+                    "fired": r["fired"],
+                    "fired_pct": _pct(r["fired"], g),
+                    "hit_pct": _pct(r["held"], r["fired"]),
+                    "avg_minute": round(r["tsum"] / r["fired"], 1) if r["fired"] else None,
+                    "cuts": {str(t): self._split(pairs) for t, pairs in r["cuts"].items()},
+                    "enabled": league_enabled(slug),
+                }
+            )
+        out.sort(key=lambda row: (row["goals_per_game"] or 0))
+        return out
+
+
 _SHOT_KINDS = {"shot", "shot_on", "blocked", "goal"}
 
 
@@ -620,15 +700,18 @@ def backtest(
     *,
     thresholds: Iterable[float] = BACKTEST_THRESHOLDS,
     windows: dict[int, tuple[int, int]] | None = None,
+    league_threshold: float | None = None,
 ) -> dict[str, Any]:
     records = load_records() if records is None else records
     windows = windows or DEFAULT_WINDOWS
+    league_threshold = threshold() if league_threshold is None else league_threshold
     calib: dict[str, dict[str, float]] = {}
     ll_model = ll_base = ll_no_box = 0.0
     n_samples = 0
     policy: dict[float, dict[int, list[float]]] = {th: {1: [0, 0, 0.0], 2: [0, 0, 0.0]} for th in thresholds}
     quiet_check = {"quiet": [0, 0], "all": [0, 0]}
     edge = _EdgeAccumulator()
+    leagues = _LeagueAccumulator(league_threshold)
 
     for rec in records:
         events = rec.get("events") or []
@@ -636,6 +719,7 @@ def backtest(
         ft = int(rec.get("ft_home") or 0) + int(rec.get("ft_away") or 0)
         scale = league_factor(model, slug, exclude=(ft, 1))
         has_box = has_box_data(rec)
+        leagues.add_game(rec, has_box)
         for p, minutes in FIT_MINUTES.items():
             probs: dict[int, float] = {}
             hf, _hrel, hbucket, _hexp = (
@@ -661,8 +745,10 @@ def backtest(
                 qn = min(0.995, max(0.005, math.exp(-lam["lambda"] / (hf * inf))))
                 ll_no_box -= y * math.log(qn) + (1 - y) * math.log(1 - qn)
                 n_samples += 1
-                if has_box and p == 1 and t in EDGE_MINUTES and h + a == 0:
-                    edge.add(t, hbucket, ibucket, bh + ba, y)
+                if p == 1 and t in EDGE_MINUTES and h + a == 0:
+                    leagues.add_cut(slug, t, prob, y)
+                    if has_box:
+                        edge.add(t, hbucket, ibucket, bh + ba, y)
                 cell = calib.setdefault(_bucket(prob), {"n": 0, "held": 0, "prob_sum": 0.0})
                 cell["n"] += 1
                 cell["held"] += y
@@ -674,6 +760,11 @@ def backtest(
                         per[p][0] += 1
                         per[p][1] += 1 if goals_after(events, p, t) == 0 else 0
                         per[p][2] += t
+                        break
+            if p == 1:
+                for t in range(lo, hi + 1):
+                    if t in probs and probs[t] >= league_threshold:
+                        leagues.add_fire(slug, t, goals_after(events, p, t) == 0)
                         break
         # The "quiet first quarter-hour" heuristic, measured directly.
         h, a = score_at(events, 1, 15)
@@ -718,6 +809,8 @@ def backtest(
         "log_loss_time_only": round(ll_base / n_samples, 4) if n_samples else None,
         "log_loss_no_box": round(ll_no_box / n_samples, 4) if n_samples else None,
         "box_edge": edge.summary(model, records),
+        "leagues": leagues.summary(model),
+        "league_threshold": league_threshold,
         "calibration": calibration,
         "windows": {str(p): list(w) for p, w in windows.items()},
         "policy": policy_rows,
@@ -741,6 +834,17 @@ def threshold() -> float:
         return max(0.5, min(0.95, float(raw))) if raw else DEFAULT_THRESHOLD
     except ValueError:
         return DEFAULT_THRESHOLD
+
+
+def allowed_leagues() -> set[str]:
+    """League slugs the trigger may fire for (``EEESOC_NOGOAL_LEAGUES``, comma-separated); empty = all."""
+    raw = (os.getenv("EEESOC_NOGOAL_LEAGUES") or "").strip()
+    return {part.strip().lower() for part in raw.split(",") if part.strip()}
+
+
+def league_enabled(league_slug: str) -> bool:
+    allowed = allowed_leagues()
+    return not allowed or str(league_slug or "").lower() in allowed
 
 
 def windows() -> dict[int, tuple[int, int]]:
@@ -836,7 +940,8 @@ def evaluate_live(
         "threshold": th,
         "window": window,
         "window_minutes": [lo, hi],
-        "ready": window == "open" and p >= th,
+        "league_enabled": league_enabled(league_slug),
+        "ready": window == "open" and p >= th and league_enabled(league_slug),
     }
 
 

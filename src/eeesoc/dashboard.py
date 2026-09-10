@@ -328,6 +328,7 @@ def make_handler(state: DashboardState):
                     "backtest": bt,
                     "threshold": nogoal.threshold(),
                     "windows": {str(p): list(w) for p, w in nogoal.windows().items()},
+                    "allowed_leagues": sorted(nogoal.allowed_leagues()),
                     "webhook": bool(nogoal_monitor.webhook_url()),
                 }
                 return self._send(200, _json_bytes(payload), "application/json")
@@ -666,6 +667,7 @@ def serve(*, port: int, season: str, host: str = "127.0.0.1") -> None:
         print(
             "[nogoal] monitor on · threshold "
             f"{nogoal.threshold():.2f} · windows {nogoal.windows()} · "
+            f"leagues {', '.join(sorted(nogoal.allowed_leagues())) or 'all'} · "
             f"discord {'webhook set' if nogoal_monitor.webhook_url() else 'EEESOC_DISCORD_WEBHOOK unset (evaluate only)'}"
         )
     try:
