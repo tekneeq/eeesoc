@@ -2427,7 +2427,8 @@ main {
   color: rgba(125, 200, 255, 0.95);
 }
 
-/* League-wide fallback: dashed cells and an amber sample count. */
+/* Thin own sample or league-wide fallback: dashed cells; the fallback also gets an amber count. */
+.mc-half-side.thin .mc-half-b,
 .mc-half-side.league .mc-half-b {
   border-style: dashed;
 }

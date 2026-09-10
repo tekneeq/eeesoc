@@ -53,8 +53,8 @@ combined), ``scored`` (the club's own) and ``allowed`` — and ``second_by_ht``
 is the same three splits for second halves, keyed by the half-time score from
 the club's point of view (``"0-1"`` = trailed 0-1 at the break).  The league
 carries the same tables (home-away view, each game once, so ``scored`` is the
-home side's) as a fallback when a club has fewer than
-``HALF_GOALS_MIN_SAMPLE`` matches.
+home side's) for context when a club has fewer than ``HALF_GOALS_MIN_SAMPLE``
+matches, and as the fallback when it has none.
 """
 
 from __future__ import annotations
@@ -81,7 +81,8 @@ OFFENSE_WEIGHTS_SOT = {"shots": 0.35, "sot": 0.25, "corners": 0.15, "goals": 0.2
 FORM_GAMES = 5
 # Potential vs results must differ by at least this much to be tagged upside / overachieving.
 POTENTIAL_GAP = 5.0
-# Fewer matching games than this and the chiclet falls back to the league-wide half-goal split.
+# Fewer matching games than this and the chiclet flags the club's half-goal split as a thin sample
+# (the league-wide split rides along for context; the league only replaces it when the club has none).
 HALF_GOALS_MIN_SAMPLE = 3
 _CACHE_TTL_S = 300.0
 
