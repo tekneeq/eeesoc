@@ -12,6 +12,9 @@ archived finished games this season, shrunk toward league par for thin samples. 
 exactly what its chances are worth; above 100 is tagged *clinical*, below *wasteful*; the rank is its place
 in the league's power table (clubs with 2+ archived games). Leagues without an ESPN xG feed use
 shots-on-target conversion against the league's own rate on the same 100 = par scale.
+**🛡 Defence power** is the mirror: league-average xG allowed per game over the club's own (shrunk toward
+par), so 100 = allows the league's typical chances, above 100 is *solid*, below *leaky*, ranked the same way
+(shots on target allowed where there is no xG feed).
 
 The **0-0 HT** tab archives every full-time game the dashboard sees (plus a background ESPN backfill,
 `EEESOC_HT_BACKFILL_DAYS`, default 60, `0` to disable) under `<cache>/halftime/`. **Archive** lists the games
