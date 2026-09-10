@@ -1259,6 +1259,15 @@ def test_opponent_scored_context_averages():
     assert any(w["bucket"] == "76-90" and w["side"] == "opp" for w in ctx["when_2h"])
 
 
+def test_half_goals_row_tags_each_side_with_its_own_ht_score():
+    """A 2–0 home lead must look up 2–0 for home and 0–2 for away — the label says so."""
+    js = Path("src/eeesoc/static/app.js").read_text(encoding="utf-8")
+    assert "function ownHtScore" in js
+    assert 'side === "home" ? `${hp.htHome}–${hp.htAway}` : `${hp.htAway}–${hp.htHome}`' in js
+    assert "mc-half-ht" in js
+    assert "never the leader's sample on the trailer" in js
+
+
 def test_live_chiclets_use_pointer_drag():
     """Live reorder must not rely on HTML5 DnD on <button> (broken in Firefox / SVG)."""
     js = Path("src/eeesoc/static/app.js").read_text(encoding="utf-8")

@@ -1246,6 +1246,12 @@
     return { phase, htHome, htAway };
   }
 
+  // Half-time score from this club's view: 2–0 if they lead, 0–2 if they trail.
+  function ownHtScore(hp, side) {
+    if (!hp || hp.unknown || hp.htHome == null || hp.htAway == null) return "";
+    return side === "home" ? `${hp.htHome}–${hp.htAway}` : `${hp.htAway}–${hp.htHome}`;
+  }
+
   function halfGoalsPick(m, side, hp) {
     const league = state.clinical?.leagues?.[m.league_slug];
     const name = side === "home" ? m.home : m.away;
@@ -1319,8 +1325,9 @@
       (b, i) => `<span class="mc-half-b${pcts[i] === top ? " top" : ""}"><b>${b}</b>${pcts[i]}%</span>`,
     ).join("");
     const src = pick.source === "league" ? `<span class="mc-power-rank mc-half-n">${n} lg</span>` : `<span class="mc-power-rank mc-half-n">${n} g</span>`;
+    const htTag = hp.phase !== "1h" && pick.key ? `<span class="mc-half-ht">${escapeHtml(pick.key.replace("-", "–"))}</span>` : "";
     const cls = `${side} ${metric} ${pick.source}${pick.thin ? " thin" : ""}`;
-    return `<span class="mc-power-side mc-half-side ${cls}" title="${title}">${cells}${src}</span>`;
+    return `<span class="mc-power-side mc-half-side ${cls}" title="${title}">${htTag}${cells}${src}</span>`;
   }
 
   const HALF_METRICS = [
@@ -1334,13 +1341,16 @@
     if (!hp) return [];
     const common =
       " Bold = most common. The small number is how many of the club's own games the split comes from; dashed cells mean a thin sample (the tooltip adds the league-wide split), 'lg' means the club has no matching game yet so the league-wide split is shown.";
-    const ht = hp.unknown ? "" : ` after ${hp.htHome}–${hp.htAway}`;
+    const homeHt = ownHtScore(hp, "home");
+    const awayHt = ownHtScore(hp, "away");
     return HALF_METRICS.map(({ metric, word, noun }) => {
-      const label = hp.phase === "1h" ? `🥅 1H ${word}` : `🥅 2H ${word}${ht}`;
+      const label = hp.phase === "1h" ? `🥅 1H ${word}` : "🥅 2H " + word;
       const help =
         hp.phase === "1h"
           ? `How often each club's first halves this season produced 0 / 1 / 2 / 3+ ${noun}.${common}`
-          : `Only the games each club played that stood ${hp.unknown ? "at this half-time score" : `${hp.htHome}–${hp.htAway} (from its own side)`} at the break: how often their second halves produced 0 / 1 / 2 / 3+ ${noun}.${common}`;
+          : hp.unknown
+            ? `Waiting for the timeline to read the half-time score.${common}`
+            : `Each side uses its own score at the break: home after ${homeHt}, away after ${awayHt}. So a 2–0 home lead looks up the home club's games when they led 2–0, and the away club's games when they trailed 0–2 — never the leader's sample on the trailer. How often those second halves produced 0 / 1 / 2 / 3+ ${noun}.${common}`;
       return `${halfGoalsSideHtml(m, "home", hp, metric)}<span class="mc-power-label" title="${escapeHtml(help)}">${label}</span>${halfGoalsSideHtml(m, "away", hp, metric)}`;
     });
   }
