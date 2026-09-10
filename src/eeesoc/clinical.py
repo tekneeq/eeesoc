@@ -14,6 +14,13 @@ club took, the xG ESPN attached to it, and the goals that followed.
   worth (power > 100); otherwise it is wasteful.
 * ``rank`` is the club's place in its league table of power (1 = most
   clinical), over clubs with at least ``MIN_GAMES`` archived games.
+
+Defence power is the mirror image: how little chance quality the club
+allows.  ``defense_power`` is league-average xG conceded per game over the
+club's own xG conceded per game (shrunk toward par), so 100 = allows exactly
+the league's typical chances, 125 = allows a fifth less.  ``solid`` is True
+above 100, otherwise the defence is leaky.  Leagues without xG use shots on
+target conceded per game instead.
 """
 
 from __future__ import annotations
@@ -30,6 +37,8 @@ MIN_GAMES = 2
 # Prior weight in xG (or SOT for the fallback) that pulls thin samples to par.
 PRIOR_XG = 2.0
 PRIOR_SOT = 5.0
+# Prior weight in games for the per-game defensive rates.
+PRIOR_GAMES = 2.0
 _CACHE_TTL_S = 300.0
 
 _lock = threading.Lock()
@@ -68,6 +77,9 @@ def _team_totals(records: list[dict[str, Any]]) -> dict[str, dict[str, dict[str,
                     "sot": 0,
                     "xg": 0.0,
                     "conceded": 0,
+                    "shots_against": 0,
+                    "sot_against": 0,
+                    "xg_against": 0.0,
                 },
             )
             if not row["team"] and name:
@@ -89,8 +101,16 @@ def _team_totals(records: list[dict[str, Any]]) -> dict[str, dict[str, dict[str,
                     xg = ev.get("xg")
                     if xg and kind != "own_goal" and has_xg:
                         row["xg"] += float(xg)
-                elif team == other and kind in {"goal", "own_goal"}:
-                    row["conceded"] += 1
+                elif team == other:
+                    if kind in {"goal", "own_goal"}:
+                        row["conceded"] += 1
+                    if kind in {"shot", "shot_on", "blocked", "goal"}:
+                        row["shots_against"] += 1
+                    if kind in {"shot_on", "goal"}:
+                        row["sot_against"] += 1
+                    xg = ev.get("xg")
+                    if xg and kind != "own_goal" and has_xg:
+                        row["xg_against"] += float(xg)
     return leagues
 
 
@@ -103,26 +123,42 @@ def _league_table(slug: str, teams: dict[str, dict[str, Any]], label: str) -> di
     tot_sot = sum(r["sot"] for r in rows)
     par_ratio = (tot_goals / tot_xg) if (basis == "xg" and tot_xg > 0) else 1.0
     par_conv = (tot_goals / tot_sot) if tot_sot else 0.3
+    # League-typical chances allowed per game (every game is counted once per side).
+    tot_games = sum(r["games"] for r in rows)
+    par_xga = (sum(r["xg_against"] for r in rows) / xg_games) if xg_games else 0.0
+    par_sota = (sum(r["sot_against"] for r in rows) / tot_games) if tot_games else 0.0
 
     out_rows = []
     for r in rows:
         if basis == "xg":
             # Goals per 100 xG; the prior adds two league-typical xG worth of chances.
             power = 100.0 * (r["goals"] + PRIOR_XG * par_ratio) / (r["xg"] + PRIOR_XG)
+            # Chances allowed per game vs the league, shrunk over two par games.
+            xga_pg = (r["xg_against"] + PRIOR_GAMES * par_xga) / (r["games_xg"] + PRIOR_GAMES)
+            defense = 100.0 * par_xga / xga_pg if xga_pg > 0 else 100.0
         else:
             conv = (r["goals"] + PRIOR_SOT * par_conv) / (r["sot"] + PRIOR_SOT) if r["sot"] + PRIOR_SOT > 0 else par_conv
             power = 100.0 * conv / par_conv if par_conv else 100.0
+            sota_pg = (r["sot_against"] + PRIOR_GAMES * par_sota) / (r["games"] + PRIOR_GAMES)
+            defense = 100.0 * par_sota / sota_pg if sota_pg > 0 else 100.0
         row = {
             **r,
             "xg": round(r["xg"], 2),
+            "xg_against": round(r["xg_against"], 2),
             "power": int(round(power)),
             "conversion_pct": int(round(100.0 * r["goals"] / r["sot"])) if r["sot"] else 0,
             "goals_per_game": round(r["goals"] / r["games"], 2) if r["games"] else 0.0,
             "xg_per_game": round(r["xg"] / r["games_xg"], 2) if r["games_xg"] else 0.0,
             "clinical": power > 100.0,
+            "defense_power": int(round(defense)),
+            "solid": defense > 100.0,
+            "conceded_per_game": round(r["conceded"] / r["games"], 2) if r["games"] else 0.0,
+            "xga_per_game": round(r["xg_against"] / r["games_xg"], 2) if r["games_xg"] else 0.0,
+            "sot_against_per_game": round(r["sot_against"] / r["games"], 2) if r["games"] else 0.0,
             "basis": basis,
             "ranked": r["games"] >= MIN_GAMES,
             "rank": None,
+            "defense_rank": None,
         }
         out_rows.append(row)
 
@@ -130,6 +166,9 @@ def _league_table(slug: str, teams: dict[str, dict[str, Any]], label: str) -> di
     ranked.sort(key=lambda r: (-r["power"], -r["goals"], r["team"]))
     for i, r in enumerate(ranked, start=1):
         r["rank"] = i
+    by_defense = sorted(ranked, key=lambda r: (-r["defense_power"], r["conceded"], r["team"]))
+    for i, r in enumerate(by_defense, start=1):
+        r["defense_rank"] = i
     out_rows.sort(key=lambda r: (r["rank"] is None, r["rank"] or 0, r["team"]))
     return {
         "slug": slug,
@@ -137,6 +176,8 @@ def _league_table(slug: str, teams: dict[str, dict[str, Any]], label: str) -> di
         "basis": basis,
         "teams_ranked": len(ranked),
         "par_conversion_pct": int(round(100 * par_conv)),
+        "par_xga_per_game": round(par_xga, 2),
+        "par_sot_against_per_game": round(par_sota, 2),
         "teams": out_rows,
     }
 

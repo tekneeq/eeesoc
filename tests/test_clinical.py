@@ -104,6 +104,47 @@ def test_power_ranks_finishing_over_xg_with_prior():
     assert [t["team"] for t in epl["teams"]][0] == "Sharp FC"
 
 
+def test_defense_power_rewards_allowing_fewer_chances():
+    board = build_clinical_board(_records())
+    epl = board["leagues"]["eng.1"]
+    assert epl["par_xga_per_game"] == pytest.approx(1.0)  # 4.0 xG over 4 team-games
+    by = {t["team"]: t for t in epl["teams"]}
+
+    sharp = by["Sharp FC"]
+    # Faced 2.0 xG in game 1 and 1.0 in game 2 → 1.5 per game; shrunk: (3 + 2·1)/(2 + 2) = 1.25.
+    assert sharp["xg_against"] == pytest.approx(3.0)
+    assert sharp["xga_per_game"] == pytest.approx(1.5)
+    assert sharp["shots_against"] == 6 and sharp["sot_against"] == 4
+    assert sharp["defense_power"] == 80
+    assert sharp["solid"] is False
+    assert sharp["conceded_per_game"] == 1.0
+    assert sharp["defense_rank"] == 1  # only ranked club
+
+    blunt = by["Blunt Town"]
+    # Faced 1.0 xG in one game; shrunk: (1 + 2)/(1 + 2) = 1.0 → par.
+    assert blunt["defense_power"] == 100 and blunt["solid"] is False
+    assert blunt["defense_rank"] is None
+
+    par = by["Par United"]
+    # Faced 0.0 xG; shrunk: (0 + 2)/(1 + 2) = 0.67 → 150.
+    assert par["defense_power"] == 150 and par["solid"] is True
+
+
+def test_defense_rank_orders_ranked_clubs_independently_of_attack():
+    recs = _records() + [
+        _rec("3", "Blunt Town", "Par United", "20", "30", [_ev(10, "shot_on", "away", 0.4), _ev(70, "shot", "home", 0.1)]),
+    ]
+    board = build_clinical_board(recs)
+    by = {t["team"]: t for t in board["leagues"]["eng.1"]["teams"]}
+    assert board["leagues"]["eng.1"]["teams_ranked"] == 3
+    # Attack: Sharp first. Defence: Par (allowed 0.0 + 0.1) ahead of Sharp (3.0) and Blunt (1.0 + 0.4).
+    assert by["Sharp FC"]["rank"] == 1
+    assert by["Par United"]["defense_rank"] == 1
+    assert by["Blunt Town"]["defense_rank"] == 2
+    assert by["Sharp FC"]["defense_rank"] == 3
+    assert by["Par United"]["defense_power"] > by["Blunt Town"]["defense_power"] > by["Sharp FC"]["defense_power"]
+
+
 def test_league_without_xg_falls_back_to_sot_conversion():
     events_a = [_ev(10, "goal", "home"), _ev(20, "goal", "home"), _ev(30, "shot_on", "home"), _ev(40, "shot_on", "away"), _ev(50, "shot_on", "away")]
     events_b = [_ev(10, "shot_on", "home"), _ev(20, "goal", "away"), _ev(30, "shot_on", "away")]
@@ -122,6 +163,12 @@ def test_league_without_xg_falls_back_to_sot_conversion():
     assert by["Twente"]["power"] < 100 and not by["Twente"]["clinical"]
     assert by["Ajax"]["rank"] == 1 and by["Twente"]["rank"] == 2
     assert by["Ajax"]["basis"] == "sot"
+    # Defence falls back to SOT allowed per game: league 8 SOT / 4 team-games = 2.0.
+    assert ned["par_sot_against_per_game"] == 2.0
+    assert by["Ajax"]["sot_against"] == 3 and by["Twente"]["sot_against"] == 5
+    assert by["Ajax"]["defense_power"] > 100 and by["Ajax"]["solid"]
+    assert by["Twente"]["defense_power"] < 100 and not by["Twente"]["solid"]
+    assert by["Ajax"]["defense_rank"] == 1 and by["Twente"]["defense_rank"] == 2
 
 
 def test_lookup_by_id_then_name_and_cache_tracks_archive():

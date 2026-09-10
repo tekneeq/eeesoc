@@ -667,9 +667,36 @@
     return `<span class="mc-power-side ${side} ${tag}" title="${title}"><b class="mc-power-num">${row.power}</b><span class="mc-power-rank">${rank}</span><span class="mc-power-tag">${tag}</span></span>`;
   }
 
+  function defenseTitle(row, name) {
+    if (!row) return `${name}: no finished games archived yet for a defence power`;
+    const basis =
+      row.basis === "xg"
+        ? `allows ${Number(row.xga_per_game).toFixed(2)} xG per game (league ${Number(row._league?.par_xga_per_game || 0).toFixed(2)})`
+        : `allows ${Number(row.sot_against_per_game).toFixed(1)} shots on target per game (league ${Number(row._league?.par_sot_against_per_game || 0).toFixed(1)})`;
+    const rank = row.defense_rank
+      ? `#${row.defense_rank} of ${row._league?.teams_ranked || 0} in ${row._league?.label || row.league_chiclet}`
+      : `unranked until ${state.clinical?.min_games || 2} games`;
+    return `${row.team}: defence power ${row.defense_power} — ${basis} over ${row.games} game${row.games === 1 ? "" : "s"} · ${Number(row.conceded_per_game).toFixed(2)} conceded per game · ${rank}. 100 = allows the league's typical chances; above 100 is solid (fewer / worse chances allowed), below is leaky.`;
+  }
+
+  function defenseSideHtml(m, side) {
+    const name = side === "home" ? m.home : m.away;
+    const row = clinicalFor(m.league_slug, side === "home" ? m.home_id : m.away_id, name);
+    const title = escapeHtml(defenseTitle(row, name));
+    if (!row) {
+      return `<span class="mc-power-side ${side} none" title="${title}"><b class="mc-power-num">—</b></span>`;
+    }
+    const tag = row.solid ? "solid" : "leaky";
+    const rank = row.defense_rank
+      ? `#${row.defense_rank}/${row._league?.teams_ranked || "?"}`
+      : `${row.games} game${row.games === 1 ? "" : "s"} · n/r`;
+    return `<span class="mc-power-side ${side} ${tag}" title="${title}"><b class="mc-power-num">${row.defense_power}</b><span class="mc-power-rank">${rank}</span><span class="mc-power-tag">${tag}</span></span>`;
+  }
+
   function clinicalRowHtml(m) {
     if (!state.clinical) return "";
-    return `${clinicalSideHtml(m, "home")}<span class="mc-power-label" title="Clinical power: goals per 100 xG this season, ranked within the league. 100 = par.">⚡ clinical</span>${clinicalSideHtml(m, "away")}`;
+    return `${clinicalSideHtml(m, "home")}<span class="mc-power-label" title="Clinical power: goals per 100 xG this season, ranked within the league. 100 = par.">⚡ clinical</span>${clinicalSideHtml(m, "away")}
+      ${defenseSideHtml(m, "home")}<span class="mc-power-label" title="Defence power: league-average xG allowed per game over this club's, ranked within the league. 100 = par; higher allows fewer / worse chances.">🛡 defence</span>${defenseSideHtml(m, "away")}`;
   }
 
   function paintClinicalRows() {
