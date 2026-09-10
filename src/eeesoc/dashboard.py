@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
-from eeesoc import clinical, halftime
+from eeesoc import clinical, halftime, nogoal, nogoal_monitor
 from eeesoc.data import load_season, previous_season_label
 from eeesoc.live import build_event_timeline, build_live_situation, build_pitch_track, fetch_live_board
 from eeesoc.models import Match, MatchSnapshot
@@ -307,6 +307,31 @@ def make_handler(state: DashboardState):
                 if league:
                     board = {**board, "leagues": {k: v for k, v in board["leagues"].items() if k == league}}
                 return self._send(200, _json_bytes(board), "application/json")
+
+            if path == "/api/nogoal/live":
+                # Latest P(no more goals this half) per in-play game, plus any signal state.
+                return self._send(200, _json_bytes(nogoal_monitor.latest()), "application/json")
+
+            if path == "/api/nogoal/backtest":
+                model, bt = nogoal.nogoal_model(with_backtest=True)
+                payload = {
+                    "model": {
+                        "archive_total": model["archive_total"],
+                        "goals_per_game": model["goals_per_game"],
+                        "leagues": model["leagues"],
+                        "state_mult": model["state_mult"],
+                        "stoppage_share": model["stoppage_share"],
+                        "fitted_at": model["fitted_at"],
+                    },
+                    "backtest": bt,
+                    "threshold": nogoal.threshold(),
+                    "windows": {str(p): list(w) for p, w in nogoal.windows().items()},
+                    "webhook": bool(nogoal_monitor.webhook_url()),
+                }
+                return self._send(200, _json_bytes(payload), "application/json")
+
+            if path == "/api/nogoal/signals":
+                return self._send(200, _json_bytes(nogoal_monitor.signal_log()), "application/json")
 
             if path == "/api/halftime/zero":
                 raw_leagues = (qs.get("league") or [""])[0]
@@ -623,6 +648,14 @@ def serve(*, port: int, season: str, host: str = "127.0.0.1") -> None:
     if days > 0:
         # Fill the 0-0 first-half archive from recent full-time games without blocking bind.
         halftime.start_backfill_loop(initial_days_back=days)
+    if nogoal_monitor.monitor_enabled():
+        # Scores every live game each poll and posts no-more-goals signals to Discord.
+        nogoal_monitor.start_monitor_thread()
+        print(
+            "[nogoal] monitor on · threshold "
+            f"{nogoal.threshold():.2f} · windows {nogoal.windows()} · "
+            f"discord {'webhook set' if nogoal_monitor.webhook_url() else 'EEESOC_DISCORD_WEBHOOK unset (evaluate only)'}"
+        )
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:

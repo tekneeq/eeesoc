@@ -50,6 +50,44 @@ that were 0-0 at the break by league, each cut at 45′ with the same event stri
 **Similar live** scores today's goalless first halves against that archive minute for minute and shows
 the closest lookalikes with a match % and how they finished.
 
+### No-more-goals-this-half signal
+
+Every live chiclet leads with a **🚫 no goal to HT / FT** row: the probability that nobody scores again
+before the break (or the final whistle), the decimal odds you need to break even (`1 / p`), and the trigger
+state. The model is fitted from the finished-match archive and refits as it grows (`eeesoc.nogoal`):
+
+- **Clock.** The empirical goal hazard by minute for each half (the goals ESPN files at 45′ / 90′ are the
+  stoppage-time goals; they carry ~9% of first-half and ~15% of second-half goals) gives the goals still
+  expected this half, `λ`; `P(no goal) = exp(−λ)`.
+- **League.** `λ` is scaled by the league's goals per game against the global rate, shrunk toward par over
+  20 games — Liga Profesional runs ~0.77, the Bundesliga ~1.18.
+- **Score state.** A fitted multiplier below 1 while the game is still 0–0, above 1 once it is not.
+- **Not used, on purpose.** Shots / xG so far this half, the last ten minutes' activity and club
+  attack/defence strength were all tried and did not lower the log loss, so they are shown as context only.
+  The classic "0–0 with under four shots at 15′" read is measured directly in the backtest: in the current
+  archive those halves stayed goalless 46% of the time versus 44% for every half that was 0–0 at 15′.
+
+The **Signals** tab replays the archive minute by minute: calibration (does 70% mean 70%?), log loss against a
+time-only baseline, and the **trigger policy** table — for each confidence threshold, how many games would
+have fired inside the betting window, at what average minute and how often the half really stayed goalless
+— plus the live record and the log of every signal the monitor has fired.
+
+The monitor runs as a background thread inside the dashboard, fires **once per game per half** when
+`P(no goal)` clears the threshold inside the window, tracks the signal to **held** / **busted** (with the
+goal minute and scorer) / **void**, and posts each trigger and outcome to Discord:
+
+```bash
+EEESOC_DISCORD_WEBHOOK=https://discord.com/api/webhooks/...   # unset = evaluate only, no posts
+# EEESOC_NOGOAL_THRESHOLD=0.65     # P(no goal) needed to fire; pick from the Signals policy table
+# EEESOC_NOGOAL_WINDOW_1H=10-35    # minutes the 1st-half trigger may fire
+# EEESOC_NOGOAL_WINDOW_2H=50-78    # same for the 2nd half
+# EEESOC_NOGOAL_POLL_S=20          # seconds between polls
+# EEESOC_NOGOAL_MONITOR=0          # disable the background thread
+```
+
+Signals persist in `<cache>/nogoal-signals.json`; `/api/nogoal/live`, `/api/nogoal/backtest` and
+`/api/nogoal/signals` expose the same data.
+
 ## Quick start
 
 ```bash
