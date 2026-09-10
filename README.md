@@ -33,12 +33,15 @@ within the league, ties to the club that needed fewer games), how many in the la
 games kept clean, coloured *tight* / *porous* against the league's share.
 **🥅 Goals per half** follows the clock, as three rows: *goals* (both sides combined), *scored* (the club's
 own) and *allowed*. Before the break (and before kickoff) each side shows how often that club's first halves
-this season produced 0 / 1 / 2 / 3+ of each. From half time on, the rows become *2H after h–a* / *2H scored* /
-*2H allowed*: given this game's half-time score (from each club's own side, so 0–1 = trailing), how often
-that club's second halves went on to produce 0 / 1 / 2 / 3+ goals. The most common bucket is highlighted
-(green total, orange scored, blue allowed) and the small number is the sample; clubs with fewer than 3
-matching games fall back to the league-wide split for the same situation (dashed cells, amber *lg* count,
-oriented so the away side's *scored* is the league's home-allowed).
+this season produced 0 / 1 / 2 / 3+ of each. From half time on, the rows become *2H goals after h–a* /
+*2H scored after h–a* / *2H allowed after h–a*: only the games each club played that stood at this game's
+half-time score at the break (from the club's own side, so 0–1 = trailing), and how often those second
+halves went on to produce 0 / 1 / 2 / 3+ goals in total, scored and allowed. The most common bucket is
+highlighted (green total, orange scored, blue allowed) and the small number is how many of the club's own
+games the split comes from. Fewer than 3 matching games is flagged as a thin sample (dashed cells; the
+tooltip adds the league-wide split for the same half-time score for context); only when the club has no
+matching game at all does the row show the league-wide split instead (amber *lg* count, oriented so the away
+side's *scored* is the league's home-allowed).
 
 The **0-0 HT** tab archives every full-time game the dashboard sees (plus a background ESPN backfill,
 `EEESOC_HT_BACKFILL_DAYS`, default 60, `0` to disable) under `<cache>/halftime/`. **Archive** lists the games

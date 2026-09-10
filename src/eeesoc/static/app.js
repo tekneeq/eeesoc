@@ -889,30 +889,40 @@
       return { total: split.total, scored: split.allowed, allowed: split.scored };
     };
     const ownN = own?.total?.n || 0;
-    if (own && ownN >= minN) return { split: own, source: "own", row, name, key, ownN };
     const wideSplit = orient(wide);
-    if (wideSplit && wideSplit.total?.n) return { split: wideSplit, source: "league", row, name, key, ownN };
-    return { split: null, source: "", row, name, key, ownN };
+    const wideN = wideSplit?.total?.n || 0;
+    // The club's own matching games always lead — even one 0-0 half is that club's history.
+    // Thin samples (below minN) are flagged and the league-wide split rides along for context.
+    if (own && ownN) return { split: own, source: "own", thin: ownN < minN, wide: wideN ? wideSplit : null, row, name, key, ownN };
+    if (wideN) return { split: wideSplit, source: "league", thin: false, wide: null, row, name, key, ownN };
+    return { split: null, source: "", thin: false, wide: null, row, name, key, ownN };
+  }
+
+  function bucketWords(dist) {
+    const n = dist.n;
+    return GOAL_BUCKETS.map((b, i) => `${b} goal${b === "1" ? "" : "s"} ${Math.round((100 * dist.counts[i]) / n)}% (${dist.counts[i]})`).join(" · ");
   }
 
   // metric: "total" (both sides), "scored" (the club's own goals) or "allowed"
   function halfGoalsTitle(m, side, hp, pick, metric) {
     const leagueLabel = state.clinical?.leagues?.[m.league_slug]?.label || m.league_chiclet;
     const noun = metric === "total" ? "total goals (both sides)" : metric === "scored" ? `goals scored by ${pick.name}` : `goals allowed by ${pick.name}`;
-    const what =
-      hp.phase === "1h"
-        ? `${noun} in the first half`
-        : `${noun} in the second half after a ${pick.key.replace("-", "–")} half-time score from ${pick.name}'s side`;
+    const htWords = `${pick.key.replace("-", "–")} half-time score from ${pick.name}'s side`;
+    const what = hp.phase === "1h" ? `${noun} in the first half` : `${noun} in the second half after a ${htWords}`;
     if (hp.unknown) return `${pick.name}: waiting for the timeline to read the half-time score`;
     const dist = pick.split?.[metric];
     if (!dist) return `${pick.name}: no archived games yet to split ${what}`;
     const n = dist.n;
-    const parts = GOAL_BUCKETS.map((b, i) => `${b} goal${b === "1" ? "" : "s"} ${Math.round((100 * dist.counts[i]) / n)}% (${dist.counts[i]})`).join(" · ");
-    const from =
-      pick.source === "own"
-        ? `${pick.name}'s ${n} archived game${n === 1 ? "" : "s"}`
-        : `${n} ${leagueLabel} game${n === 1 ? "" : "s"} league-wide (${pick.name} has only ${pick.ownN} matching game${pick.ownN === 1 ? "" : "s"} archived)`;
-    return `${pick.name}: ${what} — ${parts}. From ${from}.`;
+    const games = hp.phase === "1h" ? `archived game${n === 1 ? "" : "s"}` : `archived game${n === 1 ? "" : "s"} that stood ${pick.key.replace("-", "–")} at the break`;
+    if (pick.source === "own") {
+      let text = `${pick.name}: ${what} — ${bucketWords(dist)}. From ${pick.name}'s ${n} ${games}.`;
+      if (pick.thin && pick.wide?.[metric]?.n) {
+        const w = pick.wide[metric];
+        text += ` Thin sample — league-wide over ${w.n} ${leagueLabel} game${w.n === 1 ? "" : "s"}: ${bucketWords(w)}.`;
+      }
+      return text;
+    }
+    return `${pick.name}: ${what} — ${bucketWords(dist)}. From ${n} ${leagueLabel} game${n === 1 ? "" : "s"} league-wide (${pick.name} has no matching game archived yet).`;
   }
 
   function halfGoalsSideHtml(m, side, hp, metric) {
@@ -928,8 +938,9 @@
     const cells = GOAL_BUCKETS.map(
       (b, i) => `<span class="mc-half-b${pcts[i] === top ? " top" : ""}"><b>${b}</b>${pcts[i]}%</span>`,
     ).join("");
-    const src = pick.source === "league" ? `<span class="mc-power-rank mc-half-n">${n} lg</span>` : `<span class="mc-power-rank mc-half-n">${n}</span>`;
-    return `<span class="mc-power-side mc-half-side ${side} ${metric} ${pick.source}" title="${title}">${cells}${src}</span>`;
+    const src = pick.source === "league" ? `<span class="mc-power-rank mc-half-n">${n} lg</span>` : `<span class="mc-power-rank mc-half-n">${n} g</span>`;
+    const cls = `${side} ${metric} ${pick.source}${pick.thin ? " thin" : ""}`;
+    return `<span class="mc-power-side mc-half-side ${cls}" title="${title}">${cells}${src}</span>`;
   }
 
   const HALF_METRICS = [
@@ -941,14 +952,15 @@
   function halfGoalsRowsHtml(m) {
     const hp = halfPhase(m);
     if (!hp) return [];
-    const common = " Bold = most common. The small number is the sample; 'lg' means the league-wide split is shown because the club has too few matching archived games.";
+    const common =
+      " Bold = most common. The small number is how many of the club's own games the split comes from; dashed cells mean a thin sample (the tooltip adds the league-wide split), 'lg' means the club has no matching game yet so the league-wide split is shown.";
+    const ht = hp.unknown ? "" : ` after ${hp.htHome}–${hp.htAway}`;
     return HALF_METRICS.map(({ metric, word, noun }) => {
-      const label =
-        hp.phase === "1h" ? `🥅 1H ${word}` : hp.unknown ? `🥅 2H ${word}` : metric === "total" ? `🥅 2H after ${hp.htHome}–${hp.htAway}` : `🥅 2H ${word}`;
+      const label = hp.phase === "1h" ? `🥅 1H ${word}` : `🥅 2H ${word}${ht}`;
       const help =
         hp.phase === "1h"
           ? `How often each club's first halves this season produced 0 / 1 / 2 / 3+ ${noun}.${common}`
-          : `Given this half-time score (from each club's own side), how often its second halves went on to produce 0 / 1 / 2 / 3+ ${noun}.${common}`;
+          : `Only the games each club played that stood ${hp.unknown ? "at this half-time score" : `${hp.htHome}–${hp.htAway} (from its own side)`} at the break: how often their second halves produced 0 / 1 / 2 / 3+ ${noun}.${common}`;
       return `${halfGoalsSideHtml(m, "home", hp, metric)}<span class="mc-power-label" title="${escapeHtml(help)}">${label}</span>${halfGoalsSideHtml(m, "away", hp, metric)}`;
     });
   }
