@@ -6,6 +6,7 @@ import pytest
 
 from eeesoc import clinical, halftime
 from eeesoc.clinical import (
+    FORM_GAMES,
     OFFENSE_WEIGHTS_SOT,
     OFFENSE_WEIGHTS_XG,
     PRIOR_GAMES,
@@ -31,7 +32,11 @@ def _ev(minute, kind, team, xg=None):
     return {"minute": minute, "kind": kind, "team": team, "xg": xg, "period": 1 if minute <= 45 else 2}
 
 
-def _rec(eid, home, away, home_id, away_id, events, *, league="eng.1", chiclet="EPL"):
+def _rec(eid, home, away, home_id, away_id, events, *, league="eng.1", chiclet="EPL", start=""):
+    # Scoreboard goals: an own_goal event is filed under the side it counts for.
+    def goals(side):
+        return sum(1 for e in events if e["team"] == side and e["kind"] in {"goal", "own_goal"})
+
     return {
         "event_id": eid,
         "league_slug": league,
@@ -40,6 +45,9 @@ def _rec(eid, home, away, home_id, away_id, events, *, league="eng.1", chiclet="
         "away": away,
         "home_id": home_id,
         "away_id": away_id,
+        "start": start,
+        "ft_home": goals("home"),
+        "ft_away": goals("away"),
         "has_xg": any((e.get("xg") or 0) > 0 for e in events),
         "events": events,
     }
@@ -241,6 +249,88 @@ def test_league_without_xg_falls_back_to_sot_conversion():
     assert by["Ajax"]["offense_power"] == _expected_offense(by["Ajax"], ned["par_rates"], OFFENSE_WEIGHTS_SOT)
     assert by["Ajax"]["offense_power"] > 100 > by["Twente"]["offense_power"]
     assert by["Ajax"]["offense_rank"] == 1 and by["Twente"]["offense_rank"] == 2
+
+
+def test_momentum_is_recency_weighted_points_vs_league():
+    board = build_clinical_board(_records())
+    epl = board["leagues"]["eng.1"]
+    # Sharp W 3-1 then L 0-1; Blunt L; Par W → 6 points over 4 team-games.
+    assert epl["par_points_per_game"] == 1.5
+    assert epl["par_goals_per_game"] == 1.25
+    assert epl["form_games"] == FORM_GAMES
+    by = {t["team"]: t for t in epl["teams"]}
+
+    sharp = by["Sharp FC"]
+    assert sharp["form"] == "WL" and sharp["points"] == 3 and sharp["scored"] == 3
+    assert sharp["recent_points"] == 3 and sharp["recent_scored"] == 3 and sharp["recent_allowed"] == 2
+    assert sharp["points_per_game"] == 1.5 and sharp["scored_per_game"] == 1.5
+    # Weights 1 (older W) and 2 (newer L), scaled to 2 games: 3·2/3 = 2 pts; shrunk (2 + 2·1.5)/4 = 1.25 → 83.
+    assert sharp["momentum"] == 83 and sharp["rising"] is False
+    assert sharp["momentum_rank"] == 1  # only ranked club
+    assert [g["letter"] for g in sharp["recent"]] == ["W", "L"]
+    assert sharp["recent"][1]["opponent"] == "Par United" and sharp["recent"][1]["venue"] == "away"
+
+    # Same two results in the other order: the win is now the newest → rising.
+    recs = _records()
+    recs[0]["start"], recs[1]["start"] = "2026-09-08T15:00Z", "2026-09-01T15:00Z"
+    flipped = {t["team"]: t for t in build_clinical_board(recs)["leagues"]["eng.1"]["teams"]}["Sharp FC"]
+    assert flipped["form"] == "LW"
+    assert flipped["momentum"] == 117 and flipped["rising"] is True
+
+    assert by["Blunt Town"]["form"] == "L" and by["Blunt Town"]["momentum"] < 100
+    assert by["Par United"]["form"] == "W" and by["Par United"]["momentum"] > 100
+    assert by["Blunt Town"]["momentum_rank"] is None  # single game
+
+
+def test_momentum_only_looks_at_the_last_form_games():
+    recs = []
+    # Six straight wins, then a loss: only the last five (WWWWL) count.
+    for i in range(6):
+        recs.append(_rec(f"w{i}", "Hot FC", f"Foe {i}", "1", f"9{i}", [_ev(10, "goal", "home", 0.5)], start=f"2026-08-{i + 1:02d}"))
+    recs.append(_rec("l", "Foe X", "Hot FC", "99", "1", [_ev(10, "goal", "home", 0.5)], start="2026-08-20"))
+    hot = {t["team"]: t for t in build_clinical_board(recs)["leagues"]["eng.1"]["teams"]}["Hot FC"]
+    assert hot["games"] == 7 and hot["points"] == 18
+    assert hot["form"] == "WWWWL" and len(hot["recent"]) == FORM_GAMES
+    assert hot["recent_points"] == 12
+
+
+def test_potential_strips_finishing_luck_and_tags_results_gap():
+    board = build_clinical_board(_records())
+    by = {t["team"]: t for t in board["leagues"]["eng.1"]["teams"]}
+
+    sharp = by["Sharp FC"]
+    # Creates 0.75 of par (shrunk) and defends at 80 → √(0.75·0.8) = 77; scores 3 from 1.0 xG so results (111) run ahead.
+    assert sharp["potential"] == 77
+    assert sharp["results_power"] == 111
+    assert sharp["potential_tag"] == "overachieving"
+    assert sharp["potential_rank"] == 1  # only ranked club
+
+    blunt = by["Blunt Town"]
+    # Creates 1.33 of par at par defence → 115, but 1 goal from 2.0 xG leaves results at 80 → upside.
+    assert blunt["potential"] == 115
+    assert blunt["results_power"] == 80
+    assert blunt["potential_tag"] == "upside"
+    assert blunt["potential_rank"] is None
+
+    par = by["Par United"]
+    # Par creation, 150 defence → 122; results 118 → within the gap → steady.
+    assert par["potential"] == 122 and par["results_power"] == 118
+    assert par["potential_tag"] == "steady"
+
+
+def test_potential_and_momentum_rank_among_ranked_clubs():
+    recs = _records() + [
+        _rec("3", "Blunt Town", "Par United", "20", "30", [_ev(10, "shot_on", "away", 0.4), _ev(70, "shot", "home", 0.1)]),
+    ]
+    by = {t["team"]: t for t in build_clinical_board(recs)["leagues"]["eng.1"]["teams"]}
+    ranks = {name: by[name]["potential_rank"] for name in ("Sharp FC", "Blunt Town", "Par United")}
+    assert sorted(ranks.values()) == [1, 2, 3]
+    assert by["Par United"]["potential_rank"] == 1  # best defence, par creation
+    mranks = {name: by[name]["momentum_rank"] for name in ("Sharp FC", "Blunt Town", "Par United")}
+    assert sorted(mranks.values()) == [1, 2, 3]
+    # Par: W then D → most recent form; Blunt: L then D; Sharp: W then L.
+    assert by["Par United"]["form"] == "WD" and by["Par United"]["momentum_rank"] == 1
+    assert by["Blunt Town"]["form"] == "LD"
 
 
 def test_lookup_by_id_then_name_and_cache_tracks_archive():

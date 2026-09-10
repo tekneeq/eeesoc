@@ -2334,6 +2334,31 @@ main {
   color: var(--danger);
 }
 
+.mc-power-side.rising .mc-power-num,
+.mc-power-side.rising .mc-power-tag {
+  color: var(--accent);
+}
+
+.mc-power-side.fading .mc-power-num,
+.mc-power-side.fading .mc-power-tag {
+  color: var(--warn);
+}
+
+.mc-power-side.upside .mc-power-num,
+.mc-power-side.upside .mc-power-tag {
+  color: rgba(190, 150, 255, 0.95);
+}
+
+.mc-power-side.steady .mc-power-num,
+.mc-power-side.steady .mc-power-tag {
+  color: var(--text);
+}
+
+.mc-power-side.overachieving .mc-power-num,
+.mc-power-side.overachieving .mc-power-tag {
+  color: var(--warn);
+}
+
 .mc-power-side.none .mc-power-num {
   color: var(--muted);
   font-weight: 400;
@@ -2342,6 +2367,14 @@ main {
 .mc-power-rank {
   color: var(--muted);
   font-variant-numeric: tabular-nums;
+}
+
+/* Companion stat beside the rank: goals scored / allowed per game, recent W D L, results index. */
+.mc-power-stat {
+  color: var(--text);
+  opacity: 0.8;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 .mc-power-tag {

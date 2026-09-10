@@ -28,6 +28,19 @@ club's own xG conceded per game (shrunk toward par), so 100 = allows exactly
 the league's typical chances, 125 = allows a fifth less.  ``solid`` is True
 above 100, otherwise the defence is leaky.  Leagues without xG use shots on
 target conceded per game instead.
+
+Momentum is recent form: points per game over the club's last ``FORM_GAMES``
+results, weighted toward the most recent, shrunk toward the league's points
+per game and put on the same 100 = par scale.  ``form`` is the W/D/L string
+(oldest → newest); ``rising`` is True above 100, otherwise the club is fading.
+
+Potential is the club's underlying strength once finishing luck is stripped
+out: the geometric mean of its chance-creation index (xG created vs the
+league) and its defence power, so 100 = a league-typical side on chance
+quality both ways.  ``results_power`` is the same construction on actual
+goals; ``potential_tag`` is ``upside`` when results lag the underlying
+numbers by ``POTENTIAL_GAP`` or more (they should improve), ``overachieving``
+when results outrun them, otherwise ``steady``.
 """
 
 from __future__ import annotations
@@ -50,6 +63,10 @@ PRIOR_GAMES = 2.0
 # Chance quality leads; volume, pressure (corners) and goals actually scored follow.
 OFFENSE_WEIGHTS_XG = {"xg": 0.40, "shots": 0.20, "sot": 0.15, "corners": 0.10, "goals": 0.15}
 OFFENSE_WEIGHTS_SOT = {"shots": 0.35, "sot": 0.25, "corners": 0.15, "goals": 0.25}
+# Momentum looks at this many most-recent results, newest weighted heaviest.
+FORM_GAMES = 5
+# Potential vs results must differ by at least this much to be tagged upside / overachieving.
+POTENTIAL_GAP = 5.0
 _CACHE_TTL_S = 300.0
 
 _lock = threading.Lock()
@@ -92,6 +109,9 @@ def _team_totals(records: list[dict[str, Any]]) -> dict[str, dict[str, dict[str,
                     "shots_against": 0,
                     "sot_against": 0,
                     "xg_against": 0.0,
+                    "scored": 0,
+                    "points": 0,
+                    "results": [],
                 },
             )
             if not row["team"] and name:
@@ -100,6 +120,22 @@ def _team_totals(records: list[dict[str, Any]]) -> dict[str, dict[str, dict[str,
             if has_xg:
                 row["games_xg"] += 1
             other = "away" if side == "home" else "home"
+            gf = int(rec.get(f"ft_{side}") or 0)
+            ga = int(rec.get(f"ft_{other}") or 0)
+            pts = 3 if gf > ga else (1 if gf == ga else 0)
+            row["scored"] += gf
+            row["points"] += pts
+            row["results"].append(
+                {
+                    "start": str(rec.get("start") or rec.get("date") or ""),
+                    "opponent": str(rec.get(other) or ""),
+                    "venue": side,
+                    "gf": gf,
+                    "ga": ga,
+                    "points": pts,
+                    "letter": "W" if pts == 3 else ("D" if pts == 1 else "L"),
+                }
+            )
             for ev in rec.get("events") or []:
                 kind = ev.get("kind")
                 team = ev.get("team")
@@ -150,6 +186,42 @@ def _league_table(slug: str, teams: dict[str, dict[str, Any]], label: str) -> di
         "goals": (tot_goals / tot_games) if tot_games else 0.0,
     }
     weights = OFFENSE_WEIGHTS_XG if basis == "xg" else OFFENSE_WEIGHTS_SOT
+    # League points per team-game (≈1.37 with a typical draw rate) anchors momentum's par.
+    par_ppg = (sum(r["points"] for r in rows) / tot_games) if tot_games else 1.0
+    par_scored = (sum(r["scored"] for r in rows) / tot_games) if tot_games else 0.0
+
+    def _shrunk_rate(total: float, games: float, par: float) -> float:
+        return (total + PRIOR_GAMES * par) / (games + PRIOR_GAMES)
+
+    def _momentum(r: dict[str, Any]) -> tuple[float, list[dict[str, Any]]]:
+        recent = sorted(r["results"], key=lambda g: g["start"])[-FORM_GAMES:]
+        if not recent or par_ppg <= 0:
+            return 100.0, recent
+        # Linear recency weights (oldest 1 … newest n), scaled so they sum to n games'
+        # worth of evidence before the prior pulls thin samples toward par.
+        raw = [float(i) for i in range(1, len(recent) + 1)]
+        scale = len(recent) / sum(raw)
+        wpts = sum(w * scale * g["points"] for w, g in zip(raw, recent))
+        ppg = _shrunk_rate(wpts, len(recent), par_ppg)
+        return 100.0 * ppg / par_ppg, recent
+
+    def _potential(r: dict[str, Any], defense: float) -> tuple[float, float]:
+        """(underlying strength from chance quality, the same index on actual goals)."""
+        if basis == "xg" and par_rates["xg"] > 0:
+            creation = _shrunk_rate(r["xg"], r["games_xg"], par_rates["xg"]) / par_rates["xg"]
+        elif par_rates["sot"] > 0:
+            creation = _shrunk_rate(r["sot"], r["games"], par_rates["sot"]) / par_rates["sot"]
+        else:
+            creation = 1.0
+        potential = 100.0 * (creation * defense / 100.0) ** 0.5
+        if par_scored > 0:
+            gf_idx = _shrunk_rate(r["scored"], r["games"], par_scored) / par_scored
+            ga_pg = _shrunk_rate(r["conceded"], r["games"], par_scored)
+            ga_idx = par_scored / ga_pg if ga_pg > 0 else 1.0
+            results = 100.0 * (gf_idx * ga_idx) ** 0.5
+        else:
+            results = 100.0
+        return potential, results
 
     def _offense(r: dict[str, Any]) -> float:
         score = 0.0
@@ -177,8 +249,25 @@ def _league_table(slug: str, teams: dict[str, dict[str, Any]], label: str) -> di
             power = 100.0 * conv / par_conv if par_conv else 100.0
             sota_pg = (r["sot_against"] + PRIOR_GAMES * par_sota) / (r["games"] + PRIOR_GAMES)
             defense = 100.0 * par_sota / sota_pg if sota_pg > 0 else 100.0
+        momentum, recent = _momentum(r)
+        potential, results = _potential(r, defense)
+        gap = potential - results
+        potential_tag = "upside" if gap >= POTENTIAL_GAP else ("overachieving" if gap <= -POTENTIAL_GAP else "steady")
         row = {
-            **r,
+            **{k: v for k, v in r.items() if k != "results"},
+            # Only what the chiclet tooltip needs; the full log would triple the payload.
+            "recent": [{"date": g["start"][:10], "opponent": g["opponent"], "venue": g["venue"], "gf": g["gf"], "ga": g["ga"], "letter": g["letter"]} for g in recent],
+            "form": "".join(g["letter"] for g in recent),
+            "recent_points": sum(g["points"] for g in recent),
+            "recent_scored": sum(g["gf"] for g in recent),
+            "recent_allowed": sum(g["ga"] for g in recent),
+            "points_per_game": round(r["points"] / r["games"], 2) if r["games"] else 0.0,
+            "scored_per_game": round(r["scored"] / r["games"], 2) if r["games"] else 0.0,
+            "momentum": int(round(momentum)),
+            "rising": momentum > 100.0,
+            "potential": int(round(potential)),
+            "results_power": int(round(results)),
+            "potential_tag": potential_tag,
             "xg": round(r["xg"], 2),
             "xg_against": round(r["xg_against"], 2),
             "power": int(round(power)),
@@ -201,6 +290,8 @@ def _league_table(slug: str, teams: dict[str, dict[str, Any]], label: str) -> di
             "rank": None,
             "offense_rank": None,
             "defense_rank": None,
+            "momentum_rank": None,
+            "potential_rank": None,
         }
         out_rows.append(row)
 
@@ -214,12 +305,21 @@ def _league_table(slug: str, teams: dict[str, dict[str, Any]], label: str) -> di
     by_defense = sorted(ranked, key=lambda r: (-r["defense_power"], r["conceded"], r["team"]))
     for i, r in enumerate(by_defense, start=1):
         r["defense_rank"] = i
+    by_momentum = sorted(ranked, key=lambda r: (-r["momentum"], -r["recent_points"], r["recent_allowed"] - r["recent_scored"], r["team"]))
+    for i, r in enumerate(by_momentum, start=1):
+        r["momentum_rank"] = i
+    by_potential = sorted(ranked, key=lambda r: (-r["potential"], -r["xg"], -r["sot"], r["team"]))
+    for i, r in enumerate(by_potential, start=1):
+        r["potential_rank"] = i
     out_rows.sort(key=lambda r: (r["rank"] is None, r["rank"] or 0, r["team"]))
     return {
         "slug": slug,
         "label": label,
         "basis": basis,
         "teams_ranked": len(ranked),
+        "form_games": FORM_GAMES,
+        "par_points_per_game": round(par_ppg, 2),
+        "par_goals_per_game": round(par_scored, 2),
         "par_conversion_pct": int(round(100 * par_conv)),
         "par_rates": {k: round(v, 2) for k, v in par_rates.items()},
         "offense_weights": weights,
