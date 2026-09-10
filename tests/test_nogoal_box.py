@@ -279,6 +279,64 @@ def test_backtest_reports_box_edge_and_gain():
     assert "xg" not in stats  # no xG feed in this archive
 
 
+def test_backtest_league_table(monkeypatch):
+    monkeypatch.delenv("EEESOC_NOGOAL_LEAGUES", raising=False)
+    monkeypatch.delenv("EEESOC_NOGOAL_WINDOW_1H", raising=False)
+    recs = _box_records()
+    # a second, busier league with few games
+    for i, r in enumerate(recs[:8]):
+        recs[i] = {**r, "league_slug": "two.1", "event_id": f"2{r['event_id']}"}
+    model = build_model(recs)
+    bt = nogoal.backtest(model, recs, league_threshold=0.6)
+    assert bt["league_threshold"] == 0.6
+    rows = {r["league"]: r for r in bt["leagues"]}
+    assert set(rows) == {"one.1", "two.1"}
+    one = rows["one.1"]
+    assert one["games"] == 112 and rows["two.1"]["games"] == 8
+    assert one["goals_per_game"] > 0 and one["goals_1h_per_game"] >= 0 and 0 <= one["ht_zero_pct"] <= 100
+    assert one["box_1h_per_game"] > 0
+    assert one["factor"] == model["leagues"]["one.1"]["factor"]
+    assert one["fired"] <= one["games"] and (one["hit_pct"] is None or 0 <= one["hit_pct"] <= 100)
+    if one["fired"]:
+        assert 10 <= one["avg_minute"] <= 35
+    c15 = one["cuts"]["15"]
+    assert c15["n"] > 10 and c15["top_pct"] is not None and c15["bottom_pct"] is not None
+    # the box-driven archive separates cleanly inside the league
+    assert c15["top_pct"] > c15["bottom_pct"]
+    assert one["enabled"] is True
+    # sorted by goals per game
+    gpg = [r["goals_per_game"] for r in bt["leagues"]]
+    assert gpg == sorted(gpg)
+    # tiny league: split needs 10 games, reports n only
+    two15 = rows["two.1"]["cuts"]["15"]
+    assert two15["top_pct"] is None and two15["n"] <= 8
+
+
+def test_league_allow_list(monkeypatch):
+    monkeypatch.delenv("EEESOC_NOGOAL_LEAGUES", raising=False)
+    assert nogoal.allowed_leagues() == set()
+    assert nogoal.league_enabled("ned.1") is True
+    monkeypatch.setenv("EEESOC_NOGOAL_LEAGUES", "arg.1, ENG.2 ,")
+    assert nogoal.allowed_leagues() == {"arg.1", "eng.2"}
+    assert nogoal.league_enabled("arg.1") and nogoal.league_enabled("Eng.2")
+    assert not nogoal.league_enabled("ned.1")
+    monkeypatch.setenv("EEESOC_NOGOAL_THRESHOLD", "0.5")
+    monkeypatch.delenv("EEESOC_NOGOAL_WINDOW_1H", raising=False)
+    model = build_model(_box_records())
+    tl = {"minute": 30, "events": [], "home_score": 0, "away_score": 0}
+    off = evaluate_live(model, tl, league_slug="ned.1")
+    on = evaluate_live(model, tl, league_slug="arg.1")
+    assert off["league_enabled"] is False and off["ready"] is False
+    assert on["league_enabled"] is True and on["ready"] is (on["p_no_goal"] >= 0.5)
+    # the monitor never fires for a league that is off
+    board = {"leagues": [{"slug": "ned.1", "chiclet": "NED", "name": "Eredivisie", "matches": [
+        {"event_id": "8", "state": "in", "home": "A", "away": "B", "home_score": 0, "away_score": 0, "clock": "30'"}]}]}
+    msgs, store, evals = nogoal_monitor.poll(board=board, model=model, state={"signals": {}}, fetch_timeline=lambda m: tl, now=1.0)
+    assert msgs == [] and store["signals"] == {} and evals["8"]["league_enabled"] is False
+    bt = nogoal.backtest(model, _box_records())
+    assert all(r["enabled"] is False for r in bt["leagues"])  # one.1 is not on the list
+
+
 def test_backtest_without_box_data_reports_unfitted():
     recs = [{"league_slug": "x.1", "events": [_ev(20, "goal")], "ft_home": 1, "ft_away": 0, "ht_home": 1, "ht_away": 0} for _ in range(50)]
     model = build_model(recs)

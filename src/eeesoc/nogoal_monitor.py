@@ -14,6 +14,7 @@ EEESOC_DISCORD_WEBHOOK      Discord webhook URL to post to (unset = evaluate onl
 EEESOC_NOGOAL_THRESHOLD     P(no goal) needed to fire (default 0.65)
 EEESOC_NOGOAL_WINDOW_1H     minutes the 1st-half trigger may fire, e.g. 10-35
 EEESOC_NOGOAL_WINDOW_2H     same for the 2nd half, e.g. 50-78
+EEESOC_NOGOAL_LEAGUES       comma-separated league slugs to fire for, e.g. arg.1,eng.2 (unset = all)
 EEESOC_NOGOAL_POLL_S        seconds between polls (default 20)
 EEESOC_NOGOAL_MONITOR       0 disables the background thread in the dashboard
 """

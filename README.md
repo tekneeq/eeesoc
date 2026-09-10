@@ -76,6 +76,15 @@ state. The model is fitted from the finished-match archive and refits as it grow
   Within any given minute the clock+league model cannot tell one 0–0 from another (AUC 0.50); with the
   box factors it can (0.55–0.57), and picking the most confident third of goalless games at 20′ lifted
   the held rate from 49% to 57% on forward-validated data.
+- **League by league.** Leagues differ a lot (Liga Profesional 2.1 goals a game and 0–0 at the break 44%
+  of the time; Eredivisie 4.0 and 20%), and the league factor carries that. The box edge was re-tested per
+  league: measuring quiet/busy against each league's own pace, fitting the exponents per league, and a
+  league goals-per-entry conversion were all worse out of sample — a busy MLS fixture really is more
+  dangerous than a quiet Liga ARG one, and 20–140 games per league is too few to fit separately. The same
+  pooled model runs everywhere; the Signals tab's league table shows, per league, the base rates, what the
+  trigger would have done at the current threshold, and whether the model separates that league's own
+  goalless games (held rate of its more-confident half vs its less-confident half). `EEESOC_NOGOAL_LEAGUES`
+  (comma-separated slugs) restricts firing to the leagues you trust.
 - **Not used, on purpose.** Shots / xG so far this half, the last ten minutes' activity and club
   attack/defence strength were all tried and did not lower the log loss, so they are shown as context only.
   The classic "0–0 with under four shots at 15′" read is measured directly in the backtest: in the current
@@ -97,6 +106,7 @@ EEESOC_DISCORD_WEBHOOK=https://discord.com/api/webhooks/...   # unset = evaluate
 # EEESOC_NOGOAL_THRESHOLD=0.65     # P(no goal) needed to fire; pick from the Signals policy table
 # EEESOC_NOGOAL_WINDOW_1H=10-35    # minutes the 1st-half trigger may fire
 # EEESOC_NOGOAL_WINDOW_2H=50-78    # same for the 2nd half
+# EEESOC_NOGOAL_LEAGUES=arg.1,eng.2 # only fire in these leagues (unset = all)
 # EEESOC_NOGOAL_POLL_S=20          # seconds between polls
 # EEESOC_NOGOAL_MONITOR=0          # disable the background thread
 ```
