@@ -6,6 +6,9 @@ Freeze an in-play snapshot (cut minute, goal times, shots/SOT) and rank last-sea
 
 The **Live** tab shows in-play matches as Revenant-style **match chiclets**, grouped by league.
 Tap a chiclet for a live pitch graphic: ball position, pass trails, and shot markers (ESPN play coordinates).
+Each chiclet also has a rolling 15′ pressure bar (who is in the other side's final third right now)
+and a pressure graph of that same window at every minute, so a first-half siege that flipped after
+the break is visible instead of collapsing to "even".
 
 Every chiclet also carries each club's **⚡ clinical power** (`/api/clinical`): goals per 100 xG over the
 archived finished games this season, shrunk toward league par for thin samples. 100 means the club scores
