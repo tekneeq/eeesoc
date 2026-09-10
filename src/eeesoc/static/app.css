@@ -2875,6 +2875,13 @@ main {
   font-size: 0.56rem;
 }
 
+.mc-half-ht {
+  font-size: 0.56rem;
+  color: var(--muted);
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
 /* Companion stat beside the rank: goals scored / allowed per game, recent W D L, results index. */
 .mc-power-stat {
   color: var(--text);
