@@ -224,9 +224,10 @@
               <b>passes into the penalty box</b> — how often these two clubs’ halves usually reach the box,
               and how many entries this half has produced so far. When it clears the threshold inside the betting window it fires
               <b>once per half</b> — on the chiclet and, with <code>EEESOC_DISCORD_WEBHOOK</code> set, in
-              Discord — then tracks the half to <b>held</b> or <b>busted</b>. The tables below replay the whole
-              archive so you can see what each threshold would have done, and whether the probabilities mean
-              what they say. <code>1 / P</code> is the decimal price you need to break even.
+              Discord — then tracks the half to <b>held</b> or <b>busted</b>. The live record is a
+              <b>daily bar</b> (green held, red busted) — click a day to open those game chiclets.
+              The tables below replay the whole archive so you can see what each threshold would have done,
+              and whether the probabilities mean what they say. <code>1 / P</code> is the decimal price you need to break even.
             </p>
           </div>
           <div class="live-status">
@@ -238,6 +239,7 @@
           <div class="sig-card" id="sigConfig"></div>
           <div class="sig-card" id="sigRecord"></div>
         </div>
+        <div class="sig-card" id="sigDayGames" hidden></div>
         <div class="sig-card" id="sigEdge"></div>
         <div class="sig-card" id="sigLog"></div>
         <div class="sig-grid">

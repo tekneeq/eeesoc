@@ -2571,6 +2571,125 @@ main {
   overflow-x: auto;
 }
 
+.sig-days {
+  margin-top: 0.7rem;
+}
+
+.sig-days-svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+
+.sig-day {
+  cursor: pointer;
+}
+
+.sig-day:focus {
+  outline: none;
+}
+
+.sig-day:focus .sig-day-frame,
+.sig-day.on .sig-day-frame {
+  stroke: var(--accent);
+  stroke-width: 1.6;
+}
+
+.sig-day-held {
+  fill: var(--accent);
+}
+
+.sig-day-busted {
+  fill: var(--danger);
+}
+
+.sig-day-open {
+  fill: var(--warn);
+}
+
+.sig-day-void {
+  fill: rgba(180, 210, 200, 0.35);
+}
+
+.sig-day-frame {
+  fill: rgba(255, 255, 255, 0.04);
+  stroke: rgba(180, 210, 200, 0.18);
+  stroke-width: 1;
+}
+
+.sig-day-label {
+  fill: rgba(195, 220, 210, 0.85);
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 9px;
+}
+
+.sig-day-count {
+  fill: rgba(230, 245, 238, 0.95);
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.sig-outcome {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin: 0.15rem 0 0.25rem;
+}
+
+.sig-outcome-pill {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.35rem;
+  padding: 0.18rem 0.45rem;
+  border-radius: 0.28rem;
+  border: 1px solid var(--line);
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  color: var(--text);
+}
+
+.sig-outcome-pill.held {
+  border-color: rgba(125, 255, 179, 0.35);
+  color: var(--accent);
+}
+
+.sig-outcome-pill.busted {
+  border-color: rgba(255, 110, 110, 0.4);
+  color: var(--danger);
+}
+
+.sig-outcome-pill.open {
+  border-color: rgba(255, 200, 87, 0.4);
+  color: var(--warn);
+}
+
+.sig-outcome-pill.void {
+  color: var(--muted);
+}
+
+#sigDayGames .match-chiclet-row {
+  margin-top: 0.5rem;
+}
+
+.sig-log-when {
+  appearance: none;
+  background: none;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-color: rgba(125, 255, 179, 0.35);
+}
+
+.sig-log-when:hover {
+  color: var(--accent);
+}
+
 /* Goals-per-half odds: 0 / 1 / 2 / 3+ cells, the most common bucket highlighted. */
 .mc-half-side {
   gap: 0.22rem;

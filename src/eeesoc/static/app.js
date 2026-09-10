@@ -29,6 +29,8 @@
     htLoading: false,
     clinical: null, // /api/clinical board: leagues[slug].teams[]
     clinicalTimer: null,
+    sigDay: null, // "YYYY-MM-DD" local day selected on the Signals daily bars
+    sigSignals: [],
   };
 
   const HT_POLL_MS = 20000;
@@ -293,6 +295,203 @@
     return `${d.toLocaleDateString([], { month: "short", day: "numeric" })} ${d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`;
   }
 
+  function sigDayKey(ts) {
+    const d = new Date((Number(ts) || 0) * 1000);
+    if (Number.isNaN(d.getTime())) return "";
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
+  }
+
+  function sigDayLabel(key) {
+    const [y, m, d] = String(key || "").split("-").map(Number);
+    if (!y || !m || !d) return key || "";
+    return new Date(y, m - 1, d).toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" });
+  }
+
+  function groupSignalsByDay(signals) {
+    const map = new Map();
+    for (const s of signals || []) {
+      const key = sigDayKey(s.fired_at);
+      if (!key) continue;
+      if (!map.has(key)) map.set(key, []);
+      map.get(key).push(s);
+    }
+    return [...map.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+  }
+
+  function dayBucket(key, list) {
+    const held = list.filter((s) => s.status === "held").length;
+    const busted = list.filter((s) => s.status === "busted").length;
+    const open = list.filter((s) => s.status === "open").length;
+    const voided = list.filter((s) => s.status === "void").length;
+    const done = held + busted;
+    return {
+      key,
+      held,
+      busted,
+      open,
+      void: voided,
+      fired: list.length,
+      hit_pct: done ? Math.round((100 * held) / done) : null,
+    };
+  }
+
+  function dailyBarsHtml(days, selected) {
+    if (!days.length) return "";
+    const W = Math.max(320, days.length * 52 + 16);
+    const H = 118;
+    const padL = 6;
+    const padR = 6;
+    const padT = 16;
+    const padB = 26;
+    const innerH = H - padT - padB;
+    const max = Math.max(1, ...days.map((d) => d.fired));
+    const slot = (W - padL - padR) / days.length;
+    const bw = Math.min(34, Math.max(14, slot - 10));
+    const bars = days
+      .map((d, i) => {
+        const x = padL + i * slot + (slot - bw) / 2;
+        let y = padT + innerH;
+        const segs = [];
+        const stack = [
+          ["held", d.held],
+          ["busted", d.busted],
+          ["open", d.open],
+          ["void", d.void],
+        ];
+        for (const [cls, n] of stack) {
+          if (!n) continue;
+          const h = (n / max) * innerH;
+          y -= h;
+          segs.push(`<rect class="sig-day-${cls}" x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${bw.toFixed(1)}" height="${h.toFixed(1)}"/>`);
+        }
+        const frameY = padT + innerH - (d.fired / max) * innerH;
+        const frameH = (d.fired / max) * innerH;
+        const hit = d.hit_pct != null ? `${d.held}/${d.held + d.busted}` : `${d.fired}`;
+        const title = `${sigDayLabel(d.key)} · ${d.held} held · ${d.busted} busted${d.open ? ` · ${d.open} open` : ""}${d.void ? ` · ${d.void} void` : ""}`;
+        const short = new Date(`${d.key}T00:00:00`).toLocaleDateString([], { month: "short", day: "numeric" });
+        return `<g class="sig-day${d.key === selected ? " on" : ""}" role="button" tabindex="0" data-sig-day="${escapeHtml(d.key)}" aria-label="${escapeHtml(title)}">
+          <title>${escapeHtml(title)}</title>
+          <rect class="sig-day-frame" x="${x.toFixed(1)}" y="${frameY.toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.max(frameH, 2).toFixed(1)}"/>
+          ${segs.join("")}
+          <text class="sig-day-count" x="${(x + bw / 2).toFixed(1)}" y="${Math.max(padT - 2, frameY - 3).toFixed(1)}" text-anchor="middle">${hit}</text>
+          <text class="sig-day-label" x="${(x + bw / 2).toFixed(1)}" y="${H - 8}" text-anchor="middle">${escapeHtml(short)}</text>
+        </g>`;
+      })
+      .join("");
+    return `<svg class="sig-days-svg" viewBox="0 0 ${W} ${H}" width="100%" height="${H}" role="img" aria-label="Daily no-goal signal record">${bars}</svg>`;
+  }
+
+  function signalStatusLabel(s) {
+    if (s.status === "held") return "✅ held";
+    if (s.status === "busted") return `❌ busted ${s.resolved_minute ?? ""}′`.trim();
+    if (s.status === "void") return "⚪ void";
+    return "⏳ open";
+  }
+
+  function signalOutcomeHtml(list) {
+    return `<div class="sig-outcome">${list
+      .map((s) => {
+        const p = s.eval?.p_no_goal_pct;
+        const half = s.period === 1 ? "1H" : "2H";
+        return `<span class="sig-outcome-pill ${escapeHtml(s.status || "open")}" title="${escapeHtml(signalStatusLabel(s))}">${half} ${s.fired_minute}′ · ${signalStatusLabel(s)}${p != null ? ` · P ${p}%` : ""}</span>`;
+      })
+      .join("")}</div>`;
+  }
+
+  function matchFromSignals(list) {
+    const s = list[0];
+    const scored = list.find((x) => x.final_score) || list.find((x) => x.status !== "open") || s;
+    const score = scored.final_score || scored.score || [0, 0];
+    const open = list.some((x) => x.status === "open");
+    return {
+      event_id: String(s.event_id || ""),
+      home: s.home || "Home",
+      away: s.away || "Away",
+      home_id: s.home_id || "",
+      away_id: s.away_id || "",
+      home_score: Number(score[0]) || 0,
+      away_score: Number(score[1]) || 0,
+      league_slug: s.league_slug || "",
+      league_chiclet: s.league_chiclet || "",
+      league_name: s.league_name || "",
+      start: s.start || "",
+      clock: open ? s.clock || "LIVE" : "FT",
+      state: open ? "in" : "post",
+    };
+  }
+
+  function bindDailyBars(root) {
+    if (!root) return;
+    root.querySelectorAll("[data-sig-day]").forEach((el) => {
+      const pick = () => selectSigDay(el.dataset.sigDay);
+      el.addEventListener("click", (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        pick();
+      });
+      el.addEventListener("keydown", (ev) => {
+        if (ev.key === "Enter" || ev.key === " ") {
+          ev.preventDefault();
+          pick();
+        }
+      });
+    });
+  }
+
+  function selectSigDay(key) {
+    state.sigDay = key || null;
+    const root = $("#sigRecord");
+    if (root) {
+      root.querySelectorAll("[data-sig-day]").forEach((el) => {
+        el.classList.toggle("on", el.dataset.sigDay === state.sigDay);
+      });
+    }
+    renderSignalDayGames();
+  }
+
+  function renderSignalDayGames() {
+    const mount = $("#sigDayGames");
+    if (!mount) return;
+    const byDay = new Map(groupSignalsByDay(state.sigSignals));
+    const key = state.sigDay && byDay.has(state.sigDay) ? state.sigDay : null;
+    if (!key) {
+      mount.hidden = true;
+      mount.innerHTML = "";
+      return;
+    }
+    const list = byDay.get(key) || [];
+    const games = new Map();
+    for (const s of list) {
+      const id = String(s.event_id || s.key || "");
+      if (!games.has(id)) games.set(id, []);
+      games.get(id).push(s);
+    }
+    mount.hidden = false;
+    const held = list.filter((s) => s.status === "held").length;
+    const busted = list.filter((s) => s.status === "busted").length;
+    mount.innerHTML = `<h3>${escapeHtml(sigDayLabel(key))}</h3>
+      <p class="sig-muted">${list.length} signal${list.length === 1 ? "" : "s"} · ${held} held · ${busted} busted — each chiclet is the game as ESPN filed it.</p>
+      <div class="match-chiclet-row match-chiclet-row-tl" id="sigDayGrid"></div>`;
+    const grid = mount.querySelector("#sigDayGrid");
+    for (const group of games.values()) {
+      const m = matchFromSignals(group);
+      const btn = buildMatchChicletButton(m, null, null, true);
+      const power = btn.querySelector(".mc-power");
+      const strip = document.createElement("div");
+      strip.innerHTML = signalOutcomeHtml(group);
+      const node = strip.firstElementChild;
+      if (node && power) power.insertAdjacentElement("afterend", node);
+      else if (node) btn.prepend(node);
+      grid.appendChild(btn);
+      if (m.event_id && m.league_slug) {
+        loadMatchTimeline(m, btn.querySelector(".mc-timeline"), btn.querySelector(".mc-xg"), { quiet: true });
+      }
+    }
+  }
+
   async function refreshSignals() {
     const stamp = $("#sigStamp");
     try {
@@ -321,17 +520,27 @@
       $("#sigEdge").innerHTML = edgeCardHtml(b.box_edge || {});
 
       const rec = log || {};
+      state.sigSignals = rec.signals || [];
+      const byDay = groupSignalsByDay(state.sigSignals);
+      const days = byDay.map(([key, list]) => dayBucket(key, list));
+      if (!state.sigDay || !days.some((d) => d.key === state.sigDay)) {
+        state.sigDay = days.length ? days[days.length - 1].key : null;
+      }
       $("#sigRecord").innerHTML = `
         <h3>Live record</h3>
         <p class="sig-big">${rec.held ?? 0}/${rec.resolved ?? 0} <span class="sig-muted">held${rec.hit_pct != null ? ` · ${rec.hit_pct}%` : ""}</span></p>
         <p>${rec.open ?? 0} open signal${(rec.open ?? 0) === 1 ? "" : "s"} right now.</p>
-        <p class="sig-muted">A signal is <b>held</b> if the half ended without another goal, <b>busted</b> at the minute one landed. Compare the hit rate with the price you were offered — the model is only worth following where the book pays more than 1 / P.</p>`;
+        <p class="sig-muted">A signal is <b>held</b> if the half ended without another goal, <b>busted</b> at the minute one landed. Each bar is a day — green held, red busted. Click a bar to open those game chiclets.</p>
+        ${days.length ? `<div class="sig-days">${dailyBarsHtml(days, state.sigDay)}</div>` : ""}`;
+      bindDailyBars($("#sigRecord"));
+      renderSignalDayGames();
 
       const rows = (rec.signals || []).slice(0, 60).map((s) => {
         const p = s.eval?.p_no_goal_pct ?? "—";
-        const st = s.status === "held" ? "✅ held" : s.status === "busted" ? `❌ busted ${s.resolved_minute ?? ""}′` : s.status === "void" ? "⚪ void" : "⏳ open";
+        const st = signalStatusLabel(s);
+        const day = sigDayKey(s.fired_at);
         return [
-          sigWhen(s.fired_at),
+          `<button type="button" class="sig-log-when" data-sig-day="${escapeHtml(day)}">${sigWhen(s.fired_at)}</button>`,
           escapeHtml(s.league_chiclet || ""),
           `${escapeHtml(s.home)} ${s.score?.[0] ?? 0}–${s.score?.[1] ?? 0} ${escapeHtml(s.away)}`,
           `${s.period === 1 ? "1H" : "2H"} ${s.fired_minute}′`,
@@ -340,6 +549,7 @@
         ];
       });
       $("#sigLog").innerHTML = `<h3>Signals</h3>${rows.length ? sigTable(["When", "League", "Game", "Fired", "P(no goal)", "Result"], rows) : "<p class='sig-muted'>No signal has fired yet. They appear here and on the live chiclets the moment one does.</p>"}`;
+      bindDailyBars($("#sigLog"));
 
       const pol = (b.policy || []).map((r) => [
         `${Math.round(r.threshold * 100)}%`,
@@ -1815,17 +2025,19 @@
     const hasSvg = () => !!mount.querySelector("svg.mc-tl-svg");
 
     const paint = (tl) => {
+      const card = mount.closest(".match-chiclet");
+      const root = card || document;
+      const eid = CSS.escape(String(m.event_id));
       if (mount.isConnected) mount.innerHTML = timelineSvg(tl);
       if (xgMount && xgMount.isConnected) xgMount.innerHTML = xgSvg(tl);
-      const stats = document.querySelector(`.mc-stats[data-stats-for="${CSS.escape(String(m.event_id))}"]`);
+      const stats = root.querySelector(`.mc-stats[data-stats-for="${eid}"]`);
       if (stats) stats.innerHTML = chicletStatsHtml(tl);
-      const board = document.querySelector(`.mc-bulletin[data-bulletin-for="${CSS.escape(String(m.event_id))}"]`);
+      const board = root.querySelector(`.mc-bulletin[data-bulletin-for="${eid}"]`);
       if (board) board.innerHTML = chicletBulletinHtml(tl);
-      const terr = document.querySelector(`.mc-territory[data-terr-for="${CSS.escape(String(m.event_id))}"]`);
+      const terr = root.querySelector(`.mc-territory[data-terr-for="${eid}"]`);
       if (terr) terr.innerHTML = territorySvg(tl);
-      const press = document.querySelector(`.mc-pressure-wrap[data-press-for="${CSS.escape(String(m.event_id))}"]`);
+      const press = root.querySelector(`.mc-pressure-wrap[data-press-for="${eid}"]`);
       if (press) press.innerHTML = pressureHtml(tl);
-      const card = mount.closest(".match-chiclet");
       if (card) {
         const shown = displayedScore(m, tl);
         applyChicletScore(card, shown.home, shown.away);
