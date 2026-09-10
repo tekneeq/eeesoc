@@ -857,6 +857,12 @@ main {
   }
 }
 
+.mc-pressure-wrap {
+  display: block;
+  width: 100%;
+  grid-column: 1 / -1;
+}
+
 .mc-xg {
   display: block;
   width: 100%;
@@ -993,7 +999,7 @@ main {
   display: flex;
   flex-direction: column;
   gap: 0.25rem;
-  margin-top: 0.35rem;
+  margin-top: 0;
   padding: 0.45rem 0.55rem;
   border: 1px solid var(--line);
   border-radius: 0.4rem;
@@ -1001,6 +1007,41 @@ main {
   font-family: var(--mono);
   font-size: 0.68rem;
   color: var(--muted);
+}
+
+.mc-press-svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+  margin-top: 0.15rem;
+}
+
+.press-fill-h {
+  fill: var(--accent);
+  fill-opacity: 0.38;
+}
+
+.press-fill-a {
+  fill: rgba(125, 200, 255, 0.95);
+  fill-opacity: 0.32;
+}
+
+.press-line {
+  stroke: rgba(230, 245, 238, 0.92);
+  stroke-width: 1.6;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.press-mid {
+  stroke: rgba(180, 210, 200, 0.28);
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+}
+
+.press-hit {
+  fill: transparent;
 }
 
 .mc-pressure.lead-home {

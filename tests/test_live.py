@@ -642,6 +642,38 @@ def test_pressure_window_flags_late_siege_the_territory_map_hides():
     assert late["home"]["final_third"] == 0
 
 
+def test_pressure_series_keeps_the_first_half_siege_after_the_flip():
+    from eeesoc.live import _build_pressure, _build_pressure_series
+
+    pts = [(m, 85.0, 50.0, "home", None) for m in range(5, 40)]
+    pts += [(m, 40.0, 50.0, "away", None) for m in range(5, 40)]
+    pts += [(m, 40.0, 50.0, "home", None) for m in range(60, 89)]
+    pts += [(m, 85.0, 50.0, "away", None) for m in range(60, 89)]
+
+    series = _build_pressure_series(pts, now_minute=88)
+    assert [p["minute"] for p in series] == list(range(1, 89))
+    # Too few actions in the opening window — gap, not a fake 50-50.
+    assert series[4]["label"] == "quiet"
+    assert series[4]["home"] is None
+
+    at_30 = next(p for p in series if p["minute"] == 30)
+    assert at_30["leader"] == "home"
+    assert at_30["home"] == 1.0
+    assert at_30["final_third"] == {"home": 15, "away": 0}
+
+    at_88 = series[-1]
+    assert at_88["leader"] == "away"
+    assert at_88["away"] == 1.0
+    assert at_88["final_third"]["home"] == 0
+
+    # The snapshot at 88' still agrees with the last series point, but the
+    # first-half siege is still on the series — that is the graph's job.
+    snap = _build_pressure(pts, now_minute=88)
+    assert snap["leader"] == "away"
+    assert snap["series"][29]["leader"] == "home"
+    assert snap["series"][-1]["leader"] == "away"
+
+
 def test_pressure_quiet_when_too_little_data():
     from eeesoc.live import _build_pressure
 
@@ -692,6 +724,9 @@ def test_timeline_payload_includes_pressure():
     assert p["leader"] == "away"
     assert p["away"]["final_third"] == 30
     assert p["home"]["final_third"] == 0
+    assert p["series"][-1]["leader"] == "away"
+    assert p["series"][-1]["minute"] == 75
+    assert len(p["series"]) == 75
 
 
 def test_own_goal_is_not_a_regular_goal_tick():

@@ -1286,6 +1286,9 @@
               <span class="mc-territory" data-terr-for="${escapeHtml(m.event_id)}" aria-label="Territory map">${
                 cached ? territorySvg(cached) : `<span class="mc-timeline-loading">territory…</span>`
               }</span>
+              <span class="mc-pressure-wrap" data-press-for="${escapeHtml(m.event_id)}" aria-label="Rolling pressure versus time">${
+                cached ? pressureHtml(cached) : `<span class="mc-timeline-loading">pressure…</span>`
+              }</span>
             </div>`
         : "";
     btn.innerHTML = `
@@ -1603,16 +1606,106 @@
     return "";
   }
 
+  function pressureSeriesRuns(series) {
+    const runs = [];
+    let run = [];
+    for (const p of series || []) {
+      if (p.home == null) {
+        if (run.length) {
+          runs.push(run);
+          run = [];
+        }
+        continue;
+      }
+      run.push(p);
+    }
+    if (run.length) runs.push(run);
+    return runs;
+  }
+
+  function pressureSeriesSvg(tl) {
+    const p = tl.pressure;
+    const series = p?.series || [];
+    const W = 640;
+    const H = 92;
+    const padL = 28;
+    const padR = 10;
+    const padT = 12;
+    const padB = 18;
+    const { maxM, now } = chartAxis(tl);
+    const ticks = maxM <= 45 ? [15, 30] : [15, 30, 45, 60, 75];
+    const xAt = (m) => padL + ((Number(m) / maxM) * (W - padL - padR));
+    const yAt = (v) => padT + ((1 - Number(v)) * (H - padT - padB));
+    const nowX = xAt(now).toFixed(1);
+    const y0 = yAt(0).toFixed(1);
+    const yMid = yAt(0.5).toFixed(1);
+    const yTop = yAt(1).toFixed(1);
+    const runs = pressureSeriesRuns(series);
+    const homeAreas = [];
+    const awayAreas = [];
+    const lines = [];
+    for (const run of runs) {
+      const x0 = xAt(run[0].minute).toFixed(1);
+      const xN = xAt(run[run.length - 1].minute).toFixed(1);
+      const homePts = run.map((pt) => `${xAt(pt.minute).toFixed(1)} ${yAt(pt.home).toFixed(1)}`);
+      homeAreas.push(`<path class="press-fill-h" d="M ${x0} ${y0} L ${homePts.join(" L ")} L ${xN} ${y0} Z"/>`);
+      awayAreas.push(`<path class="press-fill-a" d="M ${x0} ${yAt(run[0].home).toFixed(1)} L ${homePts.join(" L ")} L ${xN} ${yTop} L ${x0} ${yTop} Z"/>`);
+      lines.push(`<path class="press-line" d="M ${homePts.join(" L ")}" fill="none"/>`);
+    }
+    const tickMarks = ticks
+      .filter((t) => t < maxM)
+      .map((t) => {
+        const tx = xAt(t).toFixed(1);
+        return `<line x1="${tx}" y1="${padT}" x2="${tx}" y2="${y0}" class="tl-ht"/>
+      <text x="${tx}" y="${H - 4}" class="tl-label" text-anchor="middle">${t}'</text>`;
+      })
+      .join("");
+    const tips = series
+      .filter((pt) => pt.home != null && (pt.minute % 5 === 0 || pt.minute === series[series.length - 1].minute))
+      .map((pt) => {
+        const x = xAt(pt.minute);
+        const w = Math.max(6, (W - padL - padR) / maxM);
+        const hPct = Math.round(pt.home * 100);
+        const aPct = Math.max(0, 100 - hPct);
+        const who =
+          pt.leader === "home"
+            ? `${shortName(tl.home || "Home")} pressing`
+            : pt.leader === "away"
+              ? `${shortName(tl.away || "Away")} pressing`
+              : "even";
+        const ft = pt.final_third || {};
+        return `<rect x="${(x - w / 2).toFixed(1)}" y="${padT}" width="${w.toFixed(1)}" height="${(H - padT - padB).toFixed(1)}" class="press-hit" aria-hidden="true"><title>${pt.minute}' · ${escapeHtml(shortName(tl.home || "Home"))} ${hPct}% · ${escapeHtml(shortName(tl.away || "Away"))} ${aPct}% · ${escapeHtml(who)} · ${ft.home || 0}–${ft.away || 0} final-third</title></rect>`;
+      })
+      .join("");
+    const readable = runs.length > 0;
+    return `<svg class="mc-press-svg" viewBox="0 0 ${W} ${H}" width="100%" height="${H}" role="img" aria-label="Rolling ${p?.window || 15} minute pressure versus game time">
+      <text x="4" y="${Number(yTop) + 3}" class="tl-label tl-xg-h">H</text>
+      <text x="4" y="${Number(yMid) + 3}" class="tl-label">50</text>
+      <text x="4" y="${Number(y0) + 3}" class="tl-label tl-xg-a">A</text>
+      <line x1="${padL}" y1="${yTop}" x2="${W - padR}" y2="${yTop}" class="tl-grid"/>
+      <line x1="${padL}" y1="${yMid}" x2="${W - padR}" y2="${yMid}" class="press-mid"/>
+      <line x1="${padL}" y1="${y0}" x2="${W - padR}" y2="${y0}" class="tl-axis"/>
+      ${tickMarks}
+      <line x1="${nowX}" y1="${padT}" x2="${nowX}" y2="${y0}" class="tl-now"/>
+      ${readable ? awayAreas.join("") + homeAreas.join("") + lines.join("") : ""}
+      ${tips}
+      <text x="${padL}" y="${H - 4}" class="tl-label">0'</text>
+      <text x="${W - padR}" y="${H - 4}" class="tl-label" text-anchor="end">${maxM}'</text>
+    </svg>`;
+  }
+
   function pressureHtml(tl) {
     const p = tl.pressure;
     if (!p) return "";
     const homeName = shortName(tl.home || "Home");
     const awayName = shortName(tl.away || "Away");
     const win = p.window || 15;
+    const chart = pressureSeriesSvg(tl);
     if (p.label === "quiet" || p.share?.home == null) {
       return `<span class="mc-pressure">
         <span class="mc-pressure-head">Pressure · last ${win}'</span>
         <span class="mc-pressure-meta">Reading the last ${win}'…</span>
+        ${chart}
       </span>`;
     }
     const h = Math.round(p.share.home * 100);
@@ -1623,7 +1716,7 @@
       ? `${escapeHtml(leadName)} · ${lead.final_third} final-third · ${lead.box} in box · ${lead.corners} corners · ${lead.shots} shots`
       : `Even — ${p.home.final_third} vs ${p.away.final_third} final-third actions`;
     return `<span class="mc-pressure${p.leader ? ` lead-${p.leader}` : ""}">
-      <span class="mc-pressure-head">Pressure · last ${win}'</span>
+      <span class="mc-pressure-head">Pressure · last ${win}' · graph is that window at every minute</span>
       <span class="mc-pressure-row">
         <b class="mc-pressure-h">${h}%</b>
         <span class="mc-pressure-bar" aria-hidden="true">
@@ -1632,6 +1725,7 @@
         </span>
         <b class="mc-pressure-a">${a}%</b>
       </span>
+      ${chart}
       <span class="mc-pressure-meta">${meta}</span>
     </span>`;
   }
@@ -1708,7 +1802,7 @@
       <text x="${padX}" y="${H - 14}" class="tl-label"><tspan class="tl-xg-h">◀ ${escapeHtml(shortName(tl.home || "Home"))}</tspan> defend</text>
       <text x="${W - padX}" y="${H - 14}" class="tl-label" text-anchor="end"><tspan class="tl-xg-a">${escapeHtml(shortName(tl.away || "Away"))} ▶</tspan> defend</text>
       <text x="${midX}" y="${H - 3}" class="terr-headline" text-anchor="middle">${escapeHtml(territoryLabel(tl))}</text>
-    </svg>${pressureHtml(tl)}`;
+    </svg>`;
   }
 
   async function loadMatchTimeline(m, mount, xgMount, opts = {}) {
@@ -1729,6 +1823,8 @@
       if (board) board.innerHTML = chicletBulletinHtml(tl);
       const terr = document.querySelector(`.mc-territory[data-terr-for="${CSS.escape(String(m.event_id))}"]`);
       if (terr) terr.innerHTML = territorySvg(tl);
+      const press = document.querySelector(`.mc-pressure-wrap[data-press-for="${CSS.escape(String(m.event_id))}"]`);
+      if (press) press.innerHTML = pressureHtml(tl);
       const card = mount.closest(".match-chiclet");
       if (card) {
         const shown = displayedScore(m, tl);
@@ -1746,7 +1842,13 @@
         xa: tl.xg?.away_total,
         fouls: [tl.counts?.home_foul, tl.counts?.away_foul],
         terr: tl.territory?.total,
-        press: [tl.pressure?.to_minute, tl.pressure?.home?.final_third, tl.pressure?.away?.final_third],
+        press: [
+          tl.pressure?.to_minute,
+          tl.pressure?.home?.final_third,
+          tl.pressure?.away?.final_third,
+          tl.pressure?.series?.length,
+          tl.pressure?.series?.at(-1)?.home,
+        ],
       });
 
     // Keep existing pictograms visible while refetching — only fill empty mounts from cache.
