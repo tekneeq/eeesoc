@@ -50,6 +50,60 @@ that were 0-0 at the break by league, each cut at 45′ with the same event stri
 **Similar live** scores today's goalless first halves against that archive minute for minute and shows
 the closest lookalikes with a match % and how they finished.
 
+### No-more-goals-this-half signal
+
+Every live chiclet leads with a **🚫 no goal to HT / FT** row: the probability that nobody scores again
+before the break (or the final whistle), the decimal odds you need to break even (`1 / p`), and the trigger
+state. The model is fitted from the finished-match archive and refits as it grows (`eeesoc.nogoal`):
+
+- **Clock.** The empirical goal hazard by minute for each half (the goals ESPN files at 45′ / 90′ are the
+  stoppage-time goals; they carry ~9% of first-half and ~15% of second-half goals) gives the goals still
+  expected this half, `λ`; `P(no goal) = exp(−λ)`.
+- **League.** `λ` is scaled by the league's goals per game against the global rate, shrunk toward par over
+  20 games — Liga Profesional runs ~0.77, the Bundesliga ~1.18.
+- **Score state.** A fitted multiplier below 1 while the game is still 0–0, above 1 once it is not.
+- **Passes into the penalty box — the edge.** Working backwards from every archived half that finished
+  0–0: they had the same passes, final-third passes, corners, fouls and cards as the halves with a goal,
+  but fewer completed passes *into the box* (6.0 vs 7.0 per half). The dashboard keeps every box entry
+  (minute and side) from the ESPN play-by-play — for live games, for every new archive record, and by a
+  one-off backfill for records that predate it (`EEESOC_BOX_BACKFILL=0` disables). Two factors are fitted
+  from them, both as `rate × rel^β` on top of clock × league × score so nothing is counted twice:
+  - *box habit* — how often these two clubs' halves usually reach the box (for and against, shrunk toward
+    the league over 4 games; leave-one-out in the backtest). Quiet fixtures that were 0–0 at 15′ held to HT
+    49% of the time, busy ones 35%.
+  - *entries so far* — this half's entries against the archive pace for the minute. At 25′, games with 0–3
+    entries held 61–65%, games with 6+ held 42%.
+  Within any given minute the clock+league model cannot tell one 0–0 from another (AUC 0.50); with the
+  box factors it can (0.55–0.57), and picking the most confident third of goalless games at 20′ lifted
+  the held rate from 49% to 57% on forward-validated data.
+- **Not used, on purpose.** Shots / xG so far this half, the last ten minutes' activity and club
+  attack/defence strength were all tried and did not lower the log loss, so they are shown as context only.
+  The classic "0–0 with under four shots at 15′" read is measured directly in the backtest: in the current
+  archive those halves stayed goalless 46% of the time versus 44% for every half that was 0–0 at 15′.
+  Shots are a noisy by-product of box entries; once entries are in they add nothing out of sample.
+
+The **Signals** tab replays the archive minute by minute: what 0–0 halves look like against the rest and the
+held rates by box habit and entries so far, calibration (does 70% mean 70%?), log loss against a
+time-only baseline, and the **trigger policy** table — for each confidence threshold, how many games would
+have fired inside the betting window, at what average minute and how often the half really stayed goalless
+— plus the live record and the log of every signal the monitor has fired.
+
+The monitor runs as a background thread inside the dashboard, fires **once per game per half** when
+`P(no goal)` clears the threshold inside the window, tracks the signal to **held** / **busted** (with the
+goal minute and scorer) / **void**, and posts each trigger and outcome to Discord:
+
+```bash
+EEESOC_DISCORD_WEBHOOK=https://discord.com/api/webhooks/...   # unset = evaluate only, no posts
+# EEESOC_NOGOAL_THRESHOLD=0.65     # P(no goal) needed to fire; pick from the Signals policy table
+# EEESOC_NOGOAL_WINDOW_1H=10-35    # minutes the 1st-half trigger may fire
+# EEESOC_NOGOAL_WINDOW_2H=50-78    # same for the 2nd half
+# EEESOC_NOGOAL_POLL_S=20          # seconds between polls
+# EEESOC_NOGOAL_MONITOR=0          # disable the background thread
+```
+
+Signals persist in `<cache>/nogoal-signals.json`; `/api/nogoal/live`, `/api/nogoal/backtest` and
+`/api/nogoal/signals` expose the same data.
+
 ## Quick start
 
 ```bash

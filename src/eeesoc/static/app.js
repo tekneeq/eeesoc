@@ -33,6 +33,7 @@
 
   const HT_POLL_MS = 20000;
   const CLINICAL_POLL_MS = 10 * 60 * 1000;
+  const NOGOAL_POLL_MS = 20000;
 
   const LIVE_POLL_MS = 8000;
   const TIMELINE_FRESH_MS = 5000;
@@ -273,6 +274,149 @@
     if (name === "winprob") refreshWinprob();
     if (name === "halftime") refreshHalftime();
     else stopHalftimeTimer();
+    if (name === "signals") refreshSignals();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Signals tab — no-goal policy backtest, calibration and the live signal log
+  // ---------------------------------------------------------------------------
+
+  function sigTable(head, rows) {
+    return `<table class="sig-table"><thead><tr>${head.map((h) => `<th>${h}</th>`).join("")}</tr></thead><tbody>${rows
+      .map((r) => `<tr>${r.map((c) => `<td>${c}</td>`).join("")}</tr>`)
+      .join("")}</tbody></table>`;
+  }
+
+  function sigWhen(ts) {
+    if (!ts) return "";
+    const d = new Date(ts * 1000);
+    return `${d.toLocaleDateString([], { month: "short", day: "numeric" })} ${d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`;
+  }
+
+  async function refreshSignals() {
+    const stamp = $("#sigStamp");
+    try {
+      const [bt, log] = await Promise.all([
+        (await fetch("/api/nogoal/backtest")).json(),
+        (await fetch("/api/nogoal/signals")).json(),
+      ]);
+      const b = bt.backtest || {};
+      const model = bt.model || {};
+      const w1 = bt.windows?.["1"] || [10, 35];
+      const w2 = bt.windows?.["2"] || [50, 78];
+      if (stamp) stamp.textContent = `${model.archive_total || 0} archived games · fitted ${sigWhen(model.fitted_at)}`;
+
+      $("#sigConfig").innerHTML = `
+        <h3>Trigger</h3>
+        <p class="sig-big">≥ ${Math.round((bt.threshold || 0) * 100)}% <span class="sig-muted">P(no goal)</span></p>
+        <p>1st half window <b>${w1[0]}′–${w1[1]}′</b> · 2nd half <b>${w2[0]}′–${w2[1]}′</b> · once per half</p>
+        <p>Discord: ${bt.webhook ? "<b class='sig-ok'>webhook set</b>" : "<b class='sig-warn'>EEESOC_DISCORD_WEBHOOK unset</b> — evaluating only"}</p>
+        <p class="sig-muted">Tune with <code>EEESOC_NOGOAL_THRESHOLD</code>, <code>EEESOC_NOGOAL_WINDOW_1H</code>, <code>EEESOC_NOGOAL_WINDOW_2H</code>.</p>
+        <h3>What the archive says</h3>
+        <p>Quiet start check — 0–0 with under 4 shots at 15′: <b>${b.quiet_start?.quiet_held_pct ?? "—"}%</b> of ${b.quiet_start?.quiet_n ?? 0} first halves stayed goalless, vs <b>${b.quiet_start?.all_held_pct ?? "—"}%</b> of all ${b.quiet_start?.all_n ?? 0} goalless-at-15′ halves. The shot count barely moves it; the clock, league and score do.</p>
+        <p>Stoppage time carries <b>${Math.round((model.stoppage_share?.["1"] || 0) * 100)}%</b> of first-half goals and <b>${Math.round((model.stoppage_share?.["2"] || 0) * 100)}%</b> of second-half goals — a “no goal to HT” bet has to survive 45+.</p>
+        <p>Still 0–0 multiplies the remaining goal rate by <b>${model.state_mult?.["1"]?.zero ?? "—"}</b> (1H) / <b>${model.state_mult?.["2"]?.zero ?? "—"}</b> (2H); once a goal is in, <b>${model.state_mult?.["1"]?.scoring ?? "—"}</b> / <b>${model.state_mult?.["2"]?.scoring ?? "—"}</b>.</p>
+        <p class="sig-muted">Log loss ${b.log_loss ?? "—"} (${b.log_loss_no_box ?? "—"} without the box factors, ${b.log_loss_time_only ?? "—"} clock-only) over ${b.samples ?? 0} game-minutes.</p>`;
+
+      $("#sigEdge").innerHTML = edgeCardHtml(b.box_edge || {});
+
+      const rec = log || {};
+      $("#sigRecord").innerHTML = `
+        <h3>Live record</h3>
+        <p class="sig-big">${rec.held ?? 0}/${rec.resolved ?? 0} <span class="sig-muted">held${rec.hit_pct != null ? ` · ${rec.hit_pct}%` : ""}</span></p>
+        <p>${rec.open ?? 0} open signal${(rec.open ?? 0) === 1 ? "" : "s"} right now.</p>
+        <p class="sig-muted">A signal is <b>held</b> if the half ended without another goal, <b>busted</b> at the minute one landed. Compare the hit rate with the price you were offered — the model is only worth following where the book pays more than 1 / P.</p>`;
+
+      const rows = (rec.signals || []).slice(0, 60).map((s) => {
+        const p = s.eval?.p_no_goal_pct ?? "—";
+        const st = s.status === "held" ? "✅ held" : s.status === "busted" ? `❌ busted ${s.resolved_minute ?? ""}′` : s.status === "void" ? "⚪ void" : "⏳ open";
+        return [
+          sigWhen(s.fired_at),
+          escapeHtml(s.league_chiclet || ""),
+          `${escapeHtml(s.home)} ${s.score?.[0] ?? 0}–${s.score?.[1] ?? 0} ${escapeHtml(s.away)}`,
+          `${s.period === 1 ? "1H" : "2H"} ${s.fired_minute}′`,
+          `${p}% (odds ≥ ${s.eval?.break_even_odds ?? "—"})`,
+          st,
+        ];
+      });
+      $("#sigLog").innerHTML = `<h3>Signals</h3>${rows.length ? sigTable(["When", "League", "Game", "Fired", "P(no goal)", "Result"], rows) : "<p class='sig-muted'>No signal has fired yet. They appear here and on the live chiclets the moment one does.</p>"}`;
+
+      const pol = (b.policy || []).map((r) => [
+        `${Math.round(r.threshold * 100)}%`,
+        r.break_even_odds,
+        r.h1?.fired ? `${r.h1.fired} (${r.h1.fired_pct}%)` : "—",
+        r.h1?.avg_minute != null ? `${r.h1.avg_minute}′` : "—",
+        r.h1?.hit_pct != null ? `<b>${r.h1.hit_pct}%</b>` : "—",
+        r.h2?.fired ? `${r.h2.fired} (${r.h2.fired_pct}%)` : "—",
+        r.h2?.avg_minute != null ? `${r.h2.avg_minute}′` : "—",
+        r.h2?.hit_pct != null ? `<b>${r.h2.hit_pct}%</b>` : "—",
+      ]);
+      $("#sigPolicy").innerHTML = `<h3>What each threshold would have done</h3><p class="sig-muted">Replayed over ${b.archive_total ?? 0} archived games, firing at the first minute inside the window (${w1[0]}′–${w1[1]}′ / ${w2[0]}′–${w2[1]}′) where P cleared the threshold. “Held” is how often the rest of the half really stayed goalless.</p>${sigTable(
+        ["Threshold", "Break-even", "1H fired", "1H avg min", "1H held", "2H fired", "2H avg min", "2H held"],
+        pol,
+      )}`;
+
+      const cal = (b.calibration || []).map((c) => [`${c.bucket}%`, c.n, `${c.predicted_pct}%`, `<b>${c.actual_pct}%</b>`]);
+      $("#sigCalibration").innerHTML = `<h3>Does 70% mean 70%?</h3><p class="sig-muted">Every game-minute in the archive, bucketed by the model’s probability, against how often the half really stayed goalless (league factor computed leaving the game out).</p>${sigTable(["Predicted", "Game-minutes", "Mean P", "Actually held"], cal)}`;
+
+      const lg = Object.entries(model.leagues || {})
+        .sort((a, b2) => a[1].factor - b2[1].factor)
+        .map(([slug, r]) => [escapeHtml(slug), r.games, r.goals_per_game, `<b>${r.factor}</b>`]);
+      $("#sigLeagues").innerHTML = `<h3>League scoring scale</h3><p class="sig-muted">Goals per game against the archive-wide ${model.goals_per_game ?? "—"}, shrunk toward it over 20 games. Below 1.0 the remaining-goal rate is cut — the same 0–0 at 25′ is a better “no goal” spot in a 0.77 league than a 1.18 one.</p>${sigTable(["League", "Games", "Goals / game", "Factor"], lg)}`;
+    } catch (err) {
+      if (stamp) stamp.textContent = "signals unavailable";
+    }
+  }
+
+  const STAT_LABEL = { box_entries: "Passes into the box", shots: "Shots", sot: "Shots on target", corners: "Corners", xg: "xG" };
+
+  function edgeCardHtml(edge) {
+    if (!edge.fitted) {
+      return `<h3>The edge: passes into the box</h3><p class="sig-muted">Box entries are being backfilled for the archive (${edge.records ?? 0} games so far) — the two box factors switch on at 40.</p>`;
+    }
+    const prof = edge.profile || {};
+    const profRows = (prof.rows || []).map((r) => {
+      const diff = r.zero - r.goal;
+      const pct = r.goal ? Math.round((100 * diff) / r.goal) : 0;
+      return [STAT_LABEL[r.stat] || r.stat, r.zero, r.goal, `<b>${pct > 0 ? "+" : ""}${pct}%</b>`];
+    });
+    const pickRows = (t, key, label) =>
+      ((edge.minutes?.[t] || {})[key] || []).map((r) => [label(r.bucket), r.n, `<b>${r.held_pct}%</b>`]);
+    const habitLabel = (k) => ({ quiet: "quiet fixture", normal: "normal", busy: "busy fixture" })[k] || k;
+    const inplayLabel = (k) => ({ low: "few entries so far", normal: "normal", high: "many entries so far" })[k] || k;
+    const m15 = edge.minutes?.["15"] || {};
+    const m25 = edge.minutes?.["25"] || {};
+    const grid = (m25.grid || []).map((g) => [habitLabel(g.habit), inplayLabel(g.inplay), g.n, `<b>${g.held_pct}%</b>`]);
+    const hm = edge.habit_mult?.["1"] || {};
+    const im = edge.inplay_mult?.["1"] || {};
+    return `
+      <h3>The edge: passes into the box</h3>
+      <p>Working backwards from the <b>${prof.zero_n ?? 0}</b> first halves that finished 0–0 against the <b>${prof.goal_n ?? 0}</b> that did not: they had the same passes, final-third passes, corners, fouls and cards — the difference is how often the ball was played <b>into the penalty area</b>. Shots and xG differ more over the whole half, but they are mostly the goals themselves; box entries are what you can see early, and once they are in the model shots add nothing out of sample.</p>
+      <div class="sig-grid">
+        <div>
+          <p class="sig-muted">Average per first half</p>
+          ${sigTable(["", "0–0 at HT", "Goal in 1H", "Diff"], profRows)}
+        </div>
+        <div>
+          <p class="sig-muted">Still 0–0 at 15′ (${m15.n ?? 0} games, ${m15.held_pct ?? "—"}% held) — by the clubs’ box habit</p>
+          ${sigTable(["Fixture", "Games", "Held to HT"], pickRows("15", "habit", habitLabel))}
+          <p class="sig-muted">— by entries so far</p>
+          ${sigTable(["This half", "Games", "Held to HT"], pickRows("15", "inplay", inplayLabel))}
+        </div>
+      </div>
+      <div class="sig-grid">
+        <div>
+          <p class="sig-muted">Still 0–0 at 25′ (${m25.n ?? 0} games, ${m25.held_pct ?? "—"}% held) — by entries so far</p>
+          ${sigTable(["Entries", "Games", "Held to HT"], (m25.entries || []).map((r) => [r.bucket, r.n, `<b>${r.held_pct}%</b>`]))}
+          <p class="sig-muted">— by the clubs’ box habit</p>
+          ${sigTable(["Fixture", "Games", "Held to HT"], pickRows("25", "habit", habitLabel))}
+        </div>
+        <div>
+          <p class="sig-muted">Both together at 25′</p>
+          ${sigTable(["Fixture", "This half", "Games", "Held to HT"], grid)}
+        </div>
+      </div>
+      <p class="sig-muted">In the model: remaining goal rate × (fixture box habit)<sup>${edge.habit_beta?.["1"] ?? "—"}</sup> × (entries so far vs the archive pace)<sup>${edge.inplay_beta?.["1"] ?? "—"}</sup>, fitted on top of clock × league × score so nothing is counted twice. That works out to ×${hm.quiet ?? "—"} for a quiet fixture and ×${hm.busy ?? "—"} for a busy one; ×${im.low ?? "—"} when the box has hardly been reached and ×${im.high ?? "—"} when it has been busy. Habit is leave-one-out in the backtest — a club’s own game never feeds its own number. Archive rate: ${edge.per_half?.["1"] ?? "—"} entries per first half, ${edge.per_half?.["2"] ?? "—"} per second.</p>`;
   }
 
   function escapeHtml(s) {
@@ -965,12 +1109,75 @@
     });
   }
 
+  // ---------------------------------------------------------------------------
+  // No more goals this half — server-side model (/api/nogoal/live), one row per live game
+  // ---------------------------------------------------------------------------
+
+  function nogoalRowHtml(m) {
+    if (m?.state !== "in") return "";
+    const ev = state.nogoal?.live?.[String(m.event_id)];
+    if (!ev) return "";
+    const half = ev.period === 1 ? "1H" : "2H";
+    const end = ev.period === 1 ? "HT" : "FT";
+    const sig = ev.signal;
+    const status = sig?.status || "";
+    const tone = status === "held" ? "held" : status === "busted" ? "busted" : status === "open" ? "fired" : ev.ready ? "fired" : ev.p_no_goal >= ev.threshold ? "late" : ev.window === "before" ? "early" : "quiet";
+    const badge =
+      status === "open"
+        ? `signal ${sig.fired_minute}′`
+        : status === "held"
+          ? `✅ held (${sig.fired_minute}′)`
+          : status === "busted"
+            ? `❌ busted ${sig.resolved_minute ?? ""}′`
+            : ev.phase === "ht"
+              ? "HT · window opens 2H"
+              : ev.window === "before"
+                ? `window ${ev.window_minutes[0]}′–${ev.window_minutes[1]}′`
+                : ev.window === "after"
+                  ? "past window"
+                  : ev.ready
+                    ? "TRIGGER"
+                    : `needs ${Math.round(ev.threshold * 100)}%`;
+    const boxBits = [];
+    if (ev.box_total != null) {
+      boxBits.push(`box ${ev.box_total}${ev.inplay_bucket && ev.inplay_bucket !== "normal" ? ` ${ev.inplay_bucket}` : ""}`);
+    }
+    if (ev.habit_bucket && ev.habit_bucket !== "normal") boxBits.push(`${ev.habit_bucket} fixture`);
+    const boxTitle =
+      (ev.box_total != null
+        ? ` × box entries so far ${ev.box_total} (${escapeHtml(m.home || "home")} ${ev.box_home} · ${escapeHtml(m.away || "away")} ${ev.box_away}; ${ev.inplay_bucket || "—"} for the minute) ${(ev.inplay_factor ?? 1).toFixed(2)}`
+        : "") +
+      (ev.habit_bucket
+        ? ` × these clubs usually reach the box ${ev.habit_expected}× a half (${ev.habit_bucket} fixture) ${(ev.habit_factor ?? 1).toFixed(2)}`
+        : "");
+    const title =
+      `P(no goal to ${end}) ${ev.p_no_goal_pct}% — ${ev.lambda.toFixed(2)} goals still expected: ` +
+      `${ev.minutes_left}′ + stoppage left (base ${ev.base_lambda.toFixed(2)}) × league ${ev.league_factor.toFixed(2)} × ` +
+      `${ev.zero_zero ? "still 0–0" : "game has goals"} ${ev.state_factor.toFixed(2)}${boxTitle}. ` +
+      `Break-even decimal odds ${ev.break_even_odds}. Trigger fires once per half at ≥ ${Math.round(ev.threshold * 100)}% inside ${ev.window_minutes[0]}′–${ev.window_minutes[1]}′. ` +
+      `Passes into the penalty box are the edge found working backwards from every 0–0 half; shots and xG so far add nothing once they are in.`;
+    const sub = `no goal · odds ≥ ${ev.break_even_odds}${boxBits.length ? ` · ${boxBits.join(" · ")}` : ""}`;
+    return `<span class="mc-nogoal ${tone}" title="${escapeHtml(title)}"><span class="mc-nogoal-label">🚫 rest of ${half}</span><b class="mc-nogoal-pct">${ev.p_no_goal_pct}%</b><span class="mc-nogoal-sub">${escapeHtml(sub)}</span><span class="mc-nogoal-badge">${escapeHtml(badge)}</span></span>`;
+  }
+
+  async function refreshNogoal() {
+    try {
+      const payload = await (await fetch("/api/nogoal/live")).json();
+      state.nogoal = payload;
+      paintClinicalRows();
+    } catch (err) {
+      /* keep the last reading */
+    }
+  }
+
   function clinicalRowHtml(m) {
     if (!state.clinical) return "";
     const rows = POWER_ROWS.map(
       (row) =>
         `${powerSideHtml(m, "home", row.spec)}<span class="mc-power-label" title="${escapeHtml(row.help)}">${row.label}</span>${powerSideHtml(m, "away", row.spec)}`,
     );
+    const nogoal = nogoalRowHtml(m);
+    if (nogoal) rows.unshift(nogoal);
     return rows.concat(halfGoalsRowsHtml(m)).join("\n      ");
   }
 
@@ -3161,6 +3368,10 @@
     state.clinicalTimer = setInterval(() => {
       if (!document.hidden) refreshClinical();
     }, CLINICAL_POLL_MS);
+    refreshNogoal();
+    state.nogoalTimer = setInterval(() => {
+      if (!document.hidden) refreshNogoal();
+    }, NOGOAL_POLL_MS);
     await refreshLive();
     state.liveTimer = setInterval(() => {
       if (document.hidden) return;

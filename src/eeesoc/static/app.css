@@ -2379,6 +2379,157 @@ main {
   font-variant-numeric: tabular-nums;
 }
 
+/* No more goals this half — one full-width row at the top of the power block. */
+.mc-nogoal {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 0.2rem 0.5rem;
+  padding: 0.2rem 0.4rem;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 0.3rem;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.mc-nogoal-label {
+  color: var(--muted);
+  font-size: 0.58rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.mc-nogoal-pct {
+  font-size: 0.95rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+
+.mc-nogoal-sub {
+  color: var(--muted);
+}
+
+.mc-nogoal-badge {
+  font-size: 0.56rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  border: 1px solid currentColor;
+  border-radius: 0.2rem;
+  padding: 0.04rem 0.28rem;
+  color: var(--muted);
+}
+
+.mc-nogoal.fired {
+  border-color: var(--accent);
+  background: rgba(120, 255, 180, 0.07);
+}
+
+.mc-nogoal.fired .mc-nogoal-pct,
+.mc-nogoal.fired .mc-nogoal-badge {
+  color: var(--accent);
+}
+
+.mc-nogoal.held .mc-nogoal-badge {
+  color: var(--accent);
+}
+
+.mc-nogoal.busted {
+  border-color: var(--danger);
+}
+
+.mc-nogoal.busted .mc-nogoal-badge {
+  color: var(--danger);
+}
+
+.mc-nogoal.late .mc-nogoal-badge {
+  color: var(--warn);
+}
+
+/* Signals tab */
+.sig-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 0.8rem;
+  margin-bottom: 0.8rem;
+}
+
+.sig-card {
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 0.6rem;
+  background: rgba(255, 255, 255, 0.03);
+  padding: 0.8rem 1rem;
+  margin-bottom: 0.8rem;
+  font-size: 0.86rem;
+  line-height: 1.45;
+}
+
+.sig-card h3 {
+  margin: 0 0 0.4rem;
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.sig-card h3 + h3,
+.sig-card p + h3 {
+  margin-top: 1rem;
+}
+
+.sig-card p {
+  margin: 0.25rem 0;
+}
+
+.sig-big {
+  font-family: var(--mono);
+  font-size: 1.6rem;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.sig-muted {
+  color: var(--muted);
+}
+
+.sig-ok {
+  color: var(--accent);
+}
+
+.sig-warn {
+  color: var(--warn);
+}
+
+.sig-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--mono);
+  font-size: 0.74rem;
+  margin-top: 0.5rem;
+}
+
+.sig-table th,
+.sig-table td {
+  text-align: left;
+  padding: 0.28rem 0.45rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.sig-table th {
+  color: var(--muted);
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  font-size: 0.62rem;
+}
+
+.sig-card:has(.sig-table) {
+  overflow-x: auto;
+}
+
 /* Goals-per-half odds: 0 / 1 / 2 / 3+ cells, the most common bucket highlighted. */
 .mc-half-side {
   gap: 0.22rem;
