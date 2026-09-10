@@ -31,12 +31,14 @@ results lag the underlying numbers by 5+ (they should improve), *overachieving* 
 **🧤 Clean sheets** counts games without conceding from the archived final scores: the season total (ranked
 within the league, ties to the club that needed fewer games), how many in the last five, and the share of
 games kept clean, coloured *tight* / *porous* against the league's share.
-**🥅 Goals per half** follows the clock. Before the break (and before kickoff) each side shows how often that
-club's first halves this season produced 0 / 1 / 2 / 3+ total goals. From half time on, the row becomes
-*2H after h–a*: given this game's half-time score (from each club's own side, so 0–1 = trailing), how often
-that club's second halves went on to produce 0 / 1 / 2 / 3+ goals. The most common bucket is highlighted and
-the small number is the sample; clubs with fewer than 3 matching games fall back to the league-wide split
-for the same situation (marked *lg*).
+**🥅 Goals per half** follows the clock, as three rows: *goals* (both sides combined), *scored* (the club's
+own) and *allowed*. Before the break (and before kickoff) each side shows how often that club's first halves
+this season produced 0 / 1 / 2 / 3+ of each. From half time on, the rows become *2H after h–a* / *2H scored* /
+*2H allowed*: given this game's half-time score (from each club's own side, so 0–1 = trailing), how often
+that club's second halves went on to produce 0 / 1 / 2 / 3+ goals. The most common bucket is highlighted
+(green total, orange scored, blue allowed) and the small number is the sample; clubs with fewer than 3
+matching games fall back to the league-wide split for the same situation (dashed cells, amber *lg* count,
+oriented so the away side's *scored* is the league's home-allowed).
 
 The **0-0 HT** tab archives every full-time game the dashboard sees (plus a background ESPN backfill,
 `EEESOC_HT_BACKFILL_DAYS`, default 60, `0` to disable) under `<cache>/halftime/`. **Archive** lists the games

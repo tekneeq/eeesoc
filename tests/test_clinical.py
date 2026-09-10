@@ -391,18 +391,29 @@ def test_half_goals_split_first_half_and_second_half_by_ht_score():
     assert epl["half_goals_min_sample"] == HALF_GOALS_MIN_SAMPLE
     by = {t["team"]: t for t in epl["teams"]}
 
-    # Game 1: Sharp 2-0 Blunt at HT (goals 15', 30'), 3-1 FT → 2 first-half goals, 2 second-half goals.
-    # Game 2: Par 1-0 Sharp at HT (goal 10'), 1-0 FT → 1 first-half goal, 0 second-half goals.
-    sharp = by["Sharp FC"]["half_goals"]
-    assert sharp["first"] == {"n": 2, "counts": [0, 1, 1, 0]}
-    assert sharp["second_by_ht"] == {"0-1": {"n": 1, "counts": [1, 0, 0, 0]}, "2-0": {"n": 1, "counts": [0, 0, 1, 0]}}
-    # The same games from the other side of the pitch flip the half-time key.
-    assert by["Blunt Town"]["half_goals"]["second_by_ht"] == {"0-2": {"n": 1, "counts": [0, 0, 1, 0]}}
-    assert by["Par United"]["half_goals"]["second_by_ht"] == {"1-0": {"n": 1, "counts": [1, 0, 0, 0]}}
+    def dist(*counts):
+        return {"n": sum(counts), "counts": list(counts)}
 
-    # League table: each game once, home-away view.
-    assert epl["half_goals"]["first"] == {"n": 2, "counts": [0, 1, 1, 0]}
-    assert epl["half_goals"]["second_by_ht"] == {"1-0": {"n": 1, "counts": [1, 0, 0, 0]}, "2-0": {"n": 1, "counts": [0, 0, 1, 0]}}
+    # Game 1: Sharp 2-0 Blunt at HT (goals 15', 30'), 3-1 FT → 2H: Sharp scored 1, allowed 1.
+    # Game 2: Par 1-0 Sharp at HT (goal 10'), 1-0 FT → 2H: nothing.
+    sharp = by["Sharp FC"]["half_goals"]
+    assert sharp["first"] == {"total": dist(0, 1, 1, 0), "scored": dist(1, 0, 1, 0), "allowed": dist(1, 1, 0, 0)}
+    assert sharp["second_by_ht"] == {
+        "0-1": {"total": dist(1, 0, 0, 0), "scored": dist(1, 0, 0, 0), "allowed": dist(1, 0, 0, 0)},
+        "2-0": {"total": dist(0, 0, 1, 0), "scored": dist(0, 1, 0, 0), "allowed": dist(0, 1, 0, 0)},
+    }
+    # The same games from the other side of the pitch flip the half-time key and swap scored / allowed.
+    blunt = by["Blunt Town"]["half_goals"]
+    assert blunt["first"] == {"total": dist(0, 0, 1, 0), "scored": dist(1, 0, 0, 0), "allowed": dist(0, 0, 1, 0)}
+    assert blunt["second_by_ht"] == {"0-2": {"total": dist(0, 0, 1, 0), "scored": dist(0, 1, 0, 0), "allowed": dist(0, 1, 0, 0)}}
+    assert by["Par United"]["half_goals"]["second_by_ht"] == {"1-0": {"total": dist(1, 0, 0, 0), "scored": dist(1, 0, 0, 0), "allowed": dist(1, 0, 0, 0)}}
+
+    # League table: each game once, home-away view (scored = the home side's goals).
+    assert epl["half_goals"]["first"] == {"total": dist(0, 1, 1, 0), "scored": dist(0, 1, 1, 0), "allowed": dist(2, 0, 0, 0)}
+    assert epl["half_goals"]["second_by_ht"] == {
+        "1-0": {"total": dist(1, 0, 0, 0), "scored": dist(1, 0, 0, 0), "allowed": dist(1, 0, 0, 0)},
+        "2-0": {"total": dist(0, 0, 1, 0), "scored": dist(0, 1, 0, 0), "allowed": dist(0, 1, 0, 0)},
+    }
 
 
 def test_half_goals_buckets_three_plus_and_skips_games_without_ht_score():
@@ -416,8 +427,14 @@ def test_half_goals_buckets_three_plus_and_skips_games_without_ht_score():
     by = {t["team"]: t for t in build_clinical_board([goalfest, unknown])["leagues"]["eng.1"]["teams"]}
     hg = by["Sharp FC"]["half_goals"]
     assert by["Sharp FC"]["games"] == 2
-    assert hg["first"] == {"n": 1, "counts": [0, 0, 0, 1]}  # 4 first-half goals → 3+; the HT-less game is skipped
-    assert hg["second_by_ht"] == {"2-2": {"n": 1, "counts": [0, 0, 0, 1]}}  # 3 second-half goals
+    # 4 first-half goals → 3+ (2 scored, 2 allowed); the HT-less game is skipped.
+    assert hg["first"]["total"] == {"n": 1, "counts": [0, 0, 0, 1]}
+    assert hg["first"]["scored"] == {"n": 1, "counts": [0, 0, 1, 0]}
+    assert hg["first"]["allowed"] == {"n": 1, "counts": [0, 0, 1, 0]}
+    # 3 second-half goals: Sharp scored 2, allowed 1.
+    assert hg["second_by_ht"] == {
+        "2-2": {"total": {"n": 1, "counts": [0, 0, 0, 1]}, "scored": {"n": 1, "counts": [0, 0, 1, 0]}, "allowed": {"n": 1, "counts": [0, 1, 0, 0]}}
+    }
 
 
 def test_lookup_by_id_then_name_and_cache_tracks_archive():
