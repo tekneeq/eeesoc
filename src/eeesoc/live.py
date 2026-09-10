@@ -1218,6 +1218,22 @@ _PRESSURE_TILT = 0.62
 _PRESSURE_SHOT_KINDS = {"shot", "shot_on", "blocked", "goal"}
 
 
+def _pressure_verdict(
+    *,
+    actions: int,
+    final_third: int,
+    share_home: float | None,
+) -> tuple[str, str | None]:
+    """Who is pinning whom, or quiet / even when the window is too thin."""
+    if actions < _PRESSURE_MIN_ACTIONS or final_third < _PRESSURE_MIN_FINAL_THIRD:
+        return "quiet", None
+    if share_home is not None and share_home >= _PRESSURE_TILT:
+        return "home", "home"
+    if share_home is not None and (1.0 - share_home) >= _PRESSURE_TILT:
+        return "away", "away"
+    return "even", None
+
+
 def _build_pressure(
     points: list[tuple[int, float, float, str, str | None]],
     *,
@@ -1229,7 +1245,9 @@ def _build_pressure(
 
     ``points`` is (minute, x, y, side, kind) with team-relative coordinates
     (each side attacks x→100). Territory alone hides this — a first-half
-    Udinese siege and a second-half Lazio siege sum to "even".
+    Udinese siege and a second-half Lazio siege sum to "even". ``series`` is
+    the same window evaluated at every minute so the chiclet can show how
+    the squeeze has shifted (what it looked like 10′ ago, not just now).
     """
     lo = max(1, now_minute - window + 1)
     stats: dict[str, dict[str, int]] = {
@@ -1254,15 +1272,9 @@ def _build_pressure(
     final_third = stats["home"]["final_third"] + stats["away"]["final_third"]
     share_home = stats["home"]["final_third"] / final_third if final_third else None
     share_away = 1.0 - share_home if share_home is not None else None
-
-    label = "even"
-    leader: str | None = None
-    if actions < _PRESSURE_MIN_ACTIONS or final_third < _PRESSURE_MIN_FINAL_THIRD:
-        label = "quiet"
-    elif share_home is not None and share_home >= _PRESSURE_TILT:
-        label, leader = "home", "home"
-    elif share_away is not None and share_away >= _PRESSURE_TILT:
-        label, leader = "away", "away"
+    label, leader = _pressure_verdict(
+        actions=actions, final_third=final_third, share_home=share_home
+    )
 
     return {
         "window": window,
@@ -1276,7 +1288,77 @@ def _build_pressure(
         },
         "label": label,
         "leader": leader,
+        "series": _build_pressure_series(points, now_minute=now_minute, window=window),
     }
+
+
+def _build_pressure_series(
+    points: list[tuple[int, float, float, str, str | None]],
+    *,
+    now_minute: int,
+    window: int = PRESSURE_WINDOW_MIN,
+) -> list[dict[str, Any]]:
+    """
+    One rolling-window snapshot per minute from 1′ to ``now_minute``.
+
+    Quiet minutes (too few actions) keep ``home``/``away`` null so the
+    graph draws a gap instead of inventing a 50-50.
+    """
+    now_minute = max(1, min(90, int(now_minute)))
+    n = now_minute + 1
+    home_ft = [0] * n
+    away_ft = [0] * n
+    home_act = [0] * n
+    away_act = [0] * n
+    for minute, x, _y, side, _kind in points:
+        if minute < 1 or minute > now_minute:
+            continue
+        if side == "home":
+            home_act[minute] += 1
+            if x >= _ATT_THIRD_X:
+                home_ft[minute] += 1
+        elif side == "away":
+            away_act[minute] += 1
+            if x >= _ATT_THIRD_X:
+                away_ft[minute] += 1
+
+    def _prefix(arr: list[int]) -> list[int]:
+        out = [0] * n
+        running = 0
+        for i in range(1, n):
+            running += arr[i]
+            out[i] = running
+        return out
+
+    h_ft = _prefix(home_ft)
+    a_ft = _prefix(away_ft)
+    h_act = _prefix(home_act)
+    a_act = _prefix(away_act)
+
+    series: list[dict[str, Any]] = []
+    for t in range(1, now_minute + 1):
+        lo = max(1, t - window + 1)
+        prev = lo - 1
+        home_final = h_ft[t] - h_ft[prev]
+        away_final = a_ft[t] - a_ft[prev]
+        actions = (h_act[t] - h_act[prev]) + (a_act[t] - a_act[prev])
+        final_third = home_final + away_final
+        share_home = home_final / final_third if final_third else None
+        label, leader = _pressure_verdict(
+            actions=actions, final_third=final_third, share_home=share_home
+        )
+        readable = label != "quiet" and share_home is not None
+        series.append(
+            {
+                "minute": t,
+                "home": round(share_home, 3) if readable else None,
+                "away": round(1.0 - share_home, 3) if readable else None,
+                "label": label,
+                "leader": leader,
+                "final_third": {"home": home_final, "away": away_final},
+            }
+        )
+    return series
 
 
 def _cumulative_xg_series(
