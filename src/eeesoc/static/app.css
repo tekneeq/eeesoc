@@ -2359,6 +2359,16 @@ main {
   color: var(--warn);
 }
 
+.mc-power-side.tight .mc-power-num,
+.mc-power-side.tight .mc-power-tag {
+  color: rgba(125, 200, 255, 0.95);
+}
+
+.mc-power-side.porous .mc-power-num,
+.mc-power-side.porous .mc-power-tag {
+  color: var(--warn);
+}
+
 .mc-power-side.none .mc-power-num {
   color: var(--muted);
   font-weight: 400;

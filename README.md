@@ -28,6 +28,9 @@ chance-creation index (xG created vs the league) and its defence power, so 100 =
 chance quality both ways. The same index on actual goals is shown as *results*; the tag is *upside* when
 results lag the underlying numbers by 5+ (they should improve), *overachieving* when they run ahead, else
 *steady*.
+**🧤 Clean sheets** counts games without conceding from the archived final scores: the season total (ranked
+within the league, ties to the club that needed fewer games), how many in the last five, and the share of
+games kept clean, coloured *tight* / *porous* against the league's share.
 
 The **0-0 HT** tab archives every full-time game the dashboard sees (plus a background ESPN backfill,
 `EEESOC_HT_BACKFILL_DAYS`, default 60, `0` to disable) under `<cache>/halftime/`. **Archive** lists the games

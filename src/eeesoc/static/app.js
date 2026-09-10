@@ -773,6 +773,28 @@
     tag: (r) => ({ cls: r.potential_tag || "steady", text: r.potential_tag || "steady" }),
   };
 
+  function cleanSheetTitle(row, name) {
+    if (!row) return `${name}: no finished games archived yet for a clean-sheet count`;
+    const n = (row.recent || []).length;
+    const rank = row.clean_sheet_rank
+      ? `#${row.clean_sheet_rank} of ${row._league?.teams_ranked || 0} in ${row._league?.label || row.league_chiclet}`
+      : `unranked until ${state.clinical?.min_games || 2} games`;
+    const shutouts = (row.recent || []).filter((g) => g.ga === 0).map((g) => `${g.gf}-0 ${g.venue === "home" ? "v" : "@"} ${g.opponent}`);
+    const recentWords = n ? `${row.recent_clean_sheets} in the last ${n}${shutouts.length ? ` (${shutouts.join(", ")})` : ""}` : "no recent results";
+    return `${row.team}: ${row.clean_sheets} clean sheet${row.clean_sheets === 1 ? "" : "s"} in ${row.games} game${row.games === 1 ? "" : "s"} (${row.clean_sheet_pct}%; league ${row._league?.par_clean_sheet_pct ?? 0}% of team-games) · ${recentWords} · ${rank}. Ranked by total, ties to the club that needed fewer games.`;
+  }
+
+  const CLEAN_SHEET_SPEC = {
+    title: cleanSheetTitle,
+    num: (r) => r.clean_sheets,
+    rank: (r) => r.clean_sheet_rank,
+    stat: (r) => {
+      const n = (r.recent || []).length;
+      return n ? `${r.recent_clean_sheets}/${n} last ${n}` : "";
+    },
+    tag: (r) => ({ cls: r.tight ? "tight" : "porous", text: `${r.clean_sheet_pct}%` }),
+  };
+
   const POWER_ROWS = [
     { spec: CLINICAL_SPEC, label: "⚡ clinical", help: "Clinical power: goals per 100 xG this season, ranked within the league. 100 = par." },
     {
@@ -794,6 +816,11 @@
       spec: POTENTIAL_SPEC,
       label: "🔮 potential",
       help: "Potential: underlying strength from chance quality created and allowed, finishing luck stripped out. 100 = a league-typical side. 'results' is the same index on actual goals — upside when results lag it, overachieving when they run ahead.",
+    },
+    {
+      spec: CLEAN_SHEET_SPEC,
+      label: "🧤 clean sheets",
+      help: "Clean sheets this season from the archived final scores: total, rank in the league, how many in the last five games, and the share of games kept clean (coloured against the league's share).",
     },
   ];
 
