@@ -27,9 +27,12 @@
     htSimilar: {}, // event_id → /api/halftime/similar payload
     htTimer: null,
     htLoading: false,
+    clinical: null, // /api/clinical board: leagues[slug].teams[]
+    clinicalTimer: null,
   };
 
   const HT_POLL_MS = 20000;
+  const CLINICAL_POLL_MS = 10 * 60 * 1000;
 
   const LIVE_POLL_MS = 8000;
   const TIMELINE_FRESH_MS = 5000;
@@ -617,6 +620,76 @@
     return `${col("home")}${col("away")}`;
   }
 
+  // ---------------------------------------------------------------------------
+  // Clinical power — goals per 100 xG from the finished-match archive, ranked by league
+  // ---------------------------------------------------------------------------
+
+  function teamKey(name) {
+    return String(name || "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, " ")
+      .trim();
+  }
+
+  function clinicalFor(leagueSlug, teamId, name) {
+    const league = state.clinical?.leagues?.[leagueSlug];
+    if (!league) return null;
+    const rows = league.teams || [];
+    const id = teamId ? String(teamId) : "";
+    const byId = id ? rows.find((r) => String(r.team_id || "") === id) : null;
+    if (byId) return { ...byId, _league: league };
+    const key = teamKey(name);
+    const byName = key ? rows.find((r) => r.key === key) : null;
+    return byName ? { ...byName, _league: league } : null;
+  }
+
+  function clinicalTitle(row, name) {
+    if (!row) return `${name}: no finished games archived yet for a clinical power`;
+    const basis =
+      row.basis === "xg"
+        ? `${row.goals} goals from ${Number(row.xg).toFixed(2)} xG`
+        : `${row.goals} goals from ${row.sot} on target (league par ${row._league?.par_conversion_pct || 0}%)`;
+    const rank = row.rank ? `#${row.rank} of ${row._league?.teams_ranked || 0} in ${row._league?.label || row.league_chiclet}` : `unranked until ${state.clinical?.min_games || 2} games`;
+    return `${row.team}: clinical power ${row.power} — ${basis} over ${row.games} game${row.games === 1 ? "" : "s"} · ${row.conversion_pct}% of shots on target scored · ${rank}. 100 = scores exactly what the chances were worth; above 100 is clinical, below is wasteful.`;
+  }
+
+  function clinicalSideHtml(m, side) {
+    const name = side === "home" ? m.home : m.away;
+    const row = clinicalFor(m.league_slug, side === "home" ? m.home_id : m.away_id, name);
+    const title = escapeHtml(clinicalTitle(row, name));
+    if (!row) {
+      return `<span class="mc-power-side ${side} none" title="${title}"><b class="mc-power-num">—</b></span>`;
+    }
+    const tag = row.clinical ? "clinical" : "wasteful";
+    const rank = row.rank ? `#${row.rank}/${row._league?.teams_ranked || "?"}` : `${row.games}g`;
+    return `<span class="mc-power-side ${side} ${tag}" title="${title}"><b class="mc-power-num">${row.power}</b><span class="mc-power-rank">${rank}</span><span class="mc-power-tag">${tag}</span></span>`;
+  }
+
+  function clinicalRowHtml(m) {
+    if (!state.clinical) return "";
+    return `${clinicalSideHtml(m, "home")}<span class="mc-power-label" title="Clinical power: goals per 100 xG this season, ranked within the league. 100 = par.">⚡ clinical</span>${clinicalSideHtml(m, "away")}`;
+  }
+
+  function paintClinicalRows() {
+    document.querySelectorAll(".mc-power[data-power-for]").forEach((el) => {
+      const card = el.closest(".match-chiclet");
+      const m = card?.__match;
+      if (!m) return;
+      const html = clinicalRowHtml(m);
+      if (el.innerHTML !== html) el.innerHTML = html;
+    });
+  }
+
+  async function refreshClinical() {
+    try {
+      const board = await (await fetch("/api/clinical")).json();
+      state.clinical = board;
+      paintClinicalRows();
+    } catch (err) {
+      /* chiclets simply show — until the next poll */
+    }
+  }
+
   function chicletStatsHtml(tl) {
     if (!tl) {
       return `<span class="mc-stat mc-stat-empty">shots · on target · corners · xG</span>`;
@@ -689,6 +762,7 @@
         <span class="mc-score"><b class="mc-score-h">${shown.home}</b><span class="mc-score-sep">–</span><b class="mc-score-a">${shown.away}</b></span>
         <span class="mc-away"><i class="mc-key mc-key-away" title="Away — blue in charts"></i><span class="mc-name">${escapeHtml(shortName(m.away))}</span></span>
       </span>
+      <span class="mc-power" data-power-for="${escapeHtml(m.event_id)}">${clinicalRowHtml(m)}</span>
       ${withTimeline && !upcoming ? `<div class="mc-bulletin" data-bulletin-for="${escapeHtml(m.event_id)}">${cached ? chicletBulletinHtml(cached) : ""}</div>` : ""}
       ${chartPlaceholder}
     `;
@@ -2770,6 +2844,10 @@
     });
     $("#htBackfill")?.addEventListener("click", triggerHtBackfill);
 
+    refreshClinical();
+    state.clinicalTimer = setInterval(() => {
+      if (!document.hidden) refreshClinical();
+    }, CLINICAL_POLL_MS);
     await refreshLive();
     state.liveTimer = setInterval(() => {
       if (document.hidden) return;

@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
-from eeesoc import halftime
+from eeesoc import clinical, halftime
 from eeesoc.data import load_season, previous_season_label
 from eeesoc.live import build_event_timeline, build_live_situation, build_pitch_track, fetch_live_board
 from eeesoc.models import Match, MatchSnapshot
@@ -301,6 +301,13 @@ def make_handler(state: DashboardState):
                         pass
                 return self._send(200, _json_bytes(timeline), "application/json")
 
+            if path == "/api/clinical":
+                board = clinical.clinical_board()
+                league = (qs.get("league") or [""])[0]
+                if league:
+                    board = {**board, "leagues": {k: v for k, v in board["leagues"].items() if k == league}}
+                return self._send(200, _json_bytes(board), "application/json")
+
             if path == "/api/halftime/zero":
                 raw_leagues = (qs.get("league") or [""])[0]
                 league_filter = {s for s in raw_leagues.split(",") if s.strip()} or None
@@ -310,7 +317,7 @@ def make_handler(state: DashboardState):
             if path == "/api/halftime/backfill":
                 raw_days = (qs.get("days") or ["3"])[0]
                 try:
-                    days = max(0, min(int(raw_days), 60))
+                    days = max(0, min(int(raw_days), 120))
                 except ValueError:
                     days = 3
                 started = halftime.start_backfill_thread(days_back=days)
@@ -601,11 +608,11 @@ def make_handler(state: DashboardState):
 
 
 def _halftime_backfill_days() -> int:
-    raw = os.environ.get("EEESOC_HT_BACKFILL_DAYS", "30")
+    raw = os.environ.get("EEESOC_HT_BACKFILL_DAYS", "60")
     try:
-        return max(0, min(int(raw), 90))
+        return max(0, min(int(raw), 120))
     except ValueError:
-        return 30
+        return 60
 
 
 def serve(*, port: int, season: str, host: str = "127.0.0.1") -> None:
