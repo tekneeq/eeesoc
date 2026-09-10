@@ -333,6 +333,54 @@ def test_potential_and_momentum_rank_among_ranked_clubs():
     assert by["Blunt Town"]["form"] == "LD"
 
 
+def test_clean_sheets_total_recent_and_rank():
+    board = build_clinical_board(_records())
+    epl = board["leagues"]["eng.1"]
+    # Only Par United's 1-0 was a shutout: 1 of 4 team-games.
+    assert epl["par_clean_sheet_pct"] == 25
+    by = {t["team"]: t for t in epl["teams"]}
+
+    sharp = by["Sharp FC"]  # 3-1 then 0-1: conceded in both
+    assert sharp["clean_sheets"] == 0 and sharp["clean_sheet_pct"] == 0
+    assert sharp["recent_clean_sheets"] == 0
+    assert sharp["tight"] is False
+    assert sharp["clean_sheet_rank"] == 1  # only ranked club
+
+    par = by["Par United"]
+    assert par["clean_sheets"] == 1 and par["clean_sheet_pct"] == 100
+    assert par["recent_clean_sheets"] == 1
+    assert par["tight"] is True
+    assert par["clean_sheet_rank"] is None  # single game
+
+    assert by["Blunt Town"]["clean_sheets"] == 0
+
+    # Add a 0-0: both sides keep a clean sheet and all three clubs become ranked.
+    recs = _records() + [_rec("3", "Blunt Town", "Par United", "20", "30", [_ev(10, "shot_on", "away", 0.4)])]
+    by3 = {t["team"]: t for t in build_clinical_board(recs)["leagues"]["eng.1"]["teams"]}
+    assert by3["Par United"]["clean_sheets"] == 2 and by3["Par United"]["clean_sheet_rank"] == 1
+    assert by3["Blunt Town"]["clean_sheets"] == 1 and by3["Blunt Town"]["clean_sheet_rank"] == 2
+    assert by3["Sharp FC"]["clean_sheets"] == 0 and by3["Sharp FC"]["clean_sheet_rank"] == 3
+
+
+def test_clean_sheet_ties_go_to_fewer_games_and_recent_counts_last_five():
+    recs = []
+    # Wall FC: six 1-0 wins then a 0-1 loss → 6 clean sheets, 4 in the last five.
+    for i in range(6):
+        recs.append(_rec(f"w{i}", "Wall FC", f"Foe {i}", "1", f"9{i}", [_ev(10, "goal", "home", 0.5)], start=f"2026-08-{i + 1:02d}"))
+    recs.append(_rec("l", "Foe X", "Wall FC", "99", "1", [_ev(10, "goal", "home", 0.5)], start="2026-08-20"))
+    # Foe 0 and Foe 1 each also play a 0-0 against each other → 1 clean sheet in 2 games each.
+    recs.append(_rec("d", "Foe 0", "Foe 1", "90", "91", [_ev(10, "shot_on", "home", 0.2)], start="2026-08-21"))
+    by = {t["team"]: t for t in build_clinical_board(recs)["leagues"]["eng.1"]["teams"]}
+    wall = by["Wall FC"]
+    assert wall["clean_sheets"] == 6 and wall["games"] == 7
+    assert wall["clean_sheet_pct"] == 86
+    assert wall["form"] == "WWWWL" and wall["recent_clean_sheets"] == 4
+    assert wall["clean_sheet_rank"] == 1
+    # Foe 0 and Foe 1 tie on 1 clean sheet from 2 games; Foe X (1 game) is unranked.
+    assert {by["Foe 0"]["clean_sheet_rank"], by["Foe 1"]["clean_sheet_rank"]} == {2, 3}
+    assert by["Foe X"]["clean_sheet_rank"] is None and by["Foe X"]["clean_sheets"] == 1
+
+
 def test_lookup_by_id_then_name_and_cache_tracks_archive():
     recs = _records()
     for r in recs:

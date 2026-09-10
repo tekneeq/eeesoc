@@ -41,6 +41,11 @@ quality both ways.  ``results_power`` is the same construction on actual
 goals; ``potential_tag`` is ``upside`` when results lag the underlying
 numbers by ``POTENTIAL_GAP`` or more (they should improve), ``overachieving``
 when results outrun them, otherwise ``steady``.
+
+Clean sheets are counted from the final score: ``clean_sheets`` over every
+archived game, ``recent_clean_sheets`` over the last ``FORM_GAMES``, and
+``clean_sheet_rank`` by total (ties to the club that needed fewer games).
+``tight`` is True when the club's clean-sheet rate beats the league's.
 """
 
 from __future__ import annotations
@@ -189,6 +194,8 @@ def _league_table(slug: str, teams: dict[str, dict[str, Any]], label: str) -> di
     # League points per team-game (≈1.37 with a typical draw rate) anchors momentum's par.
     par_ppg = (sum(r["points"] for r in rows) / tot_games) if tot_games else 1.0
     par_scored = (sum(r["scored"] for r in rows) / tot_games) if tot_games else 0.0
+    # Share of team-games that ended without conceding, league-wide.
+    par_cs_pct = (100.0 * sum(1 for r in rows for g in r["results"] if g["ga"] == 0) / tot_games) if tot_games else 0.0
 
     def _shrunk_rate(total: float, games: float, par: float) -> float:
         return (total + PRIOR_GAMES * par) / (games + PRIOR_GAMES)
@@ -253,6 +260,8 @@ def _league_table(slug: str, teams: dict[str, dict[str, Any]], label: str) -> di
         potential, results = _potential(r, defense)
         gap = potential - results
         potential_tag = "upside" if gap >= POTENTIAL_GAP else ("overachieving" if gap <= -POTENTIAL_GAP else "steady")
+        clean_sheets = sum(1 for g in r["results"] if g["ga"] == 0)
+        cs_pct = 100.0 * clean_sheets / r["games"] if r["games"] else 0.0
         row = {
             **{k: v for k, v in r.items() if k != "results"},
             # Only what the chiclet tooltip needs; the full log would triple the payload.
@@ -268,6 +277,10 @@ def _league_table(slug: str, teams: dict[str, dict[str, Any]], label: str) -> di
             "potential": int(round(potential)),
             "results_power": int(round(results)),
             "potential_tag": potential_tag,
+            "clean_sheets": clean_sheets,
+            "clean_sheet_pct": int(round(cs_pct)),
+            "recent_clean_sheets": sum(1 for g in recent if g["ga"] == 0),
+            "tight": cs_pct > par_cs_pct,
             "xg": round(r["xg"], 2),
             "xg_against": round(r["xg_against"], 2),
             "power": int(round(power)),
@@ -292,6 +305,7 @@ def _league_table(slug: str, teams: dict[str, dict[str, Any]], label: str) -> di
             "defense_rank": None,
             "momentum_rank": None,
             "potential_rank": None,
+            "clean_sheet_rank": None,
         }
         out_rows.append(row)
 
@@ -311,6 +325,10 @@ def _league_table(slug: str, teams: dict[str, dict[str, Any]], label: str) -> di
     by_potential = sorted(ranked, key=lambda r: (-r["potential"], -r["xg"], -r["sot"], r["team"]))
     for i, r in enumerate(by_potential, start=1):
         r["potential_rank"] = i
+    # Most clean sheets first; equal totals go to the club that needed fewer games for them.
+    by_clean = sorted(ranked, key=lambda r: (-r["clean_sheets"], -r["clean_sheet_pct"], -r["recent_clean_sheets"], r["conceded"], r["team"]))
+    for i, r in enumerate(by_clean, start=1):
+        r["clean_sheet_rank"] = i
     out_rows.sort(key=lambda r: (r["rank"] is None, r["rank"] or 0, r["team"]))
     return {
         "slug": slug,
@@ -318,6 +336,7 @@ def _league_table(slug: str, teams: dict[str, dict[str, Any]], label: str) -> di
         "basis": basis,
         "teams_ranked": len(ranked),
         "form_games": FORM_GAMES,
+        "par_clean_sheet_pct": int(round(par_cs_pct)),
         "par_points_per_game": round(par_ppg, 2),
         "par_goals_per_game": round(par_scored, 2),
         "par_conversion_pct": int(round(100 * par_conv)),
