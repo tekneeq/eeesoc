@@ -7,6 +7,19 @@ Freeze an in-play snapshot (cut minute, goal times, shots/SOT) and rank last-sea
 The **Live** tab shows in-play matches as Revenant-style **match chiclets**, grouped by league.
 Tap a chiclet for a live pitch graphic: ball position, pass trails, and shot markers (ESPN play coordinates).
 
+Every chiclet also carries each club's **⚡ clinical power** (`/api/clinical`): goals per 100 xG over the
+archived finished games this season, shrunk toward league par for thin samples. 100 means the club scores
+exactly what its chances are worth; above 100 is tagged *clinical*, below *wasteful*; the rank is its place
+in the league's power table (clubs with 2+ archived games). Leagues without an ESPN xG feed use
+shots-on-target conversion against the league's own rate on the same 100 = par scale.
+
+The **0-0 HT** tab archives every full-time game the dashboard sees (plus a background ESPN backfill,
+`EEESOC_HT_BACKFILL_DAYS`, default 60, `0` to disable) under `<cache>/halftime/`. **Archive** lists the games
+that were 0-0 at the break by league, each cut at 45′ with the same event strip and xG chart, plus an
+80% band (p10–p90) profile of shots / on-target / corners / xG and what happened after the restart.
+**Similar live** scores today's goalless first halves against that archive minute for minute and shows
+the closest lookalikes with a match % and how they finished.
+
 ## Quick start
 
 ```bash

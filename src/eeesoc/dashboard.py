@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import time
 from datetime import date, datetime, timedelta
@@ -11,6 +12,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
+from eeesoc import clinical, halftime
 from eeesoc.data import load_season, previous_season_label
 from eeesoc.live import build_event_timeline, build_live_situation, build_pitch_track, fetch_live_board
 from eeesoc.models import Match, MatchSnapshot
@@ -282,7 +284,85 @@ def make_handler(state: DashboardState):
                     home_score=_qint("hs"),
                     away_score=_qint("as"),
                 )
+                if timeline.get("final"):
+                    # Full-time strips feed the 0-0 first-half archive.
+                    try:
+                        halftime.archive_timeline(
+                            timeline,
+                            {
+                                "league_chiclet": (qs.get("chiclet") or [""])[0],
+                                "league_name": (qs.get("league_name") or [""])[0],
+                                "home_id": (qs.get("home_id") or [""])[0],
+                                "away_id": (qs.get("away_id") or [""])[0],
+                                "start": (qs.get("start") or [""])[0],
+                            },
+                        )
+                    except OSError:
+                        pass
                 return self._send(200, _json_bytes(timeline), "application/json")
+
+            if path == "/api/clinical":
+                board = clinical.clinical_board()
+                league = (qs.get("league") or [""])[0]
+                if league:
+                    board = {**board, "leagues": {k: v for k, v in board["leagues"].items() if k == league}}
+                return self._send(200, _json_bytes(board), "application/json")
+
+            if path == "/api/halftime/zero":
+                raw_leagues = (qs.get("league") or [""])[0]
+                league_filter = {s for s in raw_leagues.split(",") if s.strip()} or None
+                board = halftime.zero_zero_board(league_filter=league_filter)
+                return self._send(200, _json_bytes(board), "application/json")
+
+            if path == "/api/halftime/backfill":
+                raw_days = (qs.get("days") or ["3"])[0]
+                try:
+                    days = max(0, min(int(raw_days), 120))
+                except ValueError:
+                    days = 3
+                started = halftime.start_backfill_thread(days_back=days)
+                status = halftime.backfill_status()
+                status["started"] = started
+                return self._send(200, _json_bytes(status), "application/json")
+
+            if path == "/api/halftime/similar":
+                league = (qs.get("league") or [None])[0]
+                event_id = (qs.get("event_id") or [None])[0]
+                if not league or not event_id:
+                    return self._send(
+                        400, _json_bytes({"error": "league and event_id required"}), "application/json"
+                    )
+                clock_seconds = None
+                raw_cs = (qs.get("clock_s") or [""])[0]
+                if raw_cs.strip().isdigit():
+                    clock_seconds = int(raw_cs)
+
+                def _hint(key: str, default: int = 0) -> int:
+                    raw = (qs.get(key) or [""])[0]
+                    try:
+                        return int(raw)
+                    except (TypeError, ValueError):
+                        return default
+
+                timeline = build_event_timeline(
+                    league,
+                    event_id,
+                    home=(qs.get("home") or [""])[0],
+                    away=(qs.get("away") or [""])[0],
+                    home_id=(qs.get("home_id") or [""])[0],
+                    away_id=(qs.get("away_id") or [""])[0],
+                    clock=(qs.get("clock") or [""])[0],
+                    clock_seconds=clock_seconds,
+                    home_score=_hint("hs"),
+                    away_score=_hint("as"),
+                )
+                raw_scope = (qs.get("scope") or [""])[0]
+                league_filter = {league} if raw_scope == "league" else None
+                result = halftime.similar_zero_zero(
+                    timeline, limit=max(1, min(_hint("limit", 8), 30)), league_filter=league_filter
+                )
+                result["timeline"] = timeline
+                return self._send(200, _json_bytes(result), "application/json")
 
             if path == "/api/live/similar":
                 league = (qs.get("league") or [None])[0]
@@ -527,10 +607,22 @@ def make_handler(state: DashboardState):
     return Handler
 
 
+def _halftime_backfill_days() -> int:
+    raw = os.environ.get("EEESOC_HT_BACKFILL_DAYS", "60")
+    try:
+        return max(0, min(int(raw), 120))
+    except ValueError:
+        return 60
+
+
 def serve(*, port: int, season: str, host: str = "127.0.0.1") -> None:
     state = DashboardState(season)
     handler = make_handler(state)
     httpd = ThreadingHTTPServer((host, port), handler)
+    days = _halftime_backfill_days()
+    if days > 0:
+        # Fill the 0-0 first-half archive from recent full-time games without blocking bind.
+        halftime.start_backfill_loop(initial_days_back=days)
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
