@@ -322,7 +322,9 @@ def make_handler(state: DashboardState):
                         "state_mult": model["state_mult"],
                         "stoppage_share": model["stoppage_share"],
                         "fitted_at": model["fitted_at"],
+                        "box_records": (model.get("box") or {}).get("records", 0),
                     },
+                    "box_backfill": halftime.box_backfill_status(),
                     "backtest": bt,
                     "threshold": nogoal.threshold(),
                     "windows": {str(p): list(w) for p, w in nogoal.windows().items()},
@@ -640,6 +642,10 @@ def _halftime_backfill_days() -> int:
         return 60
 
 
+def _box_backfill_enabled() -> bool:
+    return (os.environ.get("EEESOC_BOX_BACKFILL") or "1").strip().lower() not in {"0", "false", "no", "off"}
+
+
 def serve(*, port: int, season: str, host: str = "127.0.0.1") -> None:
     state = DashboardState(season)
     handler = make_handler(state)
@@ -648,6 +654,12 @@ def serve(*, port: int, season: str, host: str = "127.0.0.1") -> None:
     if days > 0:
         # Fill the 0-0 first-half archive from recent full-time games without blocking bind.
         halftime.start_backfill_loop(initial_days_back=days)
+    if _box_backfill_enabled():
+        # Records archived before box entries were kept get them from the play-by-play, once.
+        missing = len(halftime.records_missing_box_entries())
+        if missing:
+            halftime.start_box_backfill_thread()
+            print(f"[nogoal] backfilling penalty-box entries for {missing} archived games")
     if nogoal_monitor.monitor_enabled():
         # Scores every live game each poll and posts no-more-goals signals to Discord.
         nogoal_monitor.start_monitor_thread()

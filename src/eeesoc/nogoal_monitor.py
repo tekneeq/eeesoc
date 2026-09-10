@@ -176,10 +176,30 @@ def format_trigger(signal: dict[str, Any]) -> str:
         f"**{signal['home']} {signal['score'][0]}–{signal['score'][1]} {signal['away']}**",
         f"P(no goal to {half}) **{ev['p_no_goal_pct']}%** · break-even odds **{ev['break_even_odds']}** · {ev['lambda']:.2f} goals still expected",
         f"Why: {ev['minutes_left']}′ + stoppage left (base {ev['base_lambda']:.2f}) × league {ev['league_factor']:.2f} × {'still 0–0' if ev['zero_zero'] else 'game has goals'} {ev['state_factor']:.2f}",
-        f"So far this half: {shots_txt} · {tempo.get('sot', 0)} on target · xG {tempo.get('xg', 0)} (context only — tempo does not move the odds)",
+    ]
+    box_line = _box_line(signal, ev)
+    if box_line:
+        lines.append(box_line)
+    lines += [
+        f"Also this half: {shots_txt} · {tempo.get('sot', 0)} on target · xG {tempo.get('xg', 0)} (context only — shots add nothing once box entries are in)",
         f"Only take it if the book pays more than {ev['break_even_odds']}.",
     ]
     return "\n".join(lines)
+
+
+def _box_line(signal: dict[str, Any], ev: dict[str, Any]) -> str:
+    parts = []
+    if ev.get("box_total") is not None:
+        n = int(ev["box_total"])
+        parts.append(
+            f"Box entries so far **{n}** ({signal['home']} {ev.get('box_home', 0)} · {signal['away']} {ev.get('box_away', 0)})"
+            + (f" — {ev['inplay_bucket']} for the minute ×{ev['inplay_factor']:.2f}" if ev.get("inplay_bucket") else "")
+        )
+    if ev.get("habit_bucket"):
+        parts.append(
+            f"these clubs usually reach the box {ev.get('habit_expected', 0)}× a half — {ev['habit_bucket']} fixture ×{ev['habit_factor']:.2f}"
+        )
+    return "Edge: " + " · ".join(parts) if parts else ""
 
 
 def format_resolution(signal: dict[str, Any], signals: dict[str, Any]) -> str:
@@ -225,7 +245,13 @@ def poll(
         except Exception:  # noqa: BLE001 — one bad feed must not stall the loop
             traceback.print_exc()
             continue
-        ev = evaluate_live(mdl, tl, league_slug=str(match.get("league_slug") or ""))
+        ev = evaluate_live(
+            mdl,
+            tl,
+            league_slug=str(match.get("league_slug") or ""),
+            home_id=str(match.get("home_id") or ""),
+            away_id=str(match.get("away_id") or ""),
+        )
         key = f"{event_id}:{ev['period']}"
         existing = signals.get(key)
         evals[event_id] = {

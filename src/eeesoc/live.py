@@ -1041,6 +1041,60 @@ def _is_final_clock(clock: str) -> bool:
     return any(tok in c for tok in _FINAL_CLOCK_TOKENS)
 
 
+# A completed pass received inside the penalty area, in the passer's attacking
+# frame (ESPN normalises fieldPositionX so 100 is always the goal being attacked).
+BOX_X_MIN = 83.0
+BOX_Y_MIN, BOX_Y_MAX = 21.0, 79.0
+
+
+def _is_box_entry(ptype: str, play: dict[str, Any]) -> bool:
+    if ptype != "pass":
+        return False
+    px = _coord(play, "fieldPositionX")
+    py = _coord(play, "fieldPositionY")
+    return px is not None and py is not None and px >= BOX_X_MIN and BOX_Y_MIN <= py <= BOX_Y_MAX
+
+
+def box_entries_from_plays(
+    plays: list[dict[str, Any]],
+    *,
+    home_id: str = "",
+    away_id: str = "",
+    home: str = "",
+    away: str = "",
+) -> dict[str, dict[str, list[int]]]:
+    """
+    Minutes of every penalty-box entry per half and side:
+    ``{"1": {"home": [...], "away": [...]}, "2": {...}}``.
+
+    Box entries — not shots — are what separates goalless halves from the rest
+    in the archive (see ``eeesoc.nogoal``), so they are kept at minute level.
+    """
+    out: dict[str, dict[str, list[int]]] = {"1": {"home": [], "away": []}, "2": {"home": [], "away": []}}
+    for play in plays:
+        ptype = _play_type(play)
+        if not _is_box_entry(ptype, play):
+            continue
+        pmin = _play_minute(play)
+        period = _play_period(play)
+        if pmin is None:
+            continue
+        if period is None:
+            period = 1 if pmin <= 45 else 2
+        if period not in (1, 2):
+            continue
+        side = _side_for_team(
+            _team_id_from_play(play), home_id=home_id, away_id=away_id, home=home, away=away, play=play
+        )
+        if side not in {"home", "away"}:
+            continue
+        out[str(period)][side].append(int(pmin))
+    for half in out.values():
+        for side in half.values():
+            side.sort()
+    return out
+
+
 def _normalize_play_type(ptype: str) -> str:
     if _is_own_goal(ptype):
         return "own-goal"
@@ -1448,6 +1502,7 @@ def build_event_timeline(
         "counts": counts,
         "territory": _build_territory(territory_pts),
         "pressure": _build_pressure(pressure_pts, now_minute=minute),
+        "box_entries": box_entries_from_plays(plays, home_id=home_id, away_id=away_id, home=home, away=away),
         "xg": {
             "home": home_series,
             "away": away_series,

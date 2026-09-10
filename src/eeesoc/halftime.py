@@ -29,7 +29,9 @@ from eeesoc.live import (
     SITE_SCOREBOARD,
     LiveMatch,
     _fetch_json,
+    box_entries_from_plays,
     build_event_timeline,
+    fetch_all_plays,
     parse_scoreboard,
     parse_start,
 )
@@ -233,6 +235,7 @@ def record_from_timeline(tl: dict[str, Any], meta: dict[str, Any] | None = None)
         "first_half": ht,
         "second_half_goals": _second_half_goals(events),
         "events": trimmed_events,
+        "box_entries": tl.get("box_entries") or None,
         "xg": {
             "home": list(xg.get("home") or []),
             "away": list(xg.get("away") or []),
@@ -908,3 +911,93 @@ def start_backfill_loop(*, initial_days_back: int = 14, refresh_days_back: int =
             time.sleep(every_s)
 
     threading.Thread(target=_loop, name="eeesoc-halftime-backfill-loop", daemon=True).start()
+
+
+# ---------------------------------------------------------------------------
+# Box-entry backfill for records archived before box entries were kept
+# ---------------------------------------------------------------------------
+
+_box_lock = threading.Lock()
+_box_state: dict[str, Any] = {"running": False, "todo": 0, "done": 0, "failed": 0, "started_at": None, "finished_at": None}
+
+
+def records_missing_box_entries(records: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
+    return [r for r in (load_records() if records is None else records) if "box_entries" not in r]
+
+
+def enrich_box_entries(
+    rec: dict[str, Any],
+    *,
+    fetcher: Callable[[str], dict[str, Any]] | None = None,
+) -> dict[str, Any] | None:
+    """Fetch the play-by-play once more and store the box-entry minutes on the record."""
+    league, event_id = str(rec.get("league_slug") or ""), str(rec.get("event_id") or "")
+    if not league or not event_id:
+        return None
+    plays = fetch_all_plays(league, event_id, page_size=1000, fetcher=fetcher)
+    if not plays:
+        return None
+    rec = dict(rec)
+    rec["box_entries"] = box_entries_from_plays(
+        plays,
+        home_id=str(rec.get("home_id") or ""),
+        away_id=str(rec.get("away_id") or ""),
+        home=str(rec.get("home") or ""),
+        away=str(rec.get("away") or ""),
+    )
+    path = record_path(league, event_id)
+    write_json(path, rec)
+    with _records_lock:
+        _records_cache[str(path)] = (path.stat().st_mtime, rec)
+    return rec
+
+
+def backfill_box_entries(
+    *,
+    fetcher: Callable[[str], dict[str, Any]] | None = None,
+    pause_s: float = 0.3,
+    limit: int | None = None,
+) -> dict[str, Any]:
+    """Add box entries to every archived record that predates them (one pass, rate-limited)."""
+    with _box_lock:
+        if _box_state["running"]:
+            return {**_box_state, "busy": True}
+        _box_state.update({"running": True, "done": 0, "failed": 0, "started_at": time.time(), "finished_at": None})
+    todo = records_missing_box_entries()
+    if limit is not None:
+        todo = todo[:limit]
+    with _box_lock:
+        _box_state["todo"] = len(todo)
+    for rec in todo:
+        try:
+            ok = enrich_box_entries(rec, fetcher=fetcher) is not None
+        except Exception:  # noqa: BLE001 — keep sweeping
+            ok = False
+        with _box_lock:
+            _box_state["done" if ok else "failed"] += 1
+        if pause_s:
+            time.sleep(pause_s)
+    with _box_lock:
+        _box_state.update({"running": False, "finished_at": time.time()})
+        return dict(_box_state)
+
+
+def box_backfill_status() -> dict[str, Any]:
+    with _box_lock:
+        return dict(_box_state)
+
+
+def start_box_backfill_thread(*, pause_s: float = 0.3) -> bool:
+    with _box_lock:
+        if _box_state["running"]:
+            return False
+
+    def _run() -> None:
+        try:
+            backfill_box_entries(pause_s=pause_s)
+        except Exception:  # noqa: BLE001 — never take the server down
+            with _box_lock:
+                _box_state.update({"running": False, "finished_at": time.time()})
+
+    threading.Thread(target=_run, name="eeesoc-box-backfill", daemon=True).start()
+    return True
