@@ -10,6 +10,16 @@ Each chiclet also has a rolling 15′ pressure bar (who is in the other side's f
 and a pressure graph of that same window at every minute, so a first-half siege that flipped after
 the break is visible instead of collapsing to "even".
 
+Under the pitch graphic sits the **formation board** (`/api/live/lineups`, from the ESPN match summary):
+both teams' formations with everyone currently on the pitch in his slot. Each player carries a **power**
+number — a FIFA-flavoured 40–99 match-performance score computed from ESPN's live per-player stats
+(goals +12, assists +8, shots on target +4, other shots +1.5, fouls drawn +1; fouls −1.5, offsides −1,
+yellow −4, red −12; keepers get +3 a save, −3 a goal conceded; 65 = quiet, tidy game) — and a
+**freshness bar** that drains with minutes on the pitch (ESPN publishes no distance-run/GPS data, so
+minutes are the honest proxy; substitutes come on full). Substitutes show **⇄ and the minute** they came
+on, inherit the formation slot of the player they replaced, and the hover line names who came off.
+Lineups appear about an hour before kickoff; goals and cards are marked on the player dot.
+
 Every chiclet also carries each club's **⚡ clinical power** (`/api/clinical`): goals per 100 xG over the
 archived finished games this season, shrunk toward league par for thin samples. 100 means the club scores
 exactly what its chances are worth; above 100 is tagged *clinical*, below *wasteful*; the rank is its place

@@ -11,6 +11,7 @@
     selectedSimilarLive: null, // Similar tab live chiclet
     liveTimer: null,
     trackTimer: null,
+    lineupTimer: null,
     similarTimer: null,
     timelines: {},
     liveTickTimer: null,
@@ -2008,6 +2009,10 @@
     $("#pitchPanel").hidden = false;
     $("#pitchTitle").textContent = `${m.home} ${m.home_score}–${m.away_score} ${m.away} · ${matchClockLabel(m)}`;
     if (state.trackTimer) clearInterval(state.trackTimer);
+    if (state.lineupTimer) clearInterval(state.lineupTimer);
+    // Lineups exist ~1h before kickoff and after FT; refresh slowly while live.
+    refreshLineups();
+    state.lineupTimer = isFinishedMatch(m) ? null : setInterval(refreshLineups, 60000);
     if (isUpcomingMatch(m)) {
       state.trackTimer = null;
       const svg = $("#pitchSvg");
@@ -2330,6 +2335,140 @@
       renderPitch(track);
     } catch (err) {
       $("#pitchFeed").innerHTML = `<p class="lede">Could not load pitch tracking.</p>`;
+    }
+  }
+
+  // —— Formation lineups on the pitch panel ——
+
+  function lineupNowMinute(m) {
+    const tl = state.timelines?.[m.event_id];
+    if (tl) return Math.max(1, Math.round(liveNowMinutes(tl)));
+    if (isFinishedMatch(m)) return 90;
+    const mm = String(m.clock || "").match(/(\d+)/);
+    return mm ? Math.max(1, Math.min(90, Number(mm[1]))) : 1;
+  }
+
+  function lineupMinutes(p, now) {
+    const start = Number(p.in_minute) || 0;
+    const end = p.out_minute != null ? Number(p.out_minute) : now;
+    return Math.max(0, end - start);
+  }
+
+  // Rows from the formation string: place 1 = GK, then each digit takes the
+  // next places (4-2-3-1 → [1] [2-5] [6-7] [8-10] [11]).
+  function formationRows(players, formation) {
+    const digits = (String(formation || "").match(/\d+/g) || []).map(Number);
+    const onPitch = players.filter((p) => p.on_pitch);
+    const placed = onPitch.filter((p) => Number(p.place) > 0).sort((a, b) => a.place - b.place);
+    const loose = onPitch.filter((p) => !(Number(p.place) > 0));
+    const rows = [];
+    let cursor = 0;
+    const sizes = [1, ...digits];
+    for (const size of sizes) {
+      const row = placed.slice(cursor, cursor + size);
+      cursor += size;
+      if (row.length) rows.push(row);
+    }
+    if (cursor < placed.length) rows.push(placed.slice(cursor));
+    while (loose.length) rows.push(loose.splice(0, 4));
+    return rows;
+  }
+
+  function powerClass(power) {
+    if (power >= 75) return "hot";
+    if (power < 60) return "cold";
+    return "";
+  }
+
+  function lineupPlayerSvg(p, x, y, side, now) {
+    const mins = lineupMinutes(p, now);
+    const frac = Math.max(0, Math.min(1, 1 - mins / 95));
+    const stamCls = frac > 0.5 ? "ok" : frac > 0.25 ? "warn" : "low";
+    const name = shortName(p.short || p.name || "?");
+    const subBit = p.in_minute ? ` ⇄${p.in_minute}′` : "";
+    const s = p.stats || {};
+    const statBits = [
+      s.goals ? `${s.goals}⚽` : "",
+      s.assists ? `${s.assists}A` : "",
+      s.sot ? `${s.sot} on target` : s.shots ? `${s.shots} shots` : "",
+      s.saves ? `${s.saves} saves` : "",
+      s.yellow ? "🟨" : "",
+      s.red ? "🟥" : "",
+    ].filter(Boolean);
+    const title = `${p.name || name}${p.pos ? ` · ${p.pos}` : ""} · power ${p.power} · ${mins}′ on the pitch${
+      p.in_minute ? ` (on ${p.in_minute}′ for ${p.sub_for || "?"})` : ""
+    }${statBits.length ? ` · ${statBits.join(" · ")}` : ""}`;
+    const barW = 46;
+    return `<g class="lu-player lu-${side}" transform="translate(${x.toFixed(1)},${y.toFixed(1)})">
+      <title>${escapeHtml(title)}</title>
+      <circle class="lu-dot" r="16"/>
+      <text class="lu-jersey" y="4.5" text-anchor="middle">${escapeHtml(p.jersey || "")}</text>
+      <rect class="lu-power ${powerClass(p.power)}" x="10" y="-27" width="26" height="15" rx="3"/>
+      <text class="lu-power-num" x="23" y="-15.5" text-anchor="middle">${p.power}</text>
+      <text class="lu-name" y="31" text-anchor="middle">${escapeHtml(name)}${escapeHtml(subBit)}</text>
+      <rect class="lu-stam-bg" x="${-barW / 2}" y="36" width="${barW}" height="4" rx="2"/>
+      <rect class="lu-stam ${stamCls}" x="${-barW / 2}" y="36" width="${(barW * frac).toFixed(1)}" height="4" rx="2"/>
+      ${s.goals ? `<text class="lu-goal" x="-22" y="-14">⚽</text>` : ""}
+      ${s.yellow || s.red ? `<rect class="lu-card ${s.red ? "red" : "yellow"}" x="-30" y="-4" width="7" height="10" rx="1"/>` : ""}
+    </g>`;
+  }
+
+  function lineupSideSvg(sideData, side, now) {
+    const rows = formationRows(sideData.players || [], sideData.formation);
+    if (!rows.length) return "";
+    const xStart = 88;
+    const xEnd = 462;
+    const parts = [];
+    rows.forEach((row, i) => {
+      const t = rows.length === 1 ? 0 : i / (rows.length - 1);
+      const xHome = xStart + t * (xEnd - xStart);
+      const x = side === "home" ? xHome : 1050 - xHome;
+      row.forEach((p, j) => {
+        const y = 25 + ((j + 1) * 630) / (row.length + 1);
+        parts.push(lineupPlayerSvg(p, x, y, side, now));
+      });
+    });
+    return parts.join("");
+  }
+
+  function renderLineups(data, m) {
+    const mount = $("#pitchLineups");
+    if (!mount) return;
+    if (!data || !data.available) {
+      mount.innerHTML = `<p class="lede lu-note">Lineups land on ESPN about an hour before kickoff.</p>`;
+      return;
+    }
+    const now = lineupNowMinute(m);
+    const subCount = (sd) => (sd.players || []).filter((p) => p.in_minute).length;
+    mount.innerHTML = `
+      <div class="lu-head">
+        <span class="lu-team lu-team-home">${escapeHtml(shortName(data.home.team || m.home))} <b>${escapeHtml(data.home.formation || "—")}</b>${subCount(data.home) ? ` · ${subCount(data.home)} sub${subCount(data.home) === 1 ? "" : "s"}` : ""}</span>
+        <span class="lu-title">On the pitch · ${now}′</span>
+        <span class="lu-team lu-team-away"><b>${escapeHtml(data.away.formation || "—")}</b> ${escapeHtml(shortName(data.away.team || m.away))}${subCount(data.away) ? ` · ${subCount(data.away)} sub${subCount(data.away) === 1 ? "" : "s"}` : ""}</span>
+      </div>
+      <svg class="lu-svg" viewBox="0 0 1050 680" role="img" aria-label="Formations and players on the pitch">
+        <rect x="0" y="0" width="1050" height="680" class="pitch-bg"/>
+        <rect x="25" y="25" width="1000" height="630" class="pitch-field"/>
+        <line x1="525" y1="25" x2="525" y2="655" class="pitch-line"/>
+        <circle cx="525" cy="340" r="91.5" class="pitch-line"/>
+        <rect x="25" y="165.5" width="165" height="349" class="pitch-line"/>
+        <rect x="860" y="165.5" width="165" height="349" class="pitch-line"/>
+        ${lineupSideSvg(data.home, "home", now)}
+        ${lineupSideSvg(data.away, "away", now)}
+      </svg>
+      <p class="lede lu-note">Hover a player for the full line. <b>Power</b> is a match-performance number from ESPN's live stats (goals, assists, shots, saves, fouls, cards) — 65 is a quiet, tidy game. The bar is <b>freshness by minutes played</b> (ESPN has no distance-run data); subs come on full. ⇄ marks a substitute, with the minute — hover to see who came off.</p>`;
+  }
+
+  async function refreshLineups() {
+    const m = state.selectedLive;
+    if (!m) return;
+    try {
+      const qs = new URLSearchParams({ league: m.league_slug, event_id: m.event_id });
+      const data = await (await fetch(`/api/live/lineups?${qs}`)).json();
+      renderLineups(data, m);
+    } catch (err) {
+      const mount = $("#pitchLineups");
+      if (mount && !mount.querySelector("svg")) mount.innerHTML = "";
     }
   }
 
@@ -3426,6 +3565,7 @@
       syncSelectedLive(all, "selectedLive", () => {
         $("#pitchPanel").hidden = true;
         if (state.trackTimer) clearInterval(state.trackTimer);
+        if (state.lineupTimer) clearInterval(state.lineupTimer);
       });
       syncSelectedLive(all, "selectedSimilarLive", () => {
         if (state.similarTimer) clearInterval(state.similarTimer);
