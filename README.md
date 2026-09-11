@@ -230,6 +230,9 @@ The bot **also** responds to `!soc …` (or `!eee …`) messages:
 !soc winprob               # EPL picks + 30-day record
 !soc fixture HOME AWAY     # WinProb detail
 !soc similar TEAM [minute] # historical lookalikes (needs warmed cache)
+!soc bets TEAM [under|over] LINE [1h|2h|ft]
+                           # archive hit rate for a totals line
+                           # e.g. !soc bets Liverpool 1.5 1h  → under 1.5 1st-half (default under, FT)
 ```
 
 ### Auto-deploy on push
