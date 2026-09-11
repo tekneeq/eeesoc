@@ -795,6 +795,29 @@ def _play_period(play: dict[str, Any]) -> int | None:
     return n if n > 0 else None
 
 
+def _play_half(period: int | None, minute: int | None) -> str:
+    """``1h`` / ``2h`` — ESPN period wins; minute is the fallback when period is missing."""
+    if period == 1:
+        return "1h"
+    if period is not None:
+        return "2h"
+    if minute is not None and minute > 45:
+        return "2h"
+    return "1h"
+
+
+def _empty_half_counts() -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    for side in ("home", "away"):
+        for kind in ("shot", "shot_on", "blocked", "goal", "corner", "foul"):
+            out[f"{side}_{kind}"] = 0
+        out[f"{side}_xg"] = 0.0
+    return out
+
+
+_HALF_EVENT_KINDS = {"shot", "shot_on", "blocked", "goal", "corner"}
+
+
 def _play_minute(play: dict[str, Any]) -> int | None:
     clock = play.get("clock") or {}
     if isinstance(clock, dict):
@@ -1446,6 +1469,7 @@ def build_event_timeline(
         "home_foul": 0,
         "away_foul": 0,
     }
+    halves = {"1h": _empty_half_counts(), "2h": _empty_half_counts()}
     home_xg_pts: list[tuple[int, float]] = []
     away_xg_pts: list[tuple[int, float]] = []
     territory_pts: list[tuple[float, float, str]] = []
@@ -1469,6 +1493,8 @@ def build_event_timeline(
             )
         )
         xg = _safe_float(play.get("expectedGoals"))
+        period = _play_period(play)
+        half = _play_half(period, pmin)
         if (
             xg is not None
             and pmin is not None
@@ -1477,6 +1503,7 @@ def build_event_timeline(
             and not own
         ):
             (home_xg_pts if side == "home" else away_xg_pts).append((pmin, xg))
+            halves[half][f"{side}_xg"] = float(halves[half][f"{side}_xg"]) + xg
 
         kind = _event_kind(ptype, scoring=bool(play.get("scoringPlay")))
         if own:
@@ -1493,10 +1520,10 @@ def build_event_timeline(
         if "foul" in ptype and side in {"home", "away"}:
             counts["foul"] += 1
             counts[f"{side}_foul"] += 1
+            halves[half][f"{side}_foul"] = int(halves[half][f"{side}_foul"]) + 1
 
         clock = _clock_label(play)
         elapsed = _play_elapsed_seconds(play)
-        period = _play_period(play)
         if _is_substitution(ptype, play) and pmin is not None and side in {"home", "away"}:
             player_on, player_off = _sub_players(play)
             bulletin.append(
@@ -1549,6 +1576,8 @@ def build_event_timeline(
         counts[kind] += 1
         if side in {"home", "away"}:
             counts[f"{side}_{kind}"] = counts.get(f"{side}_{kind}", 0) + 1
+            if kind in _HALF_EVENT_KINDS:
+                halves[half][f"{side}_{kind}"] = int(halves[half][f"{side}_{kind}"]) + 1
 
     events.sort(key=lambda e: (e["minute"], e["kind"]))
     bulletin.sort(key=_bulletin_sort_key)
@@ -1582,6 +1611,14 @@ def build_event_timeline(
         "events": events,
         "bulletin": bulletin,
         "counts": counts,
+        "counts_by_half": {
+            key: {
+                **bucket,
+                "home_xg": round(float(bucket["home_xg"]), 4),
+                "away_xg": round(float(bucket["away_xg"]), 4),
+            }
+            for key, bucket in halves.items()
+        },
         "territory": _build_territory(territory_pts),
         "pressure": _build_pressure(pressure_pts, now_minute=minute),
         "box_entries": box_entries_from_plays(plays, home_id=home_id, away_id=away_id, home=home, away=away),
