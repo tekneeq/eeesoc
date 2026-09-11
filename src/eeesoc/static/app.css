@@ -1552,10 +1552,37 @@ main {
 
 .mc-stats {
   display: flex;
-  flex-wrap: wrap;
-  gap: 0.35rem 0.55rem;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.2rem;
   font-family: var(--mono);
   font-size: 0.68rem;
+  color: var(--muted);
+}
+
+.mc-stats-stack,
+.mc-stats-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 0.55rem;
+}
+
+.mc-stats-stack {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.18rem;
+}
+
+.mc-stats-half {
+  opacity: 0.92;
+}
+
+.mc-stat-period {
+  flex: 0 0 1.35rem;
+  font-size: 0.6rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
   color: var(--muted);
 }
 

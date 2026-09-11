@@ -1470,21 +1470,36 @@
     }
   }
 
+  function chicletStatChips(c, xgHome, xgAway) {
+    const counts = c || {};
+    const pair = (label, h, a) =>
+      `<span class="mc-stat" title="${label} — home vs away"><span class="mc-stat-label">${label}</span><b class="mc-h">${h}</b><span class="mc-stat-sep">–</span><b class="mc-a">${a}</b></span>`;
+    return (
+      pair("Shots", (counts.home_shot || 0) + (counts.home_shot_on || 0) + (counts.home_blocked || 0) + (counts.home_goal || 0), (counts.away_shot || 0) + (counts.away_shot_on || 0) + (counts.away_blocked || 0) + (counts.away_goal || 0)) +
+      pair("On target", (counts.home_shot_on || 0) + (counts.home_goal || 0), (counts.away_shot_on || 0) + (counts.away_goal || 0)) +
+      pair("Corners", counts.home_corner || 0, counts.away_corner || 0) +
+      pair("Fouls", counts.home_foul || 0, counts.away_foul || 0) +
+      pair("xG", Number(xgHome || 0).toFixed(2), Number(xgAway || 0).toFixed(2))
+    );
+  }
+
   function chicletStatsHtml(tl) {
     if (!tl) {
       return `<span class="mc-stat mc-stat-empty">shots · on target · corners · xG</span>`;
     }
-    const c = tl.counts || {};
     const xg = tl.xg || {};
-    const pair = (label, h, a) =>
-      `<span class="mc-stat" title="${label} — home vs away"><span class="mc-stat-label">${label}</span><b class="mc-h">${h}</b><span class="mc-stat-sep">–</span><b class="mc-a">${a}</b></span>`;
-    return (
-      pair("Shots", (c.home_shot || 0) + (c.home_shot_on || 0) + (c.home_blocked || 0) + (c.home_goal || 0), (c.away_shot || 0) + (c.away_shot_on || 0) + (c.away_blocked || 0) + (c.away_goal || 0)) +
-      pair("On target", (c.home_shot_on || 0) + (c.home_goal || 0), (c.away_shot_on || 0) + (c.away_goal || 0)) +
-      pair("Corners", c.home_corner || 0, c.away_corner || 0) +
-      pair("Fouls", c.home_foul || 0, c.away_foul || 0) +
-      pair("xG", Number(xg.home_total || 0).toFixed(2), Number(xg.away_total || 0).toFixed(2))
-    );
+    const halves = tl.counts_by_half || {};
+    const h1 = halves["1h"] || {};
+    const h2 = halves["2h"] || {};
+    const row = (period, chips) =>
+      `<span class="mc-stats-row${period ? " mc-stats-half" : ""}">${
+        period ? `<span class="mc-stat-period">${period}</span>` : ""
+      }${chips}</span>`;
+    return `<span class="mc-stats-stack">${
+      row("", chicletStatChips(tl.counts, xg.home_total, xg.away_total)) +
+      row("1H", chicletStatChips(h1, h1.home_xg, h1.away_xg)) +
+      row("2H", chicletStatChips(h2, h2.home_xg, h2.away_xg))
+    }</span>`;
   }
 
   function buildMatchChicletButton(m, selected, onSelect, withTimeline) {
@@ -2080,6 +2095,12 @@
         xh: tl.xg?.home_total,
         xa: tl.xg?.away_total,
         fouls: [tl.counts?.home_foul, tl.counts?.away_foul],
+        halves: [
+          tl.counts_by_half?.["1h"]?.home_shot,
+          tl.counts_by_half?.["2h"]?.home_shot,
+          tl.counts_by_half?.["1h"]?.home_xg,
+          tl.counts_by_half?.["2h"]?.away_xg,
+        ],
         terr: tl.territory?.total,
         press: [
           tl.pressure?.to_minute,

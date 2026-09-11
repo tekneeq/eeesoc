@@ -531,6 +531,94 @@ def test_build_event_timeline_kinds():
     assert tl["play_home_score"] == 0
     assert tl["home_score"] == 0
     assert tl["away_score"] == 1
+    # No period on these plays and every clock is ≤45′ — the 1H bucket matches the full row.
+    assert tl["counts_by_half"]["1h"]["away_goal"] == 1
+    assert tl["counts_by_half"]["1h"]["home_shot_on"] == 1
+    assert tl["counts_by_half"]["1h"]["away_xg"] == 0.55
+    assert tl["counts_by_half"]["2h"]["away_goal"] == 0
+    assert tl["counts_by_half"]["2h"]["home_xg"] == 0.0
+
+
+def test_timeline_counts_split_by_half():
+    """1H / 2H buckets follow ESPN period; stoppage in period 1 stays first-half."""
+    from eeesoc.live import build_event_timeline, clear_timeline_cache
+
+    clear_timeline_cache()
+    plays = {
+        "pageCount": 1,
+        "items": [
+            {
+                "type": {"type": "shot-off-target"},
+                "clock": {"displayValue": "12'"},
+                "period": {"number": 1},
+                "expectedGoals": 0.1,
+                "team": {"$ref": ".../teams/1"},
+            },
+            {
+                "type": {"type": "corner-awarded"},
+                "clock": {"displayValue": "40'"},
+                "period": {"number": 1},
+                "team": {"$ref": ".../teams/2"},
+            },
+            {
+                "type": {"type": "foul"},
+                "clock": {"displayValue": "45'+2'"},
+                "period": {"number": 1},
+                "team": {"$ref": ".../teams/1"},
+            },
+            {
+                "type": {"type": "shot-on-target"},
+                "clock": {"displayValue": "52'"},
+                "period": {"number": 2},
+                "expectedGoals": 0.25,
+                "team": {"$ref": ".../teams/2"},
+            },
+            {
+                "type": {"type": "goal"},
+                "clock": {"displayValue": "70'"},
+                "period": {"number": 2},
+                "scoringPlay": True,
+                "expectedGoals": 0.4,
+                "team": {"$ref": ".../teams/1"},
+            },
+            {
+                "type": {"type": "foul"},
+                "clock": {"displayValue": "77'"},
+                "period": {"number": 2},
+                "team": {"$ref": ".../teams/2"},
+            },
+        ],
+    }
+    tl = build_event_timeline(
+        "eng.1",
+        "half-split",
+        home="Home",
+        away="Away",
+        home_id="1",
+        away_id="2",
+        clock="80'",
+        fetcher=lambda url: plays,
+        use_cache=False,
+    )
+    h1, h2 = tl["counts_by_half"]["1h"], tl["counts_by_half"]["2h"]
+    assert h1["home_shot"] == 1 and h1["away_corner"] == 1 and h1["home_foul"] == 1
+    assert h1["home_xg"] == 0.1 and h1["away_xg"] == 0.0
+    assert h1["home_goal"] == 0 and h2["home_goal"] == 1
+    assert h2["away_shot_on"] == 1 and h2["away_foul"] == 1
+    assert h2["home_xg"] == 0.4 and h2["away_xg"] == 0.25
+    assert tl["counts"]["home_goal"] == 1
+    assert tl["counts"]["home_foul"] == 1
+    assert tl["counts"]["away_foul"] == 1
+
+
+def test_chiclet_stats_keep_full_row_and_add_halves():
+    js = Path("src/eeesoc/static/app.js").read_text(encoding="utf-8")
+    css = Path("src/eeesoc/static/app.css").read_text(encoding="utf-8")
+    assert "function chicletStatChips" in js
+    assert 'row("1H"' in js and 'row("2H"' in js
+    assert "counts_by_half" in js
+    assert ".mc-stats-half" in css
+    assert ".mc-stat-period" in css
 
 
 def test_timeline_fouls_and_territory():
