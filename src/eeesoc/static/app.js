@@ -703,6 +703,22 @@
     return Number(c.live_count) || 0;
   }
 
+  function toggleLeagueFilter(filter, slug) {
+    const next = filter instanceof Set ? new Set(filter) : new Set();
+    if (next.has(slug)) next.delete(slug);
+    else next.add(slug);
+    return next.size ? next : null;
+  }
+
+  function pruneLeagueFilter(filter, scope) {
+    if (!(filter instanceof Set) || !state.live) return filter;
+    const alive = new Set(
+      (state.live.chiclets || []).filter((c) => scopeCount(c, scope)).map((c) => c.slug)
+    );
+    const next = new Set([...filter].filter((slug) => alive.has(slug)));
+    return next.size ? next : null;
+  }
+
   function renderLeagueChiclets(rowEl, filterKey, onChange, scope = "live") {
     const row = $(rowEl);
     row.innerHTML = "";
@@ -718,6 +734,8 @@
     const allBtn = document.createElement("button");
     allBtn.type = "button";
     allBtn.className = "chiclet" + (filter == null ? " on" : "");
+    allBtn.setAttribute("aria-pressed", filter == null ? "true" : "false");
+    allBtn.title = "Show every league";
     allBtn.innerHTML = `<span class="chiclet-label">ALL</span><span class="chiclet-count">${total}</span>`;
     allBtn.addEventListener("click", () => {
       state[filterKey] = null;
@@ -732,14 +750,12 @@
       const active = filter instanceof Set && filter.has(c.slug);
       btn.className = "chiclet" + (active ? " on" : "") + (!n ? " dim" : "");
       btn.disabled = !n && !active;
+      btn.setAttribute("aria-pressed", active ? "true" : "false");
+      btn.title = active ? `Remove ${c.label} from the filter` : `Add ${c.label} to the filter`;
       btn.innerHTML = `<span class="chiclet-label">${c.label}</span><span class="chiclet-count">${n}</span>`;
       btn.addEventListener("click", () => {
-        if (!n) return;
-        if (state[filterKey] instanceof Set && state[filterKey].has(c.slug) && state[filterKey].size === 1) {
-          state[filterKey] = null;
-        } else {
-          state[filterKey] = new Set([c.slug]);
-        }
+        if (!n && !active) return;
+        state[filterKey] = toggleLeagueFilter(state[filterKey], c.slug);
         onChange();
       });
       row.appendChild(btn);
@@ -2207,8 +2223,8 @@
     if (scope !== "live" && scope !== "finished" && scope !== "upcoming") return;
     if (scope === state.liveScope) return;
     persistLiveScope(scope);
-    // League filters belong to a scope — a filter with no rows in the new scope is just confusing.
-    state.liveFilter = null;
+    // Keep the selected leagues; drop any that have nothing in the new scope.
+    state.liveFilter = pruneLeagueFilter(state.liveFilter, scope);
     renderLiveTabChiclets();
   }
 
@@ -3772,15 +3788,7 @@
 
       const scopeFor = { liveFilter: state.liveScope || "live", similarFilter: "live" };
       for (const filterKey of ["liveFilter", "similarFilter"]) {
-        if (state[filterKey] instanceof Set) {
-          const alive = new Set(
-            (data.chiclets || []).filter((c) => scopeCount(c, scopeFor[filterKey])).map((c) => c.slug)
-          );
-          for (const slug of [...state[filterKey]]) {
-            if (!alive.has(slug)) state[filterKey].delete(slug);
-          }
-          if (!state[filterKey].size) state[filterKey] = null;
-        }
+        state[filterKey] = pruneLeagueFilter(state[filterKey], scopeFor[filterKey]);
       }
 
       const all = flatLiveMatches(null, "all");

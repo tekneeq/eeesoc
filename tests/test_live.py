@@ -1277,6 +1277,38 @@ def test_live_chiclets_use_pointer_drag():
     assert "makeChicletDropZone" not in js
 
 
+def test_live_league_chips_toggle_instead_of_replacing():
+    """Live / Upcoming / Finished league chips stack; a second click adds, not swaps."""
+    js = Path("src/eeesoc/static/app.js").read_text(encoding="utf-8")
+    html = Path("src/eeesoc/static/index.html").read_text(encoding="utf-8")
+    assert "function toggleLeagueFilter" in js
+    assert "function pruneLeagueFilter" in js
+    assert "state[filterKey] = toggleLeagueFilter(state[filterKey], c.slug)" in js
+    assert "state[filterKey] = new Set([c.slug])" not in js
+    assert "click more than one" in html
+
+    # Exercise the toggle itself (extracted from app.js) so ALL → A → A+B → B → ALL.
+    script = r"""
+function toggleLeagueFilter(filter, slug) {
+  const next = filter instanceof Set ? new Set(filter) : new Set();
+  if (next.has(slug)) next.delete(slug);
+  else next.add(slug);
+  return next.size ? next : null;
+}
+let f = toggleLeagueFilter(null, "eng.1");
+if (!(f instanceof Set) || f.size !== 1 || !f.has("eng.1")) process.exit(2);
+f = toggleLeagueFilter(f, "esp.1");
+if (f.size !== 2 || !f.has("eng.1") || !f.has("esp.1")) process.exit(3);
+f = toggleLeagueFilter(f, "eng.1");
+if (f.size !== 1 || !f.has("esp.1")) process.exit(4);
+f = toggleLeagueFilter(f, "esp.1");
+if (f !== null) process.exit(5);
+"""
+    import subprocess
+
+    subprocess.run(["node", "-e", script], check=True)
+
+
 # —— Lineups: formation, subs, power ——
 
 
