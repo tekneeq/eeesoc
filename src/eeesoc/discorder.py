@@ -9,6 +9,7 @@ Only messages that start with ``!soc`` (or ``!eee``) are handled:
     !soc winprob
     !soc fixture HOME AWAY
     !soc similar TEAM [minute]
+    !soc bets TEAM [under|over] LINE [1h|2h|ft]
 
 Env (``.env`` on the eeesoc EC2 host, loaded by docker ``--env-file``):
 
@@ -54,6 +55,8 @@ HELP_TEXT = """**eeesoc · `!soc` commands**
 !soc winprob                  EPL picks + 30-day record
 !soc fixture HOME AWAY        WinProb detail for a pair
 !soc similar TEAM [minute]    historical lookalikes
+!soc bets TEAM [under|over] LINE [1h|2h|ft]
+                              totals hit rate from the archive
 ```
 Examples:
 `!soc live`
@@ -62,6 +65,7 @@ Examples:
 `!soc winprob`
 `!soc fixture Arsenal Chelsea`
 `!soc similar Everton 53`
+`!soc bets Liverpool 1.5 1h`     under 1.5 1st-half total (default: under, FT)
 
 League can be a chiclet (`EPL`) or slug (`eng.1`). `!eee` is an alias for `!soc`.
 """
@@ -420,6 +424,27 @@ def parse_command(text: str) -> tuple[str, list[str]] | None:
     return parts[0].lower(), parts[1:]
 
 
+def _cmd_bets(
+    args: list[str],
+    *,
+    board: dict[str, Any] | None = None,
+    evaluation: dict[str, Any] | None = None,
+    records: list[dict[str, Any]] | None = None,
+) -> str:
+    from eeesoc.bets import USAGE, evaluate_bet, find_fixture, format_bet, parse_bets_args
+    from eeesoc.halftime import load_records
+
+    if evaluation is not None:
+        return format_bet(evaluation)
+    spec = parse_bets_args(args)
+    if spec is None:
+        return USAGE
+    payload = board if board is not None else fetch_live_board(live_only=False, days_back=1)
+    match = find_fixture(payload, spec["team"])
+    archive = records if records is not None else load_records()
+    return format_bet(evaluate_bet(spec, match=match, records=archive))
+
+
 def handle_command(
     text: str,
     *,
@@ -427,6 +452,8 @@ def handle_command(
     winprob: dict[str, Any] | None = None,
     fixture_detail: dict[str, Any] | None = None,
     similar_hits: list[Any] | None = None,
+    bets_eval: dict[str, Any] | None = None,
+    records: list[dict[str, Any]] | None = None,
     now: datetime | None = None,
 ) -> str | None:
     """Return a reply for a `!soc` / `!eee` message, or None if it is not for us."""
@@ -460,6 +487,8 @@ def handle_command(
         if not name_parts:
             return "Usage: `!soc similar TEAM [minute]`"
         return _cmd_similar(" ".join(name_parts), minute, hits=similar_hits)
+    if sub in ("bets", "bet"):
+        return _cmd_bets(args, board=board, evaluation=bets_eval, records=records)
     if sub in ("leagues", "league"):
         labels = ", ".join(label for _slug, label in LEAGUES)
         return f"**Leagues** · {labels}"
