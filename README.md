@@ -202,11 +202,14 @@ Create a **new** Discord application at https://discord.com/developers/applicati
 
 ```bash
 DISCORD_BOT_TOKEN=...          # required to start the bot
-DISCORD_CHANNEL_ID=...         # required for the ready greeting and live alerts
+DISCORD_CHANNEL_ID=...         # required for the ready greeting, live alerts, and 9:30 AM ET slate
 # Optional: timezone for "today" kickoffs (default America/New_York)
 # EEESOC_TZ=America/New_York
 # Optional: live-alert poll interval in seconds (default 20)
 # EEESOC_DISCORD_POLL_S=20
+# Optional: morning slate time (default 9:30 America/New_York)
+# EEESOC_DIGEST_HOUR=9
+# EEESOC_DIGEST_MINUTE=30
 ```
 
 `./restart.sh` loads `.env` into the container. `./deploy.sh` starts the bot afterward. If `DISCORD_BOT_TOKEN` is unset, deploy skips the bot and continues.
@@ -218,7 +221,10 @@ DISCORD_CHANNEL_ID=...         # required for the ready greeting and live alerts
 ./restart-discord-bot.sh --stop
 ```
 
-With `DISCORD_CHANNEL_ID` set, the bot also **posts on its own**: kickoff (`pre` → `in`) and every goal, with the live score path (`0-0 → 1-0 → …`) and each club’s Similar “from here” branches (what usually happens next from that scoreline at that minute).
+With `DISCORD_CHANNEL_ID` set, the bot also **posts on its own**:
+
+- **9:30 AM ET** every day — today's scheduled matches in MLS, Premier League, Championship, Ligue 1, La Liga, Bundesliga, Serie A, Champions League, Europa League, and Conference League (kickoff times in ET). If the bot starts later the same morning, it still posts once. `!soc today` reprints that slate.
+- Kickoff (`pre` → `in`) and every goal, with the live score path (`0-0 → 1-0 → …`) and each club’s Similar “from here” branches (what usually happens next from that scoreline at that minute).
 
 The bot **also** responds to `!soc …` (or `!eee …`) messages:
 
@@ -227,6 +233,7 @@ The bot **also** responds to `!soc …` (or `!eee …`) messages:
 !soc live [league]         # in-play scoreboard
 !soc upcoming [league]     # today's remaining kickoffs
 !soc finished [league]     # today's / yesterday's full-time
+!soc today                 # today's slate (same as the 9:30 AM ET post)
 !soc winprob               # EPL picks + 30-day record
 !soc fixture HOME AWAY     # WinProb detail
 !soc similar TEAM [minute] # historical lookalikes (needs warmed cache)

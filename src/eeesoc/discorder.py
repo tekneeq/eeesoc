@@ -9,11 +9,12 @@ Only messages that start with ``!soc`` (or ``!eee``) are handled:
     !soc winprob
     !soc fixture HOME AWAY
     !soc similar TEAM [minute]
+    !soc today
 
 Env (``.env`` on the eeesoc EC2 host, loaded by docker ``--env-file``):
 
     DISCORD_BOT_TOKEN         required
-    DISCORD_CHANNEL_ID        channel for the ready greeting and live alerts
+    DISCORD_CHANNEL_ID        channel for the ready greeting, live alerts, and 9:30 AM ET slate
     EEESOC_DISCORD_POLL_S     optional poll interval (default 20)
 """
 from __future__ import annotations
@@ -54,6 +55,7 @@ HELP_TEXT = """**eeesoc · `!soc` commands**
 !soc winprob                  EPL picks + 30-day record
 !soc fixture HOME AWAY        WinProb detail for a pair
 !soc similar TEAM [minute]    historical lookalikes
+!soc today                    today's slate (EPL / Championship / …)
 ```
 Examples:
 `!soc live`
@@ -62,8 +64,10 @@ Examples:
 `!soc winprob`
 `!soc fixture Arsenal Chelsea`
 `!soc similar Everton 53`
+`!soc today`
 
 League can be a chiclet (`EPL`) or slug (`eng.1`). `!eee` is an alias for `!soc`.
+The bot also posts that slate on its own every day at 9:30 AM ET.
 """
 
 
@@ -161,6 +165,7 @@ def _league_aliases(slug: str, chiclet: str, name: str = "") -> set[str]:
         "ligue 1": {"ligue1", "ligue"},
         "ucl": {"ucl", "uclchampions", "champions"},
         "uel": {"uel", "europa"},
+        "uecl": {"uecl", "conference", "conferenceleague"},
     }
     for key, aliases in extra.items():
         if _league_query(chiclet) == _league_query(key) or _league_query(name) == _league_query(key):
@@ -420,6 +425,12 @@ def parse_command(text: str) -> tuple[str, list[str]] | None:
     return parts[0].lower(), parts[1:]
 
 
+def _cmd_today(*, board: dict[str, Any] | None = None, now: datetime | None = None) -> str:
+    from eeesoc.digest import collect_digest
+
+    return "\n\n".join(collect_digest(board=board, now=now))
+
+
 def handle_command(
     text: str,
     *,
@@ -460,6 +471,8 @@ def handle_command(
         if not name_parts:
             return "Usage: `!soc similar TEAM [minute]`"
         return _cmd_similar(" ".join(name_parts), minute, hits=similar_hits)
+    if sub in ("today", "slate", "schedule", "fixtures"):
+        return _cmd_today(board=board, now=now)
     if sub in ("leagues", "league"):
         labels = ", ".join(label for _slug, label in LEAGUES)
         return f"**Leagues** · {labels}"
@@ -481,7 +494,7 @@ async def _handle_message(msg: discord.Message) -> None:
 async def _resolve_channel(client: discord.Client) -> discord.abc.Messageable | None:
     channel_id = (os.getenv("DISCORD_CHANNEL_ID") or "").strip()
     if not channel_id:
-        print("[discord] DISCORD_CHANNEL_ID unset — no greeting or live alerts.")
+        print("[discord] DISCORD_CHANNEL_ID unset — no greeting, live alerts, or morning slate.")
         return None
     try:
         channel = client.get_channel(int(channel_id))
@@ -494,10 +507,12 @@ async def _resolve_channel(client: discord.Client) -> discord.abc.Messageable | 
 
 
 async def _alert_loop(client: discord.Client, channel: discord.abc.Messageable) -> None:
+    from eeesoc.digest import mark_digest_sent, pending_digest
     from eeesoc.discord_alerts import poll_seconds, run_poll_and_persist
 
     interval = poll_seconds()
     print(f"[discord] live alerts every {interval:.0f}s → channel {getattr(channel, 'id', '?')}")
+    print("[discord] morning slate at 9:30 AM ET")
     while not client.is_closed():
         try:
             messages = await asyncio.to_thread(run_poll_and_persist)
@@ -508,6 +523,18 @@ async def _alert_loop(client: discord.Client, channel: discord.abc.Messageable) 
         except Exception as e:  # noqa: BLE001
             traceback.print_exc()
             print(f"[discord] alert poll failed: {e!r}")
+        try:
+            chunks = await asyncio.to_thread(pending_digest)
+            if chunks is not None:
+                for text in chunks:
+                    await channel.send(text)
+                mark_digest_sent()
+                print("[discord] posted morning slate")
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:  # noqa: BLE001
+            traceback.print_exc()
+            print(f"[discord] morning slate failed: {e!r}")
         await asyncio.sleep(interval)
 
 
@@ -528,7 +555,8 @@ def build_client() -> discord.Client:
         try:
             await channel.send(
                 "eeesoc online. Commands start with `!soc` — try `!soc help`. "
-                "Kickoff and goals post here with Similar paths."
+                "Kickoff and goals post here with Similar paths. "
+                "Today's slate posts at 9:30 AM ET."
             )
         except Exception as e:  # noqa: BLE001
             print(f"[discord] ready greeting failed: {e!r}")
