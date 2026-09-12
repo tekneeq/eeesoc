@@ -1220,6 +1220,68 @@
     },
   ];
 
+  const LAST5_METRICS = [
+    {
+      metric: "scored",
+      label: "🥅 last 5 scored",
+      help: "Goals this club scored across its last five archived games: the big number is the full-match total, 1H is first-half goals from games that have a half-time score. Hover for each result.",
+    },
+    {
+      metric: "allowed",
+      label: "🥅 last 5 allowed",
+      help: "Goals this club allowed across its last five archived games: the big number is the full-match total, 1H is first-half goals from games that have a half-time score. Hover for each result.",
+    },
+  ];
+
+  function last5FormWords(row) {
+    const recent = row?.recent || [];
+    if (!recent.length) return "no results yet";
+    return recent
+      .map((g) => {
+        const ht = g.ht_gf != null && g.ht_ga != null ? `, ${g.ht_gf}–${g.ht_ga} 1H` : "";
+        return `${g.letter} ${g.gf}–${g.ga}${ht} ${g.venue === "home" ? "v" : "@"} ${g.opponent}`;
+      })
+      .join(", ");
+  }
+
+  function last5GoalsTitle(row, name, metric) {
+    const noun = metric === "scored" ? "scored" : "allowed";
+    if (!row) return `${name}: no finished games archived yet for last-five goals ${noun}`;
+    const n = (row.recent || []).length;
+    if (!n) return `${row.team}: no finished games archived yet for last-five goals ${noun}`;
+    const tot = metric === "scored" ? row.recent_scored : row.recent_allowed;
+    const h1 = metric === "scored" ? row.recent_scored_1h : row.recent_allowed_1h;
+    const n1 = row.recent_1h_games ?? 0;
+    const half = n1
+      ? `${h1} in the first half${n1 < n ? ` (from ${n1} of ${n} with a half-time score)` : ""}`
+      : "no half-time scores archived yet";
+    return `${row.team}: last ${n} game${n === 1 ? "" : "s"} ${noun} ${tot} total, ${half}. Oldest → newest: ${last5FormWords(row)}.`;
+  }
+
+  function last5GoalsSideHtml(m, side, metric) {
+    const name = side === "home" ? m.home : m.away;
+    const row = clinicalFor(m.league_slug, side === "home" ? m.home_id : m.away_id, name);
+    const title = escapeHtml(last5GoalsTitle(row, name, metric));
+    if (!row || !(row.recent || []).length) {
+      return `<span class="mc-power-side mc-form-side ${side} none" title="${title}"><b class="mc-power-num">—</b></span>`;
+    }
+    const tot = metric === "scored" ? row.recent_scored : row.recent_allowed;
+    const n = row.recent.length;
+    const n1 = row.recent_1h_games ?? 0;
+    const h1 = metric === "scored" ? row.recent_scored_1h : row.recent_allowed_1h;
+    const h1Cell = n1
+      ? `<span class="mc-form-b"><b>1H</b>${h1}</span>`
+      : `<span class="mc-form-b none"><b>1H</b>—</span>`;
+    return `<span class="mc-power-side mc-form-side ${side} ${metric}" title="${title}"><b class="mc-power-num">${tot}</b>${h1Cell}<span class="mc-power-rank">${n}g</span></span>`;
+  }
+
+  function last5GoalsRowsHtml(m) {
+    return LAST5_METRICS.map(
+      ({ metric, label, help }) =>
+        `${last5GoalsSideHtml(m, "home", metric)}<span class="mc-power-label" title="${escapeHtml(help)}">${label}</span>${last5GoalsSideHtml(m, "away", metric)}`,
+    );
+  }
+
   // ---------------------------------------------------------------------------
   // Goals-per-half odds — 1st-half total goals before the break, 2nd-half total goals
   // after it given the half-time score, from each club's archived games
@@ -1440,6 +1502,11 @@
       (row) =>
         `${powerSideHtml(m, "home", row.spec)}<span class="mc-power-label" title="${escapeHtml(row.help)}">${row.label}</span>${powerSideHtml(m, "away", row.spec)}`,
     );
+    // Last-five scored / allowed sit with momentum (same five-game window), before potential.
+    const afterMomentum = rows.findIndex((html) => html.includes("📈 momentum"));
+    const last5 = last5GoalsRowsHtml(m);
+    if (afterMomentum >= 0) rows.splice(afterMomentum + 1, 0, ...last5);
+    else rows.push(...last5);
     const nogoal = nogoalRowHtml(m);
     if (nogoal) rows.unshift(nogoal);
     return rows.concat(halfGoalsRowsHtml(m)).join("\n      ");

@@ -297,6 +297,42 @@ def test_momentum_only_looks_at_the_last_form_games():
     assert hot["recent_points"] == 12
 
 
+def test_recent_goals_split_full_match_and_first_half():
+    board = build_clinical_board(_records())
+    by = {t["team"]: t for t in board["leagues"]["eng.1"]["teams"]}
+
+    sharp = by["Sharp FC"]
+    # Game 1 home: 3-1 FT, 2-0 HT. Game 2 away: 0-1 FT, 0-1 HT.
+    assert sharp["recent_scored"] == 3 and sharp["recent_allowed"] == 2
+    assert sharp["recent_scored_1h"] == 2 and sharp["recent_allowed_1h"] == 1
+    assert sharp["recent_1h_games"] == 2
+    assert sharp["recent"][0]["ht_gf"] == 2 and sharp["recent"][0]["ht_ga"] == 0
+    assert sharp["recent"][1]["ht_gf"] == 0 and sharp["recent"][1]["ht_ga"] == 1
+
+    blunt = by["Blunt Town"]
+    assert blunt["recent_scored"] == 1 and blunt["recent_allowed"] == 3
+    assert blunt["recent_scored_1h"] == 0 and blunt["recent_allowed_1h"] == 2
+    assert blunt["recent_1h_games"] == 1
+
+
+def test_recent_goals_only_last_form_games_and_skips_missing_ht():
+    recs = []
+    for i in range(6):
+        recs.append(_rec(f"w{i}", "Hot FC", f"Foe {i}", "1", f"9{i}", [_ev(10, "goal", "home", 0.5)], start=f"2026-08-{i + 1:02d}"))
+    recs.append(_rec("l", "Foe X", "Hot FC", "99", "1", [_ev(10, "goal", "home", 0.5)], start="2026-08-20"))
+    unknown = _rec("u", "Hot FC", "Ghost", "1", "80", [_ev(10, "goal", "home", 0.5)], start="2026-08-21")
+    unknown.pop("ht_home")
+    unknown.pop("ht_away")
+    recs.append(unknown)
+    hot = {t["team"]: t for t in build_clinical_board(recs)["leagues"]["eng.1"]["teams"]}["Hot FC"]
+    # Last five by kickoff: w3, w4, w5 (1-0), the 0-1 loss, then the HT-less 1-0.
+    assert hot["form"] == "WWWLW" and len(hot["recent"]) == FORM_GAMES
+    assert hot["recent_scored"] == 4 and hot["recent_allowed"] == 1
+    assert hot["recent_scored_1h"] == 3 and hot["recent_allowed_1h"] == 1
+    assert hot["recent_1h_games"] == 4
+    assert hot["recent"][-1]["ht_gf"] is None and hot["recent"][-1]["ht_ga"] is None
+
+
 def test_potential_strips_finishing_luck_and_tags_results_gap():
     board = build_clinical_board(_records())
     by = {t["team"]: t for t in board["leagues"]["eng.1"]["teams"]}

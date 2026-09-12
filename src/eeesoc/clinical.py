@@ -33,6 +33,10 @@ Momentum is recent form: points per game over the club's last ``FORM_GAMES``
 results, weighted toward the most recent, shrunk toward the league's points
 per game and put on the same 100 = par scale.  ``form`` is the W/D/L string
 (oldest → newest); ``rising`` is True above 100, otherwise the club is fading.
+The same window carries raw goal totals for the chiclet: ``recent_scored`` /
+``recent_allowed`` over the full match, and ``recent_scored_1h`` /
+``recent_allowed_1h`` from games that have a half-time score (``recent_1h_games``
+is how many of the last five those are).
 
 Potential is the club's underlying strength once finishing luck is stripped
 out: the geometric mean of its chance-creation index (xG created vs the
@@ -312,14 +316,30 @@ def _league_table(slug: str, teams: dict[str, dict[str, Any]], label: str) -> di
         potential_tag = "upside" if gap >= POTENTIAL_GAP else ("overachieving" if gap <= -POTENTIAL_GAP else "steady")
         clean_sheets = sum(1 for g in r["results"] if g["ga"] == 0)
         cs_pct = 100.0 * clean_sheets / r["games"] if r["games"] else 0.0
+        ht_recent = [g for g in recent if g.get("ht_gf") is not None and g.get("ht_ga") is not None]
         row = {
             **{k: v for k, v in r.items() if k != "results"},
             # Only what the chiclet tooltip needs; the full log would triple the payload.
-            "recent": [{"date": g["start"][:10], "opponent": g["opponent"], "venue": g["venue"], "gf": g["gf"], "ga": g["ga"], "letter": g["letter"]} for g in recent],
+            "recent": [
+                {
+                    "date": g["start"][:10],
+                    "opponent": g["opponent"],
+                    "venue": g["venue"],
+                    "gf": g["gf"],
+                    "ga": g["ga"],
+                    "ht_gf": g.get("ht_gf"),
+                    "ht_ga": g.get("ht_ga"),
+                    "letter": g["letter"],
+                }
+                for g in recent
+            ],
             "form": "".join(g["letter"] for g in recent),
             "recent_points": sum(g["points"] for g in recent),
             "recent_scored": sum(g["gf"] for g in recent),
             "recent_allowed": sum(g["ga"] for g in recent),
+            "recent_scored_1h": sum(int(g["ht_gf"]) for g in ht_recent),
+            "recent_allowed_1h": sum(int(g["ht_ga"]) for g in ht_recent),
+            "recent_1h_games": len(ht_recent),
             "points_per_game": round(r["points"] / r["games"], 2) if r["games"] else 0.0,
             "scored_per_game": round(r["scored"] / r["games"], 2) if r["games"] else 0.0,
             "momentum": int(round(momentum)),
