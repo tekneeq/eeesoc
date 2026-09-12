@@ -1680,6 +1680,16 @@ main {
   margin-left: 0.2rem;
 }
 
+.stat-dim {
+  color: var(--muted);
+  opacity: 0.75;
+}
+
+.pitch-heat-cell {
+  fill: rgba(125, 255, 179, 0.95);
+  pointer-events: auto;
+}
+
 .pitch-wrap {
   width: 100%;
   border: 1px solid var(--line);
@@ -1727,6 +1737,14 @@ main {
 
 .pass-dot {
   fill: rgba(125, 255, 179, 0.55);
+}
+
+.pass-line.pass-away {
+  stroke: rgba(125, 200, 255, 0.45);
+}
+
+.pass-dot.pass-away {
+  fill: rgba(125, 200, 255, 0.7);
 }
 
 .shot-off {

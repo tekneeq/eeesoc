@@ -253,6 +253,8 @@ def make_handler(state: DashboardState):
                     event_id,
                     home=(qs.get("home") or [""])[0],
                     away=(qs.get("away") or [""])[0],
+                    home_id=(qs.get("home_id") or [""])[0],
+                    away_id=(qs.get("away_id") or [""])[0],
                     home_score=int((qs.get("hs") or ["0"])[0] or 0),
                     away_score=int((qs.get("as") or ["0"])[0] or 0),
                     clock=(qs.get("clock") or [""])[0],
