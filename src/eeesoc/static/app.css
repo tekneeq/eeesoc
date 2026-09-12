@@ -857,7 +857,8 @@ main {
   }
 }
 
-.mc-pressure-wrap {
+.mc-pressure-wrap,
+.mc-share-wrap {
   display: block;
   width: 100%;
   grid-column: 1 / -1;
@@ -1042,6 +1043,34 @@ main {
 
 .press-hit {
   fill: transparent;
+}
+
+.mc-share-svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+  margin-top: 0.15rem;
+}
+
+.share-line-h {
+  stroke: var(--accent);
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.share-line-a {
+  stroke: rgba(125, 200, 255, 0.95);
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.share-line-mid {
+  stroke: rgba(230, 245, 238, 0.55);
+  stroke-width: 1.2;
+  stroke-dasharray: 4 3;
 }
 
 .mc-pressure.lead-home {
@@ -1239,6 +1268,18 @@ main {
   background: rgba(125, 255, 179, 0.35);
   border: 1px solid rgba(195, 220, 210, 0.4);
   border-radius: 1px;
+}
+
+.tl-mark.tl-poss,
+.tl-mark.tl-duel {
+  width: 0.85rem;
+  height: 0.15rem;
+  background: linear-gradient(90deg, var(--accent) 0 42%, rgba(230, 245, 238, 0.7) 42% 58%, rgba(125, 200, 255, 0.95) 58% 100%);
+  border-radius: 1px;
+}
+
+.tl-mark.tl-duel {
+  background: linear-gradient(90deg, var(--accent) 0 36%, rgba(230, 245, 238, 0.45) 36% 64%, rgba(125, 200, 255, 0.95) 64% 100%);
 }
 
 .mc-top {

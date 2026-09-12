@@ -868,6 +868,141 @@ def test_pressure_quiet_when_too_little_data():
     assert p["leader"] is None
 
 
+def test_possession_series_flips_when_control_changes():
+    from eeesoc.live import _POSSESSION_MIN_ACTIONS, _POSSESSION_TILT, _build_share_clock
+
+    pts = [(m, "home") for m in range(5, 40) for _ in range(2)]
+    pts += [(m, "away") for m in range(60, 89) for _ in range(2)]
+    early = _build_share_clock(
+        pts, now_minute=30, min_actions=_POSSESSION_MIN_ACTIONS, tilt=_POSSESSION_TILT
+    )
+    assert early["from_minute"] == 16
+    assert early["leader"] == "home"
+    assert early["share"]["home"] == 1.0
+    assert early["home"] == 30
+
+    late = _build_share_clock(
+        pts, now_minute=88, min_actions=_POSSESSION_MIN_ACTIONS, tilt=_POSSESSION_TILT
+    )
+    assert late["window"] == 15
+    assert late["from_minute"] == 74
+    assert late["leader"] == "away"
+    assert late["share"]["away"] == 1.0
+    assert late["away"] == 30
+    assert late["series"][29]["leader"] == "home"
+    assert late["series"][-1]["leader"] == "away"
+    assert late["series"][4]["home"] is None
+    assert late["series"][4]["label"] == "quiet"
+
+
+def test_duel_series_tracks_who_is_winning_the_contests():
+    from eeesoc.live import _DUEL_MIN_ACTIONS, _DUEL_TILT, _build_share_clock
+
+    pts = [(m, "home") for m in range(10, 40)]
+    pts += [(m, "away") for m in range(70, 89)]
+    late = _build_share_clock(
+        pts, now_minute=88, min_actions=_DUEL_MIN_ACTIONS, tilt=_DUEL_TILT
+    )
+    assert late["leader"] == "away"
+    assert late["away"] == 15
+    assert late["home"] == 0
+    at_30 = next(p for p in late["series"] if p["minute"] == 30)
+    assert at_30["leader"] == "home"
+    assert at_30["counts"] == {"home": 15, "away": 0}
+
+
+def test_share_clock_quiet_when_too_few_actions():
+    from eeesoc.live import _POSSESSION_MIN_ACTIONS, _POSSESSION_TILT, _build_share_clock
+
+    pts = [(m, "home") for m in range(80, 83)]
+    p = _build_share_clock(
+        pts, now_minute=85, min_actions=_POSSESSION_MIN_ACTIONS, tilt=_POSSESSION_TILT
+    )
+    assert p["label"] == "quiet"
+    assert p["leader"] is None
+    assert p["share"]["home"] == 1.0
+    assert p["series"][-1]["home"] is None
+
+
+def test_timeline_payload_includes_possession_and_duels():
+    from eeesoc.live import (
+        _is_duel_play,
+        _is_possession_play,
+        build_event_timeline,
+        clear_timeline_cache,
+    )
+
+    assert _is_possession_play("pass")
+    assert _is_possession_play("shot-on-target")
+    assert _is_possession_play("goal---header")
+    assert not _is_possession_play("tackle")
+    assert _is_duel_play("tackle")
+    assert _is_duel_play("aerial")
+    assert _is_duel_play("take-on")
+    assert not _is_duel_play("pass")
+
+    clear_timeline_cache()
+    items = []
+    for i in range(24):
+        items.append(
+            {
+                "type": {"type": "pass"},
+                "clock": {"displayValue": f"{61 + i // 2}'"},
+                "team": {"$ref": ".../teams/1"},
+            }
+        )
+    for i in range(10):
+        items.append(
+            {
+                "type": {"type": "tackle"},
+                "clock": {"displayValue": f"{62 + i}'"},
+                "team": {"$ref": ".../teams/2"},
+            }
+        )
+    tl = build_event_timeline(
+        "ita.1",
+        "11",
+        home="Udinese",
+        away="Lazio",
+        home_id="1",
+        away_id="2",
+        clock="75'",
+        fetcher=lambda url: {"pageCount": 1, "items": items},
+        use_cache=False,
+    )
+    poss = tl["possession"]
+    assert poss["to_minute"] == 75
+    assert poss["leader"] == "home"
+    assert poss["home"] == 24
+    assert poss["away"] == 0
+    assert poss["series"][-1]["leader"] == "home"
+    assert len(poss["series"]) == 75
+
+    duels = tl["duels"]
+    assert duels["leader"] == "away"
+    assert duels["away"] == 10
+    assert duels["home"] == 0
+    assert duels["series"][-1]["leader"] == "away"
+
+
+def test_chiclet_shows_possession_and_duel_graphs():
+    js = Path("src/eeesoc/static/app.js").read_text(encoding="utf-8")
+    css = Path("src/eeesoc/static/app.css").read_text(encoding="utf-8")
+    html = Path("src/eeesoc/static/index.html").read_text(encoding="utf-8")
+    assert "function shareClockHtml" in js
+    assert "function shareSeriesSvg" in js
+    assert 'shareClockHtml(cached, "possession", "Possession")' in js
+    assert 'shareClockHtml(cached, "duels", "Duels")' in js
+    assert "share-line-h" in js and "share-line-a" in js and "share-line-mid" in js
+    assert "home / 50% / away" in js
+    assert ".mc-share-wrap" in css
+    assert ".share-line-h" in css
+    assert "possession graph" in html
+    assert "duel graph" in html
+    assert "Possession · last 15′" in html
+    assert "Duels · last 15′" in html
+
+
 def test_timeline_payload_includes_pressure():
     from eeesoc.live import build_event_timeline, clear_timeline_cache
 
