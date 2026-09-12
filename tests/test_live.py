@@ -684,18 +684,20 @@ def test_chiclet_stats_keep_full_row_and_add_halves():
     assert ".mc-stat-period" in css
 
 
-def test_live_chiclets_show_last5_goals_total_and_first_half():
+def test_live_chiclets_show_last5_games_with_halves():
     js = Path("src/eeesoc/static/app.js").read_text(encoding="utf-8")
     css = Path("src/eeesoc/static/app.css").read_text(encoding="utf-8")
     html = Path("src/eeesoc/static/index.html").read_text(encoding="utf-8")
-    assert "function last5GoalsRowsHtml" in js
-    assert "function last5GoalsSideHtml" in js
-    assert 'label: "🥅 last 5 scored"' in js
-    assert 'label: "🥅 last 5 allowed"' in js
-    assert "recent_scored_1h" in js and "recent_allowed_1h" in js
-    assert "rows.splice(afterMomentum + 1, 0, ...last5)" in js
-    assert ".mc-form-b" in css and ".mc-form-side.scored" in css
-    assert "last 5 scored / allowed" in html
+    assert "function last5GamesRowHtml" in js
+    assert "function last5GamesSideHtml" in js
+    assert "function last5OppName" in js
+    assert "function last5GameHalves" in js
+    assert '">🥅 last 5</span>' in js
+    assert "1H ${h1}" in js and "2H ${h2}" in js
+    assert "rows.splice(afterMomentum + 1, 0, last5)" in js
+    assert ".mc-form-g" in css and ".mc-form-games" in css
+    assert "who they faced" in html
+    assert "first-half score" in html and "second-half score" in html
 
 
 def test_timeline_fouls_and_territory():

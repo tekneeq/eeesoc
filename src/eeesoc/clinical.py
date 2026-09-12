@@ -33,10 +33,11 @@ Momentum is recent form: points per game over the club's last ``FORM_GAMES``
 results, weighted toward the most recent, shrunk toward the league's points
 per game and put on the same 100 = par scale.  ``form`` is the W/D/L string
 (oldest → newest); ``rising`` is True above 100, otherwise the club is fading.
-The same window carries raw goal totals for the chiclet: ``recent_scored`` /
-``recent_allowed`` over the full match, and ``recent_scored_1h`` /
-``recent_allowed_1h`` from games that have a half-time score (``recent_1h_games``
-is how many of the last five those are).
+The same window carries each recent game for the chiclet (opponent, venue,
+full-time score, and first-/second-half goals from that club's view when a
+half-time score is archived), plus raw aggregates ``recent_scored`` /
+``recent_allowed`` and the matching ``_1h`` totals (``recent_1h_games`` is
+how many of the last five have a half-time score).
 
 Potential is the club's underlying strength once finishing luck is stripped
 out: the geometric mean of its chance-creation index (xG created vs the
@@ -329,6 +330,8 @@ def _league_table(slug: str, teams: dict[str, dict[str, Any]], label: str) -> di
                     "ga": g["ga"],
                     "ht_gf": g.get("ht_gf"),
                     "ht_ga": g.get("ht_ga"),
+                    "h2_gf": (max(0, int(g["gf"]) - int(g["ht_gf"])) if g.get("ht_gf") is not None else None),
+                    "h2_ga": (max(0, int(g["ga"]) - int(g["ht_ga"])) if g.get("ht_ga") is not None else None),
                     "letter": g["letter"],
                 }
                 for g in recent

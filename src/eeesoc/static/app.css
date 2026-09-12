@@ -2968,51 +2968,85 @@ main {
   white-space: nowrap;
 }
 
-/* Last-five goals: full-match total plus a 1H chip. */
+/* Last five games: opponent + 1H / 2H score from this club's view. */
 .mc-form-side {
-  gap: 0.28rem;
+  align-items: flex-end;
+  gap: 0.2rem;
 }
 
-.mc-form-b {
+.mc-form-games {
   display: inline-flex;
-  align-items: baseline;
-  gap: 0.14rem;
-  padding: 0.04rem 0.26rem;
+  align-items: stretch;
+  flex-wrap: wrap;
+  gap: 0.16rem;
+  min-width: 0;
+}
+
+.mc-form-side.home .mc-form-games {
+  justify-content: flex-end;
+}
+
+.mc-form-g {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 2.55rem;
+  padding: 0.08rem 0.16rem 0.1rem;
   border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 0.2rem;
-  color: var(--muted);
+  border-radius: 0.22rem;
+  line-height: 1.08;
   font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+
+.mc-form-g em {
+  font-style: normal;
+  font-size: 0.52rem;
+  letter-spacing: 0.01em;
+  color: var(--muted);
+  max-width: 4.4rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.mc-form-b b {
-  color: var(--muted);
-  font-weight: 600;
+.mc-form-g b,
+.mc-form-g i {
   font-size: 0.56rem;
-  letter-spacing: 0.04em;
+  font-weight: 600;
+  font-style: normal;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
 }
 
-.mc-form-side.scored .mc-power-num,
-.mc-form-side.scored .mc-form-b {
-  color: rgba(255, 170, 90, 0.95);
+.mc-form-g i {
+  font-weight: 500;
+  opacity: 0.86;
 }
 
-.mc-form-side.scored .mc-form-b {
-  border-color: rgba(255, 170, 90, 0.45);
+.mc-form-g.w {
+  border-color: rgba(125, 255, 179, 0.38);
 }
 
-.mc-form-side.allowed .mc-power-num,
-.mc-form-side.allowed .mc-form-b {
-  color: rgba(125, 200, 255, 0.95);
+.mc-form-g.w b {
+  color: var(--accent);
 }
 
-.mc-form-side.allowed .mc-form-b {
-  border-color: rgba(125, 200, 255, 0.45);
+.mc-form-g.d {
+  border-color: rgba(180, 210, 200, 0.28);
 }
 
-.mc-form-b.none {
-  color: var(--muted);
+.mc-form-g.l {
+  border-color: rgba(255, 200, 87, 0.4);
+}
+
+.mc-form-g.l b {
+  color: var(--warn);
+}
+
+.mc-form-g.none {
   border-style: dashed;
+  color: var(--muted);
 }
 
 /* Companion stat beside the rank: goals scored / allowed per game, recent W D L, results index. */

@@ -307,7 +307,9 @@ def test_recent_goals_split_full_match_and_first_half():
     assert sharp["recent_scored_1h"] == 2 and sharp["recent_allowed_1h"] == 1
     assert sharp["recent_1h_games"] == 2
     assert sharp["recent"][0]["ht_gf"] == 2 and sharp["recent"][0]["ht_ga"] == 0
+    assert sharp["recent"][0]["h2_gf"] == 1 and sharp["recent"][0]["h2_ga"] == 1
     assert sharp["recent"][1]["ht_gf"] == 0 and sharp["recent"][1]["ht_ga"] == 1
+    assert sharp["recent"][1]["h2_gf"] == 0 and sharp["recent"][1]["h2_ga"] == 0
 
     blunt = by["Blunt Town"]
     assert blunt["recent_scored"] == 1 and blunt["recent_allowed"] == 3
@@ -331,6 +333,7 @@ def test_recent_goals_only_last_form_games_and_skips_missing_ht():
     assert hot["recent_scored_1h"] == 3 and hot["recent_allowed_1h"] == 1
     assert hot["recent_1h_games"] == 4
     assert hot["recent"][-1]["ht_gf"] is None and hot["recent"][-1]["ht_ga"] is None
+    assert hot["recent"][-1]["h2_gf"] is None and hot["recent"][-1]["h2_ga"] is None
 
 
 def test_potential_strips_finishing_luck_and_tags_results_gap():
