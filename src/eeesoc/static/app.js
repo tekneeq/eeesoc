@@ -1220,66 +1220,89 @@
     },
   ];
 
-  const LAST5_METRICS = [
-    {
-      metric: "scored",
-      label: "🥅 last 5 scored",
-      help: "Goals this club scored across its last five archived games: the big number is the full-match total, 1H is first-half goals from games that have a half-time score. Hover for each result.",
-    },
-    {
-      metric: "allowed",
-      label: "🥅 last 5 allowed",
-      help: "Goals this club allowed across its last five archived games: the big number is the full-match total, 1H is first-half goals from games that have a half-time score. Hover for each result.",
-    },
-  ];
+  const LAST5_HELP =
+    "Each of this club's last five archived games: who they faced, first-half score and second-half score from this club's view (scored–allowed). Oldest → newest. Hover a game for the full-time score.";
+
+  function last5OppName(name) {
+    const s = String(name || "").trim();
+    if (!s) return "—";
+    const drop = /^(fc|cf|afc|sc|ac|as|ss|ud|cd|rc|the|&|and)$/i;
+    const parts = s.replace(/-/g, " ").split(/\s+/).filter((p) => !drop.test(p.replace(/\./g, "")));
+    if (!parts.length) return s.length <= 9 ? s : `${s.slice(0, 8)}…`;
+    const last = parts[parts.length - 1];
+    const generic = /^(united|city|town|athletic|rovers|wanderers|albion|hotspur)$/i;
+    if (parts.length >= 2 && generic.test(last)) {
+      const label = `${parts[parts.length - 2][0]}. ${last}`;
+      return label.length <= 10 ? label : last.slice(0, 9);
+    }
+    return last.length <= 9 ? last : `${last.slice(0, 8)}…`;
+  }
+
+  function last5HalfScore(gf, ga) {
+    if (gf == null || ga == null) return "—";
+    return `${gf}–${ga}`;
+  }
+
+  function last5GameHalves(g) {
+    const known = g.ht_gf != null && g.ht_ga != null;
+    const h1 = known ? last5HalfScore(g.ht_gf, g.ht_ga) : "—";
+    const h2 = known
+      ? last5HalfScore(
+          g.h2_gf != null ? g.h2_gf : Math.max(0, Number(g.gf) - Number(g.ht_gf)),
+          g.h2_ga != null ? g.h2_ga : Math.max(0, Number(g.ga) - Number(g.ht_ga)),
+        )
+      : "—";
+    return { h1, h2, known };
+  }
 
   function last5FormWords(row) {
     const recent = row?.recent || [];
     if (!recent.length) return "no results yet";
     return recent
       .map((g) => {
-        const ht = g.ht_gf != null && g.ht_ga != null ? `, ${g.ht_gf}–${g.ht_ga} 1H` : "";
-        return `${g.letter} ${g.gf}–${g.ga}${ht} ${g.venue === "home" ? "v" : "@"} ${g.opponent}`;
+        const { h1, h2, known } = last5GameHalves(g);
+        const halves = known ? `, 1H ${h1}, 2H ${h2}` : "";
+        return `${g.letter} ${g.gf}–${g.ga}${halves} ${g.venue === "home" ? "v" : "@"} ${g.opponent}`;
       })
       .join(", ");
   }
 
-  function last5GoalsTitle(row, name, metric) {
-    const noun = metric === "scored" ? "scored" : "allowed";
-    if (!row) return `${name}: no finished games archived yet for last-five goals ${noun}`;
+  function last5GamesTitle(row, name) {
+    if (!row) return `${name}: no finished games archived yet for last five`;
     const n = (row.recent || []).length;
-    if (!n) return `${row.team}: no finished games archived yet for last-five goals ${noun}`;
-    const tot = metric === "scored" ? row.recent_scored : row.recent_allowed;
-    const h1 = metric === "scored" ? row.recent_scored_1h : row.recent_allowed_1h;
-    const n1 = row.recent_1h_games ?? 0;
-    const half = n1
-      ? `${h1} in the first half${n1 < n ? ` (from ${n1} of ${n} with a half-time score)` : ""}`
-      : "no half-time scores archived yet";
-    return `${row.team}: last ${n} game${n === 1 ? "" : "s"} ${noun} ${tot} total, ${half}. Oldest → newest: ${last5FormWords(row)}.`;
+    if (!n) return `${row.team}: no finished games archived yet for last five`;
+    return `${row.team}: last ${n} game${n === 1 ? "" : "s"} (oldest → newest): ${last5FormWords(row)}.`;
   }
 
-  function last5GoalsSideHtml(m, side, metric) {
+  function last5GameTitle(g) {
+    const vs = `${g.venue === "home" ? "v" : "@"} ${g.opponent}`;
+    const { h1, h2, known } = last5GameHalves(g);
+    const halves = known ? ` · 1H ${h1} · 2H ${h2}` : " · no half-time score archived";
+    const when = g.date ? ` · ${g.date}` : "";
+    return `${g.letter} ${g.gf}–${g.ga} FT${halves} ${vs}${when}`;
+  }
+
+  function last5GamesSideHtml(m, side) {
     const name = side === "home" ? m.home : m.away;
     const row = clinicalFor(m.league_slug, side === "home" ? m.home_id : m.away_id, name);
-    const title = escapeHtml(last5GoalsTitle(row, name, metric));
+    const title = escapeHtml(last5GamesTitle(row, name));
     if (!row || !(row.recent || []).length) {
       return `<span class="mc-power-side mc-form-side ${side} none" title="${title}"><b class="mc-power-num">—</b></span>`;
     }
-    const tot = metric === "scored" ? row.recent_scored : row.recent_allowed;
-    const n = row.recent.length;
-    const n1 = row.recent_1h_games ?? 0;
-    const h1 = metric === "scored" ? row.recent_scored_1h : row.recent_allowed_1h;
-    const h1Cell = n1
-      ? `<span class="mc-form-b"><b>1H</b>${h1}</span>`
-      : `<span class="mc-form-b none"><b>1H</b>—</span>`;
-    return `<span class="mc-power-side mc-form-side ${side} ${metric}" title="${title}"><b class="mc-power-num">${tot}</b>${h1Cell}<span class="mc-power-rank">${n}g</span></span>`;
+    const chips = row.recent
+      .map((g) => {
+        const { h1, h2, known } = last5GameHalves(g);
+        const vs = `${g.venue === "home" ? "v" : "@"} ${last5OppName(g.opponent)}`;
+        const letter = String(g.letter || "").toLowerCase();
+        const cls = letter === "w" || letter === "d" || letter === "l" ? letter : "";
+        return `<span class="mc-form-g ${cls}${known ? "" : " none"}" title="${escapeHtml(last5GameTitle(g))}"><em>${escapeHtml(vs)}</em><b>1H ${h1}</b><i>2H ${h2}</i></span>`;
+      })
+      .join("");
+    return `<span class="mc-power-side mc-form-side ${side}" title="${title}"><span class="mc-form-games">${chips}</span></span>`;
   }
 
-  function last5GoalsRowsHtml(m) {
-    return LAST5_METRICS.map(
-      ({ metric, label, help }) =>
-        `${last5GoalsSideHtml(m, "home", metric)}<span class="mc-power-label" title="${escapeHtml(help)}">${label}</span>${last5GoalsSideHtml(m, "away", metric)}`,
-    );
+  function last5GamesRowHtml(m) {
+    return `${last5GamesSideHtml(m, "home")}<span class="mc-power-label" title="${escapeHtml(LAST5_HELP)}">🥅 last 5</span>${last5GamesSideHtml(m, "away")}`;
   }
 
   // ---------------------------------------------------------------------------
@@ -1502,11 +1525,11 @@
       (row) =>
         `${powerSideHtml(m, "home", row.spec)}<span class="mc-power-label" title="${escapeHtml(row.help)}">${row.label}</span>${powerSideHtml(m, "away", row.spec)}`,
     );
-    // Last-five scored / allowed sit with momentum (same five-game window), before potential.
+    // Last five games sit with momentum (same window), before potential.
     const afterMomentum = rows.findIndex((html) => html.includes("📈 momentum"));
-    const last5 = last5GoalsRowsHtml(m);
-    if (afterMomentum >= 0) rows.splice(afterMomentum + 1, 0, ...last5);
-    else rows.push(...last5);
+    const last5 = last5GamesRowHtml(m);
+    if (afterMomentum >= 0) rows.splice(afterMomentum + 1, 0, last5);
+    else rows.push(last5);
     const nogoal = nogoalRowHtml(m);
     if (nogoal) rows.unshift(nogoal);
     return rows.concat(halfGoalsRowsHtml(m)).join("\n      ");
