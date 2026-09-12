@@ -8,9 +8,10 @@ The **Live** tab shows in-play matches as Revenant-style **match chiclets**, gro
 Tap a chiclet for a live pitch graphic: last 15′ of the ball (home attacking right), fading older
 touches, a heat map of where it has been, pass trails, and shot markers (ESPN play coordinates).
 Each chiclet also has a rolling 15′ pressure bar (who is in the other side's final third right now),
-a pressure graph of that same window at every minute, and a territory heat of where the ball has
-actually been in those last 15′ — so a first-half siege that flipped after the break does not
-collapse to "even".
+a pressure graph of that same window at every minute, possession and duel graphs with three lines
+(home, away, and 50%) over that same last-15′ window at every minute, and a territory heat of
+where the ball has actually been in those last 15′ — so a first-half siege that flipped after
+the break does not collapse to "even".
 
 Under the pitch graphic sits the **formation board** (`/api/live/lineups`, from the ESPN match summary):
 both teams' formations with everyone currently on the pitch in his slot. Each player carries a **power**

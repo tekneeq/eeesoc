@@ -373,6 +373,26 @@ SHOT_TYPES = {
     "woodwork",
 }
 PASS_TYPES = {"pass", "cross", "through-ball", "blocked-pass"}
+POSSESSION_TYPES = PASS_TYPES | SHOT_TYPES | {
+    "ball-touch",
+    "throw-in",
+    "free-kick",
+    "corner-awarded",
+    "goal-kick",
+    "clear",
+    "take-on",
+    "own-goal",
+    "save",
+    "claim",
+}
+DUEL_TYPES = {
+    "tackle",
+    "aerial",
+    "take-on",
+    "interception",
+    "dispossessed",
+    "challenge",
+}
 BALL_TYPES = SHOT_TYPES | PASS_TYPES | {
     "ball-touch",
     "tackle",
@@ -1206,6 +1226,22 @@ def _normalize_play_type(ptype: str) -> str:
     return ptype
 
 
+def _is_possession_play(ptype: str) -> bool:
+    """On-ball events that count toward rolling possession share."""
+    if ptype in POSSESSION_TYPES:
+        return True
+    if ptype.startswith(("pass", "cross", "through", "shot", "goal---")):
+        return True
+    return ptype.startswith("penalty") and "scor" in ptype
+
+
+def _is_duel_play(ptype: str) -> bool:
+    """1v1 / contest events that count toward the duel clock."""
+    if ptype in DUEL_TYPES:
+        return True
+    return ptype.startswith(("tackle", "aerial", "challenge", "intercept"))
+
+
 def _event_kind(ptype: str, *, scoring: bool) -> str | None:
     """Most specific marker: own_goal > goal > shot_on > blocked > shot > corner."""
     if ptype == "own-goal" or _is_own_goal(ptype):
@@ -1332,6 +1368,11 @@ _PRESSURE_MIN_FINAL_THIRD = 6
 _PRESSURE_TILT = 0.62
 
 _PRESSURE_SHOT_KINDS = {"shot", "shot_on", "blocked", "goal"}
+
+_POSSESSION_MIN_ACTIONS = 12
+_POSSESSION_TILT = 0.58
+_DUEL_MIN_ACTIONS = 6
+_DUEL_TILT = 0.58
 
 
 def _pressure_verdict(
@@ -1477,6 +1518,128 @@ def _build_pressure_series(
     return series
 
 
+def _share_verdict(
+    *,
+    actions: int,
+    min_actions: int,
+    share_home: float | None,
+    tilt: float,
+) -> tuple[str, str | None]:
+    """Who is ahead on a rolling share, or quiet / even when the window is thin."""
+    if actions < min_actions or share_home is None:
+        return "quiet", None
+    if share_home >= tilt:
+        return "home", "home"
+    if (1.0 - share_home) >= tilt:
+        return "away", "away"
+    return "even", None
+
+
+def _build_share_clock(
+    points: list[tuple[int, str]],
+    *,
+    now_minute: int,
+    window: int = PRESSURE_WINDOW_MIN,
+    min_actions: int,
+    tilt: float,
+) -> dict[str, Any]:
+    """
+    Rolling-window share of tagged plays (possession or duels).
+
+    ``points`` is ``(minute, side)``. ``series`` is the same window at every
+    minute so the chiclet can draw three lines — home, away, and 50% — and
+    keep a first-half siege visible after the game flips.
+    """
+    lo = max(1, now_minute - window + 1)
+    counts = {"home": 0, "away": 0}
+    for minute, side in points:
+        if side not in counts or minute < lo or minute > now_minute:
+            continue
+        counts[side] += 1
+    actions = counts["home"] + counts["away"]
+    share_home = counts["home"] / actions if actions else None
+    share_away = 1.0 - share_home if share_home is not None else None
+    label, leader = _share_verdict(
+        actions=actions, min_actions=min_actions, share_home=share_home, tilt=tilt
+    )
+    return {
+        "window": window,
+        "from_minute": lo,
+        "to_minute": now_minute,
+        "home": counts["home"],
+        "away": counts["away"],
+        "share": {
+            "home": round(share_home, 3) if share_home is not None else None,
+            "away": round(share_away, 3) if share_away is not None else None,
+        },
+        "label": label,
+        "leader": leader,
+        "series": _build_share_series(
+            points,
+            now_minute=now_minute,
+            window=window,
+            min_actions=min_actions,
+            tilt=tilt,
+        ),
+    }
+
+
+def _build_share_series(
+    points: list[tuple[int, str]],
+    *,
+    now_minute: int,
+    window: int,
+    min_actions: int,
+    tilt: float,
+) -> list[dict[str, Any]]:
+    """One rolling-window share per minute; quiet minutes stay null (no fake 50-50)."""
+    now_minute = max(1, min(90, int(now_minute)))
+    n = now_minute + 1
+    home_n = [0] * n
+    away_n = [0] * n
+    for minute, side in points:
+        if minute < 1 or minute > now_minute:
+            continue
+        if side == "home":
+            home_n[minute] += 1
+        elif side == "away":
+            away_n[minute] += 1
+
+    def _prefix(arr: list[int]) -> list[int]:
+        out = [0] * n
+        running = 0
+        for i in range(1, n):
+            running += arr[i]
+            out[i] = running
+        return out
+
+    h = _prefix(home_n)
+    a = _prefix(away_n)
+    series: list[dict[str, Any]] = []
+    for t in range(1, now_minute + 1):
+        lo = max(1, t - window + 1)
+        prev = lo - 1
+        home_c = h[t] - h[prev]
+        away_c = a[t] - a[prev]
+        actions = home_c + away_c
+        share_home = home_c / actions if actions else None
+        label, leader = _share_verdict(
+            actions=actions, min_actions=min_actions, share_home=share_home, tilt=tilt
+        )
+        readable = label != "quiet" and share_home is not None
+        series.append(
+            {
+                "minute": t,
+                "home": round(share_home, 3) if readable else None,
+                "away": round(1.0 - share_home, 3) if readable else None,
+                "label": label,
+                "leader": leader,
+                "counts": {"home": home_c, "away": away_c},
+            }
+        )
+    return series
+
+
 def _cumulative_xg_series(
     points: list[tuple[int, float]],
 ) -> list[dict[str, Any]]:
@@ -1509,6 +1672,8 @@ def build_event_timeline(
 
     Markers: shots, blocked, shots on target, goals, corners (home above / away below).
     ``xg`` holds per-side cumulative expected-goals vs minute for the chart.
+    ``possession`` / ``duels`` are rolling last-15′ shares (home, away, 50%)
+    of on-ball events and 1v1 contests, same window as pressure.
     ``elapsed_seconds`` is the best live clock for a client-side 1s cursor tick;
     ``frozen`` flags HT/FT-style clocks where the tick should pause.
     """
@@ -1567,6 +1732,8 @@ def build_event_timeline(
     away_xg_pts: list[tuple[int, float]] = []
     territory_pts: list[tuple[Any, ...]] = []
     pressure_pts: list[tuple[int, float, float, str, str | None]] = []
+    poss_pts: list[tuple[int, str]] = []
+    duel_pts: list[tuple[int, str]] = []
     bulletin: list[dict[str, Any]] = []
 
     for play in plays:
@@ -1603,6 +1770,11 @@ def build_event_timeline(
             kind = "own_goal"
 
         if side in {"home", "away"}:
+            if pmin is not None:
+                if _is_possession_play(ptype):
+                    poss_pts.append((pmin, side))
+                if _is_duel_play(ptype):
+                    duel_pts.append((pmin, side))
             px = _coord(play, "fieldPositionX")
             py = _coord(play, "fieldPositionY")
             if px is not None and py is not None and (px or py):
@@ -1714,6 +1886,18 @@ def build_event_timeline(
         },
         "territory": _build_territory(territory_pts, now_minute=minute),
         "pressure": _build_pressure(pressure_pts, now_minute=minute),
+        "possession": _build_share_clock(
+            poss_pts,
+            now_minute=minute,
+            min_actions=_POSSESSION_MIN_ACTIONS,
+            tilt=_POSSESSION_TILT,
+        ),
+        "duels": _build_share_clock(
+            duel_pts,
+            now_minute=minute,
+            min_actions=_DUEL_MIN_ACTIONS,
+            tilt=_DUEL_TILT,
+        ),
         "box_entries": box_entries_from_plays(plays, home_id=home_id, away_id=away_id, home=home, away=away),
         "xg": {
             "home": home_series,

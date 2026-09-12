@@ -1608,6 +1608,12 @@
               <span class="mc-pressure-wrap" data-press-for="${escapeHtml(m.event_id)}" aria-label="Rolling pressure versus time">${
                 cached ? pressureHtml(cached) : `<span class="mc-timeline-loading">pressure…</span>`
               }</span>
+              <span class="mc-share-wrap" data-poss-for="${escapeHtml(m.event_id)}" aria-label="Rolling possession versus time">${
+                cached ? shareClockHtml(cached, "possession", "Possession") : `<span class="mc-timeline-loading">possession…</span>`
+              }</span>
+              <span class="mc-share-wrap" data-duel-for="${escapeHtml(m.event_id)}" aria-label="Rolling duels versus time">${
+                cached ? shareClockHtml(cached, "duels", "Duels") : `<span class="mc-timeline-loading">duels…</span>`
+              }</span>
             </div>`
         : "";
     btn.innerHTML = `
@@ -2049,6 +2055,111 @@
     </span>`;
   }
 
+  function shareSeriesSvg(tl, clock, title) {
+    const series = clock?.series || [];
+    const W = 640;
+    const H = 92;
+    const padL = 28;
+    const padR = 10;
+    const padT = 12;
+    const padB = 18;
+    const { maxM, now } = chartAxis(tl);
+    const ticks = maxM <= 45 ? [15, 30] : [15, 30, 45, 60, 75];
+    const xAt = (m) => padL + ((Number(m) / maxM) * (W - padL - padR));
+    const yAt = (v) => padT + ((1 - Number(v)) * (H - padT - padB));
+    const nowX = xAt(now).toFixed(1);
+    const y0 = yAt(0).toFixed(1);
+    const yMid = yAt(0.5).toFixed(1);
+    const yTop = yAt(1).toFixed(1);
+    const runs = pressureSeriesRuns(series);
+    const homeLines = [];
+    const awayLines = [];
+    for (const run of runs) {
+      const homePts = run.map((pt) => `${xAt(pt.minute).toFixed(1)} ${yAt(pt.home).toFixed(1)}`);
+      const awayPts = run.map((pt) => `${xAt(pt.minute).toFixed(1)} ${yAt(pt.away != null ? pt.away : 1 - pt.home).toFixed(1)}`);
+      homeLines.push(`<path class="share-line-h" d="M ${homePts.join(" L ")}" fill="none"/>`);
+      awayLines.push(`<path class="share-line-a" d="M ${awayPts.join(" L ")}" fill="none"/>`);
+    }
+    const tickMarks = ticks
+      .filter((t) => t < maxM)
+      .map((t) => {
+        const tx = xAt(t).toFixed(1);
+        return `<line x1="${tx}" y1="${padT}" x2="${tx}" y2="${y0}" class="tl-ht"/>
+      <text x="${tx}" y="${H - 4}" class="tl-label" text-anchor="middle">${t}'</text>`;
+      })
+      .join("");
+    const tips = series
+      .filter((pt) => pt.home != null && (pt.minute % 5 === 0 || pt.minute === series[series.length - 1].minute))
+      .map((pt) => {
+        const x = xAt(pt.minute);
+        const w = Math.max(6, (W - padL - padR) / maxM);
+        const hPct = Math.round(pt.home * 100);
+        const aPct = Math.max(0, 100 - hPct);
+        const who =
+          pt.leader === "home"
+            ? `${shortName(tl.home || "Home")} ahead`
+            : pt.leader === "away"
+              ? `${shortName(tl.away || "Away")} ahead`
+              : "even";
+        const counts = pt.counts || {};
+        return `<rect x="${(x - w / 2).toFixed(1)}" y="${padT}" width="${w.toFixed(1)}" height="${(H - padT - padB).toFixed(1)}" class="press-hit" aria-hidden="true"><title>${pt.minute}' · ${escapeHtml(shortName(tl.home || "Home"))} ${hPct}% · ${escapeHtml(shortName(tl.away || "Away"))} ${aPct}% · ${escapeHtml(who)} · ${counts.home || 0}–${counts.away || 0}</title></rect>`;
+      })
+      .join("");
+    const readable = runs.length > 0;
+    return `<svg class="mc-share-svg" viewBox="0 0 ${W} ${H}" width="100%" height="${H}" role="img" aria-label="Rolling ${clock?.window || 15} minute ${escapeHtml(title.toLowerCase())} versus game time">
+      <text x="4" y="${Number(yTop) + 3}" class="tl-label">100</text>
+      <text x="4" y="${Number(yMid) + 3}" class="tl-label">50</text>
+      <text x="4" y="${Number(y0) + 3}" class="tl-label">0</text>
+      <line x1="${padL}" y1="${yTop}" x2="${W - padR}" y2="${yTop}" class="tl-grid"/>
+      <line x1="${padL}" y1="${y0}" x2="${W - padR}" y2="${y0}" class="tl-axis"/>
+      ${tickMarks}
+      <line x1="${nowX}" y1="${padT}" x2="${nowX}" y2="${y0}" class="tl-now"/>
+      <line x1="${padL}" y1="${yMid}" x2="${W - padR}" y2="${yMid}" class="share-line-mid"/>
+      ${readable ? homeLines.join("") + awayLines.join("") : ""}
+      ${tips}
+      <text x="${padL}" y="${H - 4}" class="tl-label">0'</text>
+      <text x="${W - padR}" y="${H - 4}" class="tl-label" text-anchor="end">${maxM}'</text>
+    </svg>`;
+  }
+
+  function shareClockHtml(tl, key, title) {
+    const c = tl[key];
+    if (!c) return "";
+    const homeName = shortName(tl.home || "Home");
+    const awayName = shortName(tl.away || "Away");
+    const win = c.window || 15;
+    const unit = key === "duels" ? "duels" : "events";
+    const chart = shareSeriesSvg(tl, c, title);
+    if (c.label === "quiet" || c.share?.home == null) {
+      return `<span class="mc-pressure mc-share">
+        <span class="mc-pressure-head">${escapeHtml(title)} · last ${win}' · home / 50% / away</span>
+        <span class="mc-pressure-meta">Reading the last ${win}'…</span>
+        ${chart}
+      </span>`;
+    }
+    const h = Math.round(c.share.home * 100);
+    const a = Math.max(0, 100 - h);
+    const leadName = c.leader === "home" ? homeName : awayName;
+    const leadCount = c.leader === "home" ? c.home : c.away;
+    const leadPct = c.leader === "home" ? h : a;
+    const meta = c.leader
+      ? `${escapeHtml(leadName)} · ${leadCount} ${unit} · ${leadPct}%`
+      : `Even — ${c.home} vs ${c.away} ${unit}`;
+    return `<span class="mc-pressure mc-share${c.leader ? ` lead-${c.leader}` : ""}">
+      <span class="mc-pressure-head">${escapeHtml(title)} · last ${win}' · home / 50% / away · graph is that window at every minute</span>
+      <span class="mc-pressure-row">
+        <b class="mc-pressure-h">${h}%</b>
+        <span class="mc-pressure-bar" aria-hidden="true">
+          <i class="mc-pressure-seg-h" style="width:${h}%"></i>
+          <i class="mc-pressure-seg-a" style="width:${a}%"></i>
+        </span>
+        <b class="mc-pressure-a">${a}%</b>
+      </span>
+      ${chart}
+      <span class="mc-pressure-meta">${meta}</span>
+    </span>`;
+  }
+
   function territoryLabel(tl) {
     const terr = tl.territory;
     if (!terr) return "";
@@ -2152,6 +2263,10 @@
       if (terr) terr.innerHTML = territorySvg(tl);
       const press = root.querySelector(`.mc-pressure-wrap[data-press-for="${eid}"]`);
       if (press) press.innerHTML = pressureHtml(tl);
+      const poss = root.querySelector(`.mc-share-wrap[data-poss-for="${eid}"]`);
+      if (poss) poss.innerHTML = shareClockHtml(tl, "possession", "Possession");
+      const duel = root.querySelector(`.mc-share-wrap[data-duel-for="${eid}"]`);
+      if (duel) duel.innerHTML = shareClockHtml(tl, "duels", "Duels");
       if (card) {
         const shown = displayedScore(m, tl);
         applyChicletScore(card, shown.home, shown.away);
@@ -2180,6 +2295,20 @@
           tl.pressure?.away?.final_third,
           tl.pressure?.series?.length,
           tl.pressure?.series?.at(-1)?.home,
+        ],
+        poss: [
+          tl.possession?.to_minute,
+          tl.possession?.home,
+          tl.possession?.away,
+          tl.possession?.series?.length,
+          tl.possession?.series?.at(-1)?.home,
+        ],
+        duel: [
+          tl.duels?.to_minute,
+          tl.duels?.home,
+          tl.duels?.away,
+          tl.duels?.series?.length,
+          tl.duels?.series?.at(-1)?.home,
         ],
       });
 
