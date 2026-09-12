@@ -2106,7 +2106,12 @@
     const boxH = ph * 0.55;
     const boxW = pw * 0.16;
     const goalY = padT + (ph - boxH) / 2;
-    return `<svg class="mc-terr-svg" viewBox="0 0 ${W} ${H}" width="100%" height="${H}" role="img" aria-label="Territory map — where the game is being played">
+    const win = terr.window || 15;
+    const fromMin = terr.from_minute;
+    const toMin = terr.to_minute;
+    const windowWords =
+      fromMin != null && toMin != null ? `last ${win}′ · ${fromMin}–${toMin}′` : `last ${win}′`;
+    return `<svg class="mc-terr-svg" viewBox="0 0 ${W} ${H}" width="100%" height="${H}" role="img" aria-label="Territory map — where the ball has been in the last ${win} minutes">
       ${cells.join("")}
       <rect x="${padX}" y="${padT}" width="${pw}" height="${ph}" class="terr-line" fill="none"/>
       <line x1="${midX}" y1="${padT}" x2="${midX}" y2="${padT + ph}" class="terr-line"/>
@@ -2120,7 +2125,7 @@
       <text x="${t3}" y="${padT + 12}" class="terr-pct" text-anchor="middle">${pctText(thirds.home_att)}</text>
       <text x="${padX}" y="${H - 14}" class="tl-label"><tspan class="tl-xg-h">◀ ${escapeHtml(shortName(tl.home || "Home"))}</tspan> defend</text>
       <text x="${W - padX}" y="${H - 14}" class="tl-label" text-anchor="end"><tspan class="tl-xg-a">${escapeHtml(shortName(tl.away || "Away"))} ▶</tspan> defend</text>
-      <text x="${midX}" y="${H - 3}" class="terr-headline" text-anchor="middle">${escapeHtml(territoryLabel(tl))}</text>
+      <text x="${midX}" y="${H - 3}" class="terr-headline" text-anchor="middle">${escapeHtml(windowWords)} · ${escapeHtml(territoryLabel(tl))}</text>
     </svg>`;
   }
 
@@ -2168,7 +2173,7 @@
           tl.counts_by_half?.["1h"]?.home_xg,
           tl.counts_by_half?.["2h"]?.away_xg,
         ],
-        terr: tl.territory?.total,
+        terr: [tl.territory?.total, tl.territory?.from_minute, tl.territory?.to_minute, tl.territory?.window],
         press: [
           tl.pressure?.to_minute,
           tl.pressure?.home?.final_third,
@@ -2586,9 +2591,49 @@
     });
   }
 
+  function pitchFade(ev, windowMin) {
+    const win = Number(ev.window || windowMin || 15);
+    const age = ev.age != null ? Number(ev.age) : 0;
+    if (!win) return 1;
+    return Math.max(0.18, 1 - age / win);
+  }
+
+  function renderPitchHeat(svg, terr) {
+    if (!terr || !terr.total || !terr.cells) return;
+    const ns = "http://www.w3.org/2000/svg";
+    const cols = terr.cols || 6;
+    const rows = terr.rows || 4;
+    const maxCell = Math.max(1, Number(terr.max) || 1);
+    const x0 = 25;
+    const y0 = 25;
+    const cw = 1000 / cols;
+    const ch = 630 / rows;
+    const g = document.createElementNS(ns, "g");
+    g.setAttribute("class", "pitch-heat");
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const v = (terr.cells[r] || [])[c] || 0;
+        if (!v) continue;
+        const el = document.createElementNS(ns, "rect");
+        el.setAttribute("x", String(x0 + c * cw));
+        el.setAttribute("y", String(y0 + r * ch));
+        el.setAttribute("width", String(cw));
+        el.setAttribute("height", String(ch));
+        el.setAttribute("class", "pitch-heat-cell");
+        el.setAttribute("fill-opacity", String((Math.pow(v / maxCell, 0.7) * 0.42).toFixed(3)));
+        const tip = document.createElementNS(ns, "title");
+        tip.textContent = `${v} touch${v === 1 ? "" : "es"} last ${terr.window || 15}′`;
+        el.appendChild(tip);
+        g.appendChild(el);
+      }
+    }
+    svg.appendChild(g);
+  }
+
   function renderPitch(track) {
     const svg = $("#pitchSvg");
     drawPitchBase(svg);
+    renderPitchHeat(svg, track.territory);
     const ns = "http://www.w3.org/2000/svg";
     const add = (tag, attrs) => {
       const el = document.createElementNS(ns, tag);
@@ -2596,13 +2641,29 @@
       svg.appendChild(el);
       return el;
     };
+    const win = track.window || 15;
 
     for (const p of track.passes || []) {
       if (p.x == null || p.y == null || p.x2 == null || p.y2 == null) continue;
       const [x1, y1] = pitchXY(p.x, p.y);
       const [x2, y2] = pitchXY(p.x2, p.y2);
-      add("line", { x1, y1, x2, y2, class: "pass-line" });
-      add("circle", { cx: x1, cy: y1, r: 3.5, class: "pass-dot" });
+      const fade = pitchFade(p, win);
+      const away = p.side === "away";
+      add("line", {
+        x1,
+        y1,
+        x2,
+        y2,
+        class: away ? "pass-line pass-away" : "pass-line",
+        opacity: fade.toFixed(3),
+      });
+      add("circle", {
+        cx: x1,
+        cy: y1,
+        r: 3.5,
+        class: away ? "pass-dot pass-away" : "pass-dot",
+        opacity: fade.toFixed(3),
+      });
     }
 
     for (const s of track.shots || []) {
@@ -2616,7 +2677,13 @@
             : s.type === "shot-on-target"
               ? "shot-on"
               : "shot-off";
-      add("circle", { cx: x, cy: y, r: kind === "shot-goal" || kind === "shot-og" ? 8 : 6, class: kind });
+      add("circle", {
+        cx: x,
+        cy: y,
+        r: kind === "shot-goal" || kind === "shot-og" ? 8 : 6,
+        class: kind,
+        opacity: pitchFade(s, win).toFixed(3),
+      });
     }
 
     if (track.ball && track.ball.x != null && track.ball.y != null) {
@@ -2628,9 +2695,14 @@
     }
 
     const c = track.counts || {};
+    const fromMin = track.from_minute;
+    const toMin = track.to_minute;
+    const windowBit =
+      fromMin != null && toMin != null ? `${fromMin}–${toMin}′` : `last ${win}′`;
     $("#pitchStats").innerHTML = `
-      <span class="stat-chiclet">Passes <b>${c.passes || 0}</b></span>
-      <span class="stat-chiclet">Shots <b>${c.shots || 0}</b></span>
+      <span class="stat-chiclet">Ball last ${win}′ <b>${escapeHtml(windowBit)}</b></span>
+      <span class="stat-chiclet">Passes <b>${(track.passes || []).length}</b><span class="stat-dim"> / ${c.passes || 0}</span></span>
+      <span class="stat-chiclet">Shots <b>${(track.shots || []).length}</b><span class="stat-dim"> / ${c.shots || 0}</span></span>
       <span class="stat-chiclet">On target <b>${c.shots_on || 0}</b></span>
       <span class="stat-chiclet">Goals <b>${c.goals || 0}</b></span>
     `;

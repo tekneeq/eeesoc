@@ -587,6 +587,34 @@ def _coord(play: dict[str, Any], key: str) -> float | None:
         return None
 
 
+PRESSURE_WINDOW_MIN = 15
+
+
+def _absolute_xy(x: float | None, y: float | None, side: str | None) -> tuple[float | None, float | None]:
+    """Team-relative ESPN coords → one pitch with home attacking right."""
+    if x is None or y is None or side != "away":
+        return x, y
+    return 100.0 - x, 100.0 - y
+
+
+def _clock_now_minute(clock: str, play_minutes: list[int]) -> int:
+    blob = str(clock or "").lower()
+    if any(tok in blob for tok in ("ft", "end")):
+        clock_min = 90
+    elif clock:
+        clock_min = parse_clock_minute(clock, default=0)
+    else:
+        clock_min = 0
+    return max([clock_min, *play_minutes, 0])
+
+
+def _window_lo(now_minute: int, window: int = PRESSURE_WINDOW_MIN) -> int:
+    now_minute = max(0, int(now_minute))
+    if now_minute <= 0:
+        return 0
+    return max(1, now_minute - window + 1)
+
+
 def fetch_plays_pages(
     league_slug: str,
     event_id: str,
@@ -635,6 +663,8 @@ def build_pitch_track(
     *,
     home: str = "",
     away: str = "",
+    home_id: str = "",
+    away_id: str = "",
     home_score: int = 0,
     away_score: int = 0,
     clock: str = "",
@@ -643,10 +673,12 @@ def build_pitch_track(
     use_cache: bool = True,
 ) -> dict[str, Any]:
     """
-    Build a pitch graphic payload: ball position, recent passes, shots.
+    Build a pitch graphic payload: ball position, last-``PRESSURE_WINDOW_MIN``
+    minutes of passes and shots, and a heat map of where the ball has been.
 
     Coordinates are ESPN fieldPosition* on a 0–100 pitch
-    (X along length, Y across width).
+    (X along length, Y across width), team-relative.  Away events are
+    mirrored so home always attacks right.
     """
     cache_key = f"{league_slug}:{event_id}"
     if use_cache and cache_key in _track_cache:
@@ -658,6 +690,8 @@ def build_pitch_track(
     passes: list[dict[str, Any]] = []
     shots: list[dict[str, Any]] = []
     ball: dict[str, Any] | None = None
+    heat_pts: list[tuple[Any, ...]] = []
+    play_minutes: list[int] = []
     counts = {"passes": 0, "shots": 0, "shots_on": 0, "goals": 0, "fouls": 0}
 
     for play in plays:
@@ -676,16 +710,34 @@ def build_pitch_track(
         if ptype == "foul":
             counts["fouls"] += 1
 
-        x = _coord(play, "fieldPositionX")
-        y = _coord(play, "fieldPositionY")
-        x2 = _coord(play, "fieldPosition2X")
-        y2 = _coord(play, "fieldPosition2Y")
+        tid = _team_id_from_play(play)
+        side = (
+            _side_for_own_goal(
+                tid, home_id=home_id, away_id=away_id, home=home, away=away, play=play
+            )
+            if own
+            else _side_for_team(
+                tid, home_id=home_id, away_id=away_id, home=home, away=away, play=play
+            )
+        )
+        pmin = _play_minute(play)
+        if pmin is not None:
+            play_minutes.append(pmin)
+
+        raw_x = _coord(play, "fieldPositionX")
+        raw_y = _coord(play, "fieldPositionY")
+        raw_x2 = _coord(play, "fieldPosition2X")
+        raw_y2 = _coord(play, "fieldPosition2Y")
+        x, y = _absolute_xy(raw_x, raw_y, side)
+        x2, y2 = _absolute_xy(raw_x2, raw_y2, side)
         label = str(play.get("shortText") or play.get("text") or ptype)
         entry = {
             "id": str(play.get("id") or ""),
             "type": ptype,
             "text": label,
             "clock": _clock_label(play),
+            "minute": pmin,
+            "side": side,
             "x": x,
             "y": y,
             "x2": x2,
@@ -698,6 +750,8 @@ def build_pitch_track(
             passes.append(entry)
         if (ptype in SHOT_TYPES or own) and x is not None and y is not None:
             shots.append(entry)
+        if raw_x is not None and raw_y is not None and (raw_x or raw_y) and side in {"home", "away"}:
+            heat_pts.append((raw_x, raw_y, side, pmin))
 
         # Ball = end of latest positioned action
         if ptype in BALL_TYPES:
@@ -710,11 +764,30 @@ def build_pitch_track(
                     "type": ptype,
                     "text": label,
                     "clock": _clock_label(play),
+                    "minute": pmin,
+                    "side": side,
                 }
 
-    # Keep the most recent trails for the graphic
-    passes = passes[-40:]
-    shots = shots[-25:]
+    now_minute = _clock_now_minute(clock, play_minutes)
+    lo = _window_lo(now_minute)
+    hi = now_minute or 90
+
+    def _in_window(ev: dict[str, Any]) -> bool:
+        minute = ev.get("minute")
+        if minute is None:
+            return True
+        return lo <= int(minute) <= hi
+
+    def _with_age(ev: dict[str, Any]) -> dict[str, Any]:
+        minute = ev.get("minute")
+        age = max(0, now_minute - int(minute)) if minute is not None and now_minute else 0
+        return {**ev, "age": age, "window": PRESSURE_WINDOW_MIN}
+
+    # Last-15' trails — fade is applied from ``age`` on the client.
+    passes = [_with_age(p) for p in passes if _in_window(p)][-40:]
+    shots = [_with_age(s) for s in shots if _in_window(s)][-25:]
+    if ball and not _in_window(ball):
+        ball = None
     recent = []
     for play in plays[-30:]:
         recent.append(
@@ -735,9 +808,13 @@ def build_pitch_track(
         "home_score": home_score,
         "away_score": away_score,
         "clock": clock,
+        "window": PRESSURE_WINDOW_MIN,
+        "from_minute": lo,
+        "to_minute": now_minute or None,
         "ball": ball,
         "passes": passes,
         "shots": shots,
+        "territory": _build_territory(heat_pts, now_minute=now_minute or None),
         "recent": recent,
         "counts": counts,
         "fetched_at": time.time(),
@@ -1174,19 +1251,34 @@ _TERRITORY_COLS = 6
 _TERRITORY_ROWS = 4
 
 
-def _build_territory(points: list[tuple[float, float, str]]) -> dict[str, Any]:
+def _build_territory(
+    points: list[tuple[Any, ...]],
+    *,
+    now_minute: int | None = None,
+    window: int = PRESSURE_WINDOW_MIN,
+) -> dict[str, Any]:
     """
     Aggregate positioned plays into a pitch-occupancy map.
 
     ESPN play coordinates are team-relative (each side attacks x→100), so away
     events are mirrored onto one absolute pitch with HOME attacking right.
-    ``points`` is (x, y, side) with side in {"home", "away"}.
+    ``points`` is ``(x, y, side)`` or ``(x, y, side, minute)`` with side in
+    ``{"home", "away"}``.  When ``now_minute`` is set, only the last ``window``
+    minutes are counted — the same slice as the pressure bar — so a first-half
+    siege that flipped after the break does not wash out.
     """
+    lo = _window_lo(now_minute, window) if now_minute else 0
+    hi = now_minute or 0
     cells = [[0] * _TERRITORY_COLS for _ in range(_TERRITORY_ROWS)]
     thirds = [0, 0, 0]  # home-defensive | middle | home-attacking
     side_counts = {"home": 0, "away": 0}
+    total = 0
 
-    for x, y, side in points:
+    for pt in points:
+        x, y, side = pt[0], pt[1], pt[2]
+        minute = pt[3] if len(pt) > 3 else None
+        if now_minute and minute is not None and (minute < lo or minute > hi):
+            continue
         if side == "away":
             x, y = 100.0 - x, 100.0 - y
         x = min(99.99, max(0.0, x))
@@ -1196,8 +1288,7 @@ def _build_territory(points: list[tuple[float, float, str]]) -> dict[str, Any]:
         cells[row][col] += 1
         thirds[0 if x < 100 / 3 else (1 if x < 200 / 3 else 2)] += 1
         side_counts[side] += 1
-
-    total = len(points)
+        total += 1
     max_cell = max((max(r) for r in cells), default=0)
     pct = [round(t / total, 3) if total else None for t in thirds]
 
@@ -1226,10 +1317,12 @@ def _build_territory(points: list[tuple[float, float, str]]) -> dict[str, Any]:
             "away": round(side_counts["away"] / ball_total, 3) if ball_total else None,
         },
         "label": label,
+        "window": window if now_minute else None,
+        "from_minute": lo if now_minute else None,
+        "to_minute": now_minute,
     }
 
 
-PRESSURE_WINDOW_MIN = 15
 _ATT_THIRD_X = 200.0 / 3.0
 # ESPN team-relative box: roughly the last 17m of the pitch, central 58% of width.
 _BOX_X = 83.0
@@ -1472,7 +1565,7 @@ def build_event_timeline(
     halves = {"1h": _empty_half_counts(), "2h": _empty_half_counts()}
     home_xg_pts: list[tuple[int, float]] = []
     away_xg_pts: list[tuple[int, float]] = []
-    territory_pts: list[tuple[float, float, str]] = []
+    territory_pts: list[tuple[Any, ...]] = []
     pressure_pts: list[tuple[int, float, float, str, str | None]] = []
     bulletin: list[dict[str, Any]] = []
 
@@ -1513,7 +1606,7 @@ def build_event_timeline(
             px = _coord(play, "fieldPositionX")
             py = _coord(play, "fieldPositionY")
             if px is not None and py is not None and (px or py):
-                territory_pts.append((px, py, side))
+                territory_pts.append((px, py, side, pmin))
                 if pmin is not None:
                     pressure_pts.append((pmin, px, py, side, kind))
 
@@ -1619,7 +1712,7 @@ def build_event_timeline(
             }
             for key, bucket in halves.items()
         },
-        "territory": _build_territory(territory_pts),
+        "territory": _build_territory(territory_pts, now_minute=minute),
         "pressure": _build_pressure(pressure_pts, now_minute=minute),
         "box_entries": box_entries_from_plays(plays, home_id=home_id, away_id=away_id, home=home, away=away),
         "xg": {

@@ -403,6 +403,56 @@ def test_build_pitch_track_ball_passes_shots():
     assert track["ball"]["type"] == "goal"
     assert track["ball"]["x"] == 95
     assert track["ball"]["y"] == 50
+    assert track["window"] == 15
+    assert track["from_minute"] == 10
+    assert track["to_minute"] == 24
+    assert all(p.get("age") is not None for p in track["passes"])
+
+
+def test_pitch_track_last15_drops_old_plays_and_mirrors_away():
+    clear_track_cache()
+
+    def fake_fetch(url: str):
+        return SAMPLE_PLAYS
+
+    late = build_pitch_track(
+        "esp.1",
+        "99",
+        home="Liverpool",
+        away="Nottingham Forest",
+        home_id="364",
+        away_id="393",
+        clock="90'",
+        fetcher=fake_fetch,
+        use_cache=False,
+    )
+    assert late["from_minute"] == 76
+    assert late["passes"] == []
+    assert late["shots"] == []
+    assert late["ball"] is None
+
+    now = build_pitch_track(
+        "esp.1",
+        "99",
+        home="Liverpool",
+        away="Nottingham Forest",
+        home_id="364",
+        away_id="393",
+        clock="24'",
+        fetcher=fake_fetch,
+        use_cache=False,
+    )
+    # Away goal at team-relative (95, 50) → home-absolute (5, 50).
+    assert now["ball"]["type"] == "goal"
+    assert now["ball"]["x"] == 5
+    assert now["ball"]["y"] == 50
+    assert now["ball"]["side"] == "away"
+    away_shot = next(s for s in now["shots"] if s["type"] == "shot-off-target")
+    assert away_shot["x"] == 80 and away_shot["y"] == 60
+    home_pass = now["passes"][0]
+    assert home_pass["x"] == 20 and home_pass["x2"] == 40
+    assert home_pass["side"] == "home"
+    assert now["territory"]["total"] == 4
 
 
 def test_build_live_situation_goal_and_team_shots():
@@ -611,6 +661,19 @@ def test_timeline_counts_split_by_half():
     assert tl["counts"]["away_foul"] == 1
 
 
+def test_chiclet_territory_and_pitch_use_last15():
+    js = Path("src/eeesoc/static/app.js").read_text(encoding="utf-8")
+    css = Path("src/eeesoc/static/app.css").read_text(encoding="utf-8")
+    html = Path("src/eeesoc/static/index.html").read_text(encoding="utf-8")
+    assert "function renderPitchHeat" in js
+    assert "function pitchFade" in js
+    assert "last ${win} minutes" in js
+    assert "Ball last ${win}" in js
+    assert ".pitch-heat-cell" in css
+    assert "Territory · last 15′" in html
+    assert "where the ball has actually been in those last 15′" in html
+
+
 def test_chiclet_stats_keep_full_row_and_add_halves():
     js = Path("src/eeesoc/static/app.js").read_text(encoding="utf-8")
     css = Path("src/eeesoc/static/app.css").read_text(encoding="utf-8")
@@ -683,16 +746,18 @@ def test_timeline_fouls_and_territory():
     assert tl["counts"]["home_foul"] == 2
     assert tl["counts"]["away_foul"] == 1
     terr = tl["territory"]
-    assert terr["total"] == 16
-    # All home passes at x=80 land in the home-attacking third; away passes
-    # mirror to x=20 (home-defensive third).
-    assert terr["thirds"]["home_att"] == round(12 / 16, 3)
-    assert terr["thirds"]["home_def"] == round(4 / 16, 3)
-    assert terr["ball_share"]["home"] == round(12 / 16, 3)
-    # Grid: home passes at (80,50) → col 4, row 2; away mirrored (20,70) → col 1, row 2
-    assert terr["cells"][2][4] == 12
+    # Last 15′ at 40′ is 26–40′: one late home pass (26′) plus four away passes (30–33′).
+    # The earlier home siege is on the pressure graph, not this heat map.
+    assert terr["window"] == 15
+    assert terr["from_minute"] == 26 and terr["to_minute"] == 40
+    assert terr["total"] == 5
+    assert terr["thirds"]["home_att"] == round(1 / 5, 3)
+    assert terr["thirds"]["home_def"] == round(4 / 5, 3)
+    assert terr["ball_share"]["home"] == round(1 / 5, 3)
+    assert terr["cells"][2][4] == 1
     assert terr["cells"][2][1] == 4
-    assert terr["label"] == "home_attacking"
+    # Five actions is still a thin sample — the tilt is in the thirds, not the tag.
+    assert terr["label"] == "warming_up"
 
 
 def test_territory_midfield_battle_label():
@@ -702,6 +767,24 @@ def test_territory_midfield_battle_label():
     terr = _build_territory(pts)
     assert terr["label"] == "midfield"
     assert terr["thirds"]["mid"] == 1.0
+
+
+def test_territory_last15_shows_the_late_siege():
+    from eeesoc.live import PRESSURE_WINDOW_MIN, _build_territory
+
+    # First half: home camps forward. Second half: away returns the favour.
+    pts = [(80.0, 50.0, "home", m) for m in range(5, 40)]
+    pts += [(80.0, 50.0, "away", m) for m in range(60, 89)]
+    full = _build_territory([(x, y, s) for x, y, s, _ in pts])
+    assert full["window"] is None
+    # Whole match is a wash. Last 15′ at 88′ is only the away siege (mirrored
+    # onto the home-defensive third).
+    late = _build_territory(pts, now_minute=88)
+    assert late["window"] == PRESSURE_WINDOW_MIN
+    assert late["from_minute"] == 74
+    assert late["label"] == "away_attacking"
+    assert late["thirds"]["home_def"] == 1.0
+    assert late["total"] == 15
 
 
 def test_territory_attacking_tilt_beats_midfield_label():
