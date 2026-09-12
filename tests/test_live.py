@@ -690,12 +690,15 @@ def test_live_chiclets_show_last5_goals_total_and_first_half():
     html = Path("src/eeesoc/static/index.html").read_text(encoding="utf-8")
     assert "function last5GoalsRowsHtml" in js
     assert "function last5GoalsSideHtml" in js
+    assert "function last5GoalSeq" in js
     assert 'label: "🥅 last 5 scored"' in js
     assert 'label: "🥅 last 5 allowed"' in js
-    assert "recent_scored_1h" in js and "recent_allowed_1h" in js
+    assert "g.ht_gf" in js and "g.ht_ga" in js
     assert "rows.splice(afterMomentum + 1, 0, ...last5)" in js
-    assert ".mc-form-b" in css and ".mc-form-side.scored" in css
-    assert "last 5 scored / allowed" in html
+    assert 'class="mc-form-g"' in js
+    assert "metric === \"scored\" ? g.gf : g.ga" in js
+    assert ".mc-form-g" in css and ".mc-form-games" in css
+    assert "each of those five games as its own number" in html
 
 
 def test_timeline_fouls_and_territory():

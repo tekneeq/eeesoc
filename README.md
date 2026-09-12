@@ -38,9 +38,9 @@ par), so 100 = allows the league's typical chances, above 100 is *solid*, below 
 **📈 Momentum** is recent form: points per game over the last five results, weighted toward the newest and
 shrunk toward the league's points per game; 100 = par form, above is *rising*, below *fading*, with the
 W/D/L letters (oldest → newest) alongside.
-**🥅 Last 5 scored / allowed** is the raw goal count over that same window: how many each club scored and
-how many they allowed, shown as a full-match total plus a **1H** chip (first-half goals from games that
-have a half-time score). Hover the row for each result with its FT and 1H score.
+**🥅 Last 5 scored / allowed** is that same window game by game, oldest → newest: each number is one
+match's goals (full-match on top, first half underneath), with the five-game total beside them.
+Hover a number for that result's opponent and FT / 1H score.
 **🔮 Potential** is underlying strength with finishing luck stripped out: the geometric mean of the club's
 chance-creation index (xG created vs the league) and its defence power, so 100 = a league-typical side on
 chance quality both ways. The same index on actual goals is shown as *results*; the tag is *upside* when

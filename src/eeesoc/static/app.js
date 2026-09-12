@@ -1224,12 +1224,12 @@
     {
       metric: "scored",
       label: "🥅 last 5 scored",
-      help: "Goals this club scored across its last five archived games: the big number is the full-match total, 1H is first-half goals from games that have a half-time score. Hover for each result.",
+      help: "Goals this club scored in each of its last five archived games, oldest → newest. The big number is that game's full-match total; the small number under it is first-half goals. Hover a game for the opponent and score.",
     },
     {
       metric: "allowed",
       label: "🥅 last 5 allowed",
-      help: "Goals this club allowed across its last five archived games: the big number is the full-match total, 1H is first-half goals from games that have a half-time score. Hover for each result.",
+      help: "Goals this club allowed in each of its last five archived games, oldest → newest. The big number is that game's full-match total; the small number under it is first-half goals. Hover a game for the opponent and score.",
     },
   ];
 
@@ -1250,12 +1250,31 @@
     const n = (row.recent || []).length;
     if (!n) return `${row.team}: no finished games archived yet for last-five goals ${noun}`;
     const tot = metric === "scored" ? row.recent_scored : row.recent_allowed;
-    const h1 = metric === "scored" ? row.recent_scored_1h : row.recent_allowed_1h;
+    const seq = last5GoalSeq(row, metric, "ft");
+    const h1seq = last5GoalSeq(row, metric, "1h");
     const n1 = row.recent_1h_games ?? 0;
     const half = n1
-      ? `${h1} in the first half${n1 < n ? ` (from ${n1} of ${n} with a half-time score)` : ""}`
+      ? `1H ${h1seq.join(" ")}${n1 < n ? ` (from ${n1} of ${n} with a half-time score)` : ""}`
       : "no half-time scores archived yet";
-    return `${row.team}: last ${n} game${n === 1 ? "" : "s"} ${noun} ${tot} total, ${half}. Oldest → newest: ${last5FormWords(row)}.`;
+    return `${row.team}: last ${n} game${n === 1 ? "" : "s"} ${noun} ${seq.join(" ")} (${tot} total), ${half}. Oldest → newest: ${last5FormWords(row)}.`;
+  }
+
+  function last5GoalSeq(row, metric, half) {
+    return (row.recent || []).map((g) => {
+      if (half === "1h") {
+        const v = metric === "scored" ? g.ht_gf : g.ht_ga;
+        return v == null ? "—" : String(v);
+      }
+      return String(metric === "scored" ? g.gf : g.ga);
+    });
+  }
+
+  function last5GameTitle(g, metric) {
+    const gfga = `${g.gf}–${g.ga}`;
+    const ht = g.ht_gf != null && g.ht_ga != null ? ` · ${g.ht_gf}–${g.ht_ga} 1H` : " · no 1H score";
+    const vs = `${g.venue === "home" ? "v" : "@"} ${g.opponent}`;
+    const noun = metric === "scored" ? `scored ${g.gf}` : `allowed ${g.ga}`;
+    return `${g.letter} ${gfga}${ht} ${vs} — ${noun}`;
   }
 
   function last5GoalsSideHtml(m, side, metric) {
@@ -1266,13 +1285,16 @@
       return `<span class="mc-power-side mc-form-side ${side} none" title="${title}"><b class="mc-power-num">—</b></span>`;
     }
     const tot = metric === "scored" ? row.recent_scored : row.recent_allowed;
-    const n = row.recent.length;
-    const n1 = row.recent_1h_games ?? 0;
-    const h1 = metric === "scored" ? row.recent_scored_1h : row.recent_allowed_1h;
-    const h1Cell = n1
-      ? `<span class="mc-form-b"><b>1H</b>${h1}</span>`
-      : `<span class="mc-form-b none"><b>1H</b>—</span>`;
-    return `<span class="mc-power-side mc-form-side ${side} ${metric}" title="${title}"><b class="mc-power-num">${tot}</b>${h1Cell}<span class="mc-power-rank">${n}g</span></span>`;
+    const chips = (row.recent || [])
+      .map((g) => {
+        const ft = metric === "scored" ? g.gf : g.ga;
+        const h1 = metric === "scored" ? g.ht_gf : g.ht_ga;
+        const h1Text = h1 == null ? "—" : String(h1);
+        const tip = escapeHtml(last5GameTitle(g, metric));
+        return `<span class="mc-form-g" title="${tip}"><b>${ft}</b><i>${h1Text}</i></span>`;
+      })
+      .join("");
+    return `<span class="mc-power-side mc-form-side ${side} ${metric}" title="${title}"><span class="mc-form-games">${chips}</span><span class="mc-form-sum">${tot}</span></span>`;
   }
 
   function last5GoalsRowsHtml(m) {
