@@ -3291,7 +3291,7 @@
     const frac = Math.max(0, Math.min(1, 1 - mins / 95));
     const stamCls = frac > 0.5 ? "ok" : frac > 0.25 ? "warn" : "low";
     const name = shortName(p.short || p.name || "?");
-    const subBit = p.in_minute ? ` ⇄${p.in_minute}′` : "";
+    const cameOn = Number(p.in_minute) > 0;
     const s = p.stats || {};
     const statBits = [
       s.goals ? `${s.goals}⚽` : "",
@@ -3302,18 +3302,25 @@
       s.red ? "🟥" : "",
     ].filter(Boolean);
     const title = `${p.name || name}${p.pos ? ` · ${p.pos}` : ""} · power ${p.power} · ${mins}′ on the pitch${
-      p.in_minute ? ` (on ${p.in_minute}′ for ${p.sub_for || "?"})` : ""
+      cameOn ? ` · SUB ON ${p.in_minute}′ for ${p.sub_for || "?"}` : ""
     }${statBits.length ? ` · ${statBits.join(" · ")}` : ""}`;
     const barW = 46;
-    return `<g class="lu-player lu-${side}" transform="translate(${x.toFixed(1)},${y.toFixed(1)})">
+    const stamY = cameOn ? 50 : 36;
+    const subMark = cameOn
+      ? `<circle class="lu-sub-ring" r="21"/>
+      <rect class="lu-sub-badge" x="-22" y="34" width="44" height="13" rx="3"/>
+      <text class="lu-sub-tag" y="44.2" text-anchor="middle">IN ${p.in_minute}′</text>`
+      : "";
+    return `<g class="lu-player lu-${side}${cameOn ? " lu-sub" : ""}" transform="translate(${x.toFixed(1)},${y.toFixed(1)})">
       <title>${escapeHtml(title)}</title>
       <circle class="lu-dot" r="16"/>
+      ${subMark}
       <text class="lu-jersey" y="4.5" text-anchor="middle">${escapeHtml(p.jersey || "")}</text>
       <rect class="lu-power ${powerClass(p.power)}" x="10" y="-27" width="26" height="15" rx="3"/>
       <text class="lu-power-num" x="23" y="-15.5" text-anchor="middle">${p.power}</text>
-      <text class="lu-name" y="31" text-anchor="middle">${escapeHtml(name)}${escapeHtml(subBit)}</text>
-      <rect class="lu-stam-bg" x="${-barW / 2}" y="36" width="${barW}" height="4" rx="2"/>
-      <rect class="lu-stam ${stamCls}" x="${-barW / 2}" y="36" width="${(barW * frac).toFixed(1)}" height="4" rx="2"/>
+      <text class="lu-name" y="31" text-anchor="middle">${escapeHtml(name)}</text>
+      <rect class="lu-stam-bg" x="${-barW / 2}" y="${stamY}" width="${barW}" height="4" rx="2"/>
+      <rect class="lu-stam ${stamCls}" x="${-barW / 2}" y="${stamY}" width="${(barW * frac).toFixed(1)}" height="4" rx="2"/>
       ${s.goals ? `<text class="lu-goal" x="-22" y="-14">⚽</text>` : ""}
       ${s.yellow || s.red ? `<rect class="lu-card ${s.red ? "red" : "yellow"}" x="-30" y="-4" width="7" height="10" rx="1"/>` : ""}
     </g>`;
@@ -3362,7 +3369,7 @@
         ${lineupSideSvg(data.home, "home", now)}
         ${lineupSideSvg(data.away, "away", now)}
       </svg>
-      <p class="lede lu-note">Hover a player for the full line. <b>Power</b> is a match-performance number from ESPN's live stats (goals, assists, shots, saves, fouls, cards) — 65 is a quiet, tidy game. The bar is <b>freshness by minutes played</b> (ESPN has no distance-run data); subs come on full. ⇄ marks a substitute, with the minute — hover to see who came off.</p>`;
+      <p class="lede lu-note">Hover a player for the full line. <b>Power</b> is a match-performance number from ESPN's live stats (goals, assists, shots, saves, fouls, cards) — 65 is a quiet, tidy game. The bar is <b>freshness by minutes played</b> (ESPN has no distance-run data); subs come on full. <b class="lu-sub-legend">IN 74′</b> is a player who was subbed on at that minute — dashed ring, hover to see who came off.</p>`;
   }
 
   async function refreshLineups() {
