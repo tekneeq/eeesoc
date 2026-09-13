@@ -278,6 +278,198 @@
     if (name === "halftime") refreshHalftime();
     else stopHalftimeTimer();
     if (name === "signals") refreshSignals();
+    if (name === "bets") refreshBets();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Bets tab — today's no-more-goals alarms, won / lost / live, by league
+  // ---------------------------------------------------------------------------
+
+  function tallyBets(list) {
+    const won = list.filter((s) => s.status === "held").length;
+    const lost = list.filter((s) => s.status === "busted").length;
+    const live = list.filter((s) => s.status === "open").length;
+    const voided = list.filter((s) => s.status === "void").length;
+    const settled = won + lost;
+    return {
+      fired: list.length,
+      won,
+      lost,
+      live,
+      void: voided,
+      settled,
+      hit_pct: settled ? Math.round((100 * won) / settled) : null,
+    };
+  }
+
+  function betsByLeague(list) {
+    const map = new Map();
+    for (const s of list || []) {
+      const key = s.league_slug || s.league_chiclet || "other";
+      if (!map.has(key)) {
+        map.set(key, {
+          key,
+          league_slug: s.league_slug || "",
+          league_chiclet: s.league_chiclet || s.league_slug || "Other",
+          league_name: s.league_name || "",
+          signals: [],
+        });
+      }
+      const g = map.get(key);
+      if (s.league_chiclet) g.league_chiclet = s.league_chiclet;
+      if (s.league_name && !g.league_name) g.league_name = s.league_name;
+      g.signals.push(s);
+    }
+    return [...map.values()]
+      .map((g) => {
+        g.signals.sort((a, b) => (Number(b.fired_at) || 0) - (Number(a.fired_at) || 0));
+        return { ...g, ...tallyBets(g.signals) };
+      })
+      .sort((a, b) => b.fired - a.fired || String(a.league_chiclet).localeCompare(String(b.league_chiclet)));
+  }
+
+  function betTone(status) {
+    if (status === "held") return "won";
+    if (status === "busted") return "lost";
+    if (status === "void") return "void";
+    return "live";
+  }
+
+  function betResultWord(status) {
+    if (status === "held") return "Won";
+    if (status === "busted") return "Lost";
+    if (status === "void") return "Void";
+    return "Live";
+  }
+
+  function betBarHtml(t) {
+    const n = Math.max(1, t.fired);
+    const segs = [
+      ["won", t.won],
+      ["lost", t.lost],
+      ["live", t.live],
+      ["void", t.void],
+    ]
+      .filter(([, c]) => c)
+      .map(([cls, c]) => `<i class="bets-bar-${cls}" style="width:${((100 * c) / n).toFixed(1)}%"></i>`)
+      .join("");
+    return `<span class="bets-bar" aria-hidden="true">${segs}</span>`;
+  }
+
+  function betCardHtml(s) {
+    const tone = betTone(s.status);
+    const half = s.period === 1 ? "1H" : "2H";
+    const end = s.period === 1 ? "HT" : "FT";
+    const p = s.eval?.p_no_goal_pct;
+    const odds = s.eval?.break_even_odds;
+    const score = s.final_score || s.score || [0, 0];
+    let detail = "Waiting for the half to finish";
+    if (s.status === "held") detail = `Held to ${end} — no goal after ${s.fired_minute}′`;
+    else if (s.status === "busted") {
+      const note = String(s.resolved_note || "").replace(/^ at /, "");
+      detail = note ? `Goal ${note}` : `Goal after the ${s.fired_minute}′ alarm`;
+    } else if (s.status === "void") detail = "Game left the board before the half resolved";
+    const meta = [
+      p != null ? `P ${p}%` : "",
+      odds != null ? `take if odds ≥ ${odds}` : "",
+    ]
+      .filter(Boolean)
+      .join(" · ");
+    return `<article class="bets-card ${tone}">
+      <span class="bets-card-result">${betResultWord(s.status)}</span>
+      <span class="bets-card-half">${half} · fired ${s.fired_minute}′</span>
+      <div class="bets-card-match"><b>${escapeHtml(shortName(s.home || "Home"))}</b> ${Number(score[0]) || 0}–${Number(score[1]) || 0} <b>${escapeHtml(shortName(s.away || "Away"))}</b></div>
+      <p class="bets-card-bet">No more goals this half</p>
+      <p class="bets-card-detail">${escapeHtml(detail)}</p>
+      ${meta ? `<p class="bets-card-meta">${escapeHtml(meta)}</p>` : ""}
+    </article>`;
+  }
+
+  function betsHeroHtml(t, whenLabel, season) {
+    const hit = t.hit_pct != null ? `${t.hit_pct}% won` : "waiting on results";
+    const settled = t.settled
+      ? `${t.won} of ${t.settled} settled`
+      : t.fired
+        ? "none settled yet"
+        : "no alarms yet";
+    const seasonLine =
+      season && season.settled
+        ? `All recorded alarms: ${season.won} won / ${season.settled} settled${season.hit_pct != null ? ` · ${season.hit_pct}%` : ""}.`
+        : "";
+    return `<div class="bets-hero">
+      <div class="bets-hero-when">${escapeHtml(whenLabel)}</div>
+      <div class="bets-hero-score">
+        <span class="bets-stat won"><b>${t.won}</b> won</span>
+        <span class="bets-stat lost"><b>${t.lost}</b> lost</span>
+        <span class="bets-stat live"><b>${t.live}</b> live</span>
+        ${t.void ? `<span class="bets-stat void"><b>${t.void}</b> void</span>` : ""}
+      </div>
+      ${t.fired ? betBarHtml(t) : ""}
+      <p class="bets-hero-sub">${t.fired} alarm${t.fired === 1 ? "" : "s"} today · ${settled} · ${hit}</p>
+      ${seasonLine ? `<p class="bets-hero-season">${escapeHtml(seasonLine)}</p>` : ""}
+    </div>`;
+  }
+
+  function betsLeagueHtml(g) {
+    const name = g.league_name && g.league_name !== g.league_chiclet ? g.league_name : "";
+    const sub = g.settled
+      ? `${g.won} won · ${g.lost} lost${g.live ? ` · ${g.live} live` : ""}${g.hit_pct != null ? ` · ${g.hit_pct}%` : ""}`
+      : `${g.fired} alarm${g.fired === 1 ? "" : "s"}${g.live ? ` · ${g.live} still live` : ""}`;
+    return `<section class="bets-league">
+      <header class="bets-league-head">
+        <div>
+          <h2>${escapeHtml(g.league_chiclet || "League")}</h2>
+          ${name ? `<p>${escapeHtml(name)}</p>` : ""}
+        </div>
+        <div class="bets-league-score"><b>${g.won}</b><span>/ ${g.settled || g.fired} won</span></div>
+      </header>
+      <p class="bets-league-sub">${escapeHtml(sub)}</p>
+      <div class="bets-grid">${g.signals.map(betCardHtml).join("")}</div>
+    </section>`;
+  }
+
+  function renderBetsBoard(signals) {
+    const mount = $("#betsBoard");
+    if (!mount) return;
+    const todayKey = sigDayKey(Date.now() / 1000);
+    const today = (signals || []).filter((s) => sigDayKey(s.fired_at) === todayKey);
+    const t = tallyBets(today);
+    const leagues = betsByLeague(today);
+    const season = tallyBets(signals || []);
+    const when = sigDayLabel(todayKey);
+    if (!today.length) {
+      mount.innerHTML = `${betsHeroHtml(t, when, season)}
+        <div class="bets-empty">
+          <p>No no-more-goals alarms have fired today.</p>
+          <p class="sig-muted">An alarm fires once per half when P(no goal) clears the threshold inside the betting window. Live games show the reading on each chiclet; the Signals tab has the model.</p>
+        </div>`;
+      return;
+    }
+    mount.innerHTML = `${betsHeroHtml(t, when, season)}${leagues.map(betsLeagueHtml).join("")}`;
+  }
+
+  async function refreshBets(opts = {}) {
+    const stamp = $("#betsStamp");
+    const quiet = Boolean(opts.quiet);
+    try {
+      const rec = await (await fetch("/api/nogoal/signals")).json();
+      state.sigSignals = rec.signals || [];
+      renderBetsBoard(state.sigSignals);
+      const today = (state.sigSignals || []).filter((s) => sigDayKey(s.fired_at) === sigDayKey(Date.now() / 1000));
+      const t = tallyBets(today);
+      if (stamp) {
+        stamp.textContent = t.fired
+          ? `${t.won} won · ${t.lost} lost${t.live ? ` · ${t.live} live` : ""} today`
+          : "no alarms today";
+      }
+    } catch (err) {
+      if (quiet) return;
+      if (stamp) stamp.textContent = "bets unavailable";
+      const mount = $("#betsBoard");
+      if (mount && !mount.innerHTML) {
+        mount.innerHTML = `<div class="bets-empty"><p>Couldn’t load today’s alarms.</p></div>`;
+      }
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -1514,6 +1706,8 @@
       const payload = await (await fetch("/api/nogoal/live")).json();
       state.nogoal = payload;
       paintClinicalRows();
+      const betsOn = document.querySelector(".tab[data-tab='bets']")?.classList.contains("active");
+      if (betsOn) refreshBets({ quiet: true });
     } catch (err) {
       /* keep the last reading */
     }
