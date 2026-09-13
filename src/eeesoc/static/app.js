@@ -2589,7 +2589,8 @@
     const m = half.minutes || {};
     const h = Math.round(Number(m.home) || 0);
     const a = Math.round(Number(m.away) || 0);
-    return `${homeName} ${h}′ · ${awayName} ${a}′ · ${half.flips || 0} changes`;
+    const flips = Number(half.flips) || 0;
+    return `${homeName} ${h}′ · ${awayName} ${a}′ · ${flips} ${flips === 1 ? "change" : "changes"}`;
   }
 
   function possessionRibbonsHtml(tl) {
