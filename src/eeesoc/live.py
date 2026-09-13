@@ -522,6 +522,14 @@ _SUB_TEXT_RE = re.compile(
     re.I,
 )
 _SUB_SHORT_RE = re.compile(r"^(?P<on>.+?)\s+Substitut", re.I)
+_RED_CARD_SHORT_RE = re.compile(
+    r"^(?P<name>.+?)\s+(?:Red Card|Second Yellow(?: Card)?|Yellow(?:-|/|\s)?Red(?: Card)?)\s*$",
+    re.I,
+)
+_RED_CARD_SHOWN_RE = re.compile(
+    r"(?P<name>.+?)\s*\([^)]+\)\s+(?:is shown|sees|receives).{0,60}(?:red card|second yellow)",
+    re.I,
+)
 
 
 def _clean_player(name: str | None) -> str | None:
@@ -529,6 +537,67 @@ def _clean_player(name: str | None) -> str | None:
     if not text or text.lower() in _GENERIC_PLAYER:
         return None
     return text
+
+
+def _is_red_card(ptype: str, play: dict[str, Any] | None = None) -> bool:
+    """Straight red or a second yellow that sends the player off."""
+    blob = (ptype or "").lower().replace("_", "-").replace(" ", "-")
+    if "red-card" in blob or blob in {"redcard", "red"}:
+        return True
+    if "yellow-red" in blob or "second-yellow" in blob:
+        return True
+    if play is None:
+        return False
+    if play.get("redCard") is True:
+        return True
+    text = " ".join(str(play.get(k) or "") for k in ("text", "shortText", "alternativeText")).lower()
+    if "overturn" in text or "not a red" in text:
+        return False
+    return "red card" in text or "second yellow" in text
+
+
+def _player_from_athletes(play: dict[str, Any]) -> str | None:
+    for raw in play.get("athletesInvolved") or []:
+        if not isinstance(raw, dict):
+            continue
+        named = _clean_player(str(raw.get("shortName") or raw.get("displayName") or raw.get("fullName") or ""))
+        if named:
+            return named
+    for part in play.get("participants") or []:
+        if not isinstance(part, dict):
+            continue
+        athlete = part.get("athlete") if isinstance(part.get("athlete"), dict) else part
+        named = _clean_player(str(athlete.get("shortName") or athlete.get("displayName") or athlete.get("fullName") or ""))
+        if named:
+            return named
+    athlete = play.get("athlete")
+    if isinstance(athlete, dict):
+        return _clean_player(str(athlete.get("shortName") or athlete.get("displayName") or ""))
+    return None
+
+
+def _player_name_from_card(play: dict[str, Any]) -> str | None:
+    named = _player_from_athletes(play)
+    if named:
+        return named
+    short = str(play.get("shortText") or "")
+    text = str(play.get("text") or play.get("alternativeText") or "")
+    for raw, rx in ((short, _RED_CARD_SHORT_RE), (text, _RED_CARD_SHOWN_RE)):
+        m = rx.search(raw)
+        named = _clean_player(m.group("name") if m else None)
+        if named:
+            return named
+    return None
+
+
+def _is_second_yellow(ptype: str, play: dict[str, Any] | None = None) -> bool:
+    blob = (ptype or "").lower().replace("_", "-").replace(" ", "-")
+    if "second-yellow" in blob or "yellow-red" in blob:
+        return True
+    if play is None:
+        return False
+    text = " ".join(str(play.get(k) or "") for k in ("text", "shortText", "alternativeText")).lower()
+    return "second yellow" in text or "second bookable" in text
 
 
 def _is_substitution(ptype: str, play: dict[str, Any] | None = None) -> bool:
@@ -1803,6 +1872,23 @@ def build_event_timeline(
                     "player_off": player_off,
                     "penalty": False,
                     "text": str(play.get("shortText") or play.get("text") or "Substitution"),
+                }
+            )
+        if _is_red_card(ptype, play) and pmin is not None and side in {"home", "away"}:
+            player = _player_name_from_card(play)
+            bulletin.append(
+                {
+                    "minute": pmin,
+                    "elapsed": elapsed,
+                    "clock": clock or f"{pmin}'",
+                    "kind": "red",
+                    "team": side,
+                    "player": player,
+                    "player_on": None,
+                    "player_off": None,
+                    "penalty": False,
+                    "second_yellow": _is_second_yellow(ptype, play),
+                    "text": str(play.get("shortText") or play.get("text") or "Red card"),
                 }
             )
 

@@ -1282,6 +1282,13 @@
           : "";
         return `<div class="mc-bl-row sub"><span class="mc-bl-min">${clock}</span><span class="mc-bl-who">${on}${off}</span></div>`;
       }
+      if (r.kind === "red") {
+        const name = escapeHtml(r.player || "Red card");
+        const tag = r.second_yellow
+          ? ` <span class="mc-bl-tag red">2Y</span>`
+          : ` <span class="mc-bl-tag red">🟥</span>`;
+        return `<div class="mc-bl-row red"><span class="mc-bl-min">${clock}</span><span class="mc-bl-who">${name}${tag}</span></div>`;
+      }
       const name = escapeHtml(r.player || (r.kind === "own_goal" ? "Own goal" : "Goal"));
       const tag =
         r.kind === "own_goal"
@@ -1959,6 +1966,7 @@
     btn.__onSelect = onSelect;
     const cached = withTimeline ? state.timelines?.[m.event_id] : null;
     const shown = displayedScore(m, cached);
+    const reds = redCardsBySide(cached);
     const finished = isFinishedMatch(m);
     const upcoming = isUpcomingMatch(m);
     if (finished) btn.classList.add("match-chiclet-ft");
@@ -2006,9 +2014,9 @@
         </span>
       </span>
       <span class="mc-teams">
-        <span class="mc-home"><span class="mc-name">${escapeHtml(shortName(m.home))}</span><i class="mc-key mc-key-home" title="Home — green in charts"></i></span>
+        <span class="mc-home"><span class="mc-name">${escapeHtml(shortName(m.home))}</span>${chicletRedHtml(reds.home)}<i class="mc-key mc-key-home" title="Home — green in charts"></i></span>
         <span class="mc-score"><b class="mc-score-h">${shown.home}</b><span class="mc-score-sep">–</span><b class="mc-score-a">${shown.away}</b></span>
-        <span class="mc-away"><i class="mc-key mc-key-away" title="Away — blue in charts"></i><span class="mc-name">${escapeHtml(shortName(m.away))}</span></span>
+        <span class="mc-away"><i class="mc-key mc-key-away" title="Away — blue in charts"></i>${chicletRedHtml(reds.away)}<span class="mc-name">${escapeHtml(shortName(m.away))}</span></span>
       </span>
       <span class="mc-power" data-power-for="${escapeHtml(m.event_id)}">${clinicalRowHtml(m)}</span>
       ${withTimeline && !upcoming ? `<div class="mc-bulletin" data-bulletin-for="${escapeHtml(m.event_id)}">${cached ? chicletBulletinHtml(cached) : ""}</div>` : ""}
@@ -2047,6 +2055,33 @@
       home: Math.max(boardH, Number.isFinite(playH) ? playH : 0),
       away: Math.max(boardA, Number.isFinite(playA) ? playA : 0),
     };
+  }
+
+  function redCardsBySide(tl) {
+    const rows = (tl?.bulletin || []).filter((r) => r.kind === "red");
+    return {
+      home: rows.filter((r) => r.team === "home"),
+      away: rows.filter((r) => r.team === "away"),
+    };
+  }
+
+  function chicletRedHtml(rows) {
+    if (!rows.length) return "";
+    const title = rows
+      .map((r) => `${r.clock || `${r.minute}'`} ${r.player || "Red card"}`)
+      .join(" · ");
+    const mark = rows.length > 1 ? `🟥×${rows.length}` : "🟥";
+    return `<span class="mc-red" title="${escapeHtml(title)}">${mark}</span>`;
+  }
+
+  function applyChicletReds(btn, tl) {
+    if (!btn) return;
+    btn.querySelectorAll(".mc-red").forEach((el) => el.remove());
+    const by = redCardsBySide(tl);
+    const homeName = btn.querySelector(".mc-home .mc-name");
+    const awayName = btn.querySelector(".mc-away .mc-name");
+    if (homeName && by.home.length) homeName.insertAdjacentHTML("afterend", chicletRedHtml(by.home));
+    if (awayName && by.away.length) awayName.insertAdjacentHTML("beforebegin", chicletRedHtml(by.away));
   }
 
   function applyChicletScore(btn, home, away) {
@@ -2647,6 +2682,7 @@
       if (card) {
         const shown = displayedScore(m, tl);
         applyChicletScore(card, shown.home, shown.away);
+        applyChicletReds(card, tl);
       }
     };
 
