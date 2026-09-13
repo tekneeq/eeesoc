@@ -9,8 +9,10 @@ Tap a chiclet and the live pitch graphic opens at the top of the Live tab: last 
 (home attacking right), fading older touches, a heat map of where it has been, pass trails, and
 shot markers (ESPN play coordinates).
 Each chiclet also has a rolling 15′ pressure bar (who is in the other side's final third right now),
-a pressure graph of that same window at every minute, possession and duel graphs with three lines
-(home, away, and 50%) over that same last-15′ window at every minute, and a territory heat of
+a pressure graph of that same window at every minute, a possession graph as two ribbons (1H and
+2H, minutes along the x-axis, green while the home side has the ball and blue when it changes
+hands), a duel graph with three lines (home, away, and 50%) over that same last-15′ window at
+every minute, and a territory heat of
 where the ball has actually been in those last 15′ — so a first-half siege that flipped after
 the break does not collapse to "even".
 
