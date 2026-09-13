@@ -114,11 +114,12 @@ state. The model is fitted from the finished-match archive and refits as it grow
   archive those halves stayed goalless 46% of the time versus 44% for every half that was 0–0 at 15′.
   Shots are a noisy by-product of box entries; once entries are in they add nothing out of sample.
 
-The **Bets** tab is today’s slip: every no-more-goals alarm that has fired, grouped
-by league, with a won / lost / still-live count at the top and on each league, plus
-the last 30 days and season record (every alarm still in the log). **Won**
-means the half stayed goalless after the alarm (held); **lost** means a goal landed
-(busted). Live bets are still waiting on half-time or full-time.
+The **Bets** tab is a last-30-days bar chart of no-more-goals alarms: the x-axis is
+the date, each league has its own row (won / lost / still-live, plus the season
+record). Click a daily bar to open those game chiclets — same strip / xG /
+territory as the Live tab. **Won** means the half stayed goalless after the alarm
+(held); **lost** means a goal landed (busted). Live bets are still waiting on
+half-time or full-time.
 
 The **Signals** tab replays the archive minute by minute: what 0–0 halves look like against the rest and the
 held rates by box habit and entries so far, calibration (does 70% mean 70%?), log loss against a

@@ -32,6 +32,8 @@
     standings: null, // /api/live/standings: leagues[slug].teams[id]
     clinicalTimer: null,
     sigDay: null, // "YYYY-MM-DD" local day selected on the Signals daily bars
+    betsDay: null, // "YYYY-MM-DD" local day selected on the Bets daily bars
+    betsLeague: "", // league slug/chiclet filter; "" = all leagues
     sigSignals: [],
   };
 
@@ -283,7 +285,7 @@
   }
 
   // ---------------------------------------------------------------------------
-  // Bets tab — today's no-more-goals alarms, won / lost / live, by league
+  // Bets tab — last-30 daily bars by league; click a day for game chiclets
   // ---------------------------------------------------------------------------
 
   const BET_WINDOW_DAYS = 30;
@@ -426,80 +428,72 @@
     </div>`;
   }
 
-  function betsHeroHtml(t, whenLabel, last30, season) {
-    const hit = t.hit_pct != null ? `${t.hit_pct}% won` : "waiting on results";
-    const settled = t.settled
-      ? `${t.won} of ${t.settled} settled`
-      : t.fired
-        ? "none settled yet"
-        : "no alarms yet";
+  function betsDayKeys(days, nowSec) {
+    const end = new Date((nowSec ?? Date.now() / 1000) * 1000);
+    const keys = [];
+    for (let i = days - 1; i >= 0; i--) {
+      const d = new Date(end.getFullYear(), end.getMonth(), end.getDate() - i);
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, "0");
+      const day = String(d.getDate()).padStart(2, "0");
+      keys.push(`${y}-${m}-${day}`);
+    }
+    return keys;
+  }
+
+  function betsSignalsForLeague(list, leagueKey) {
+    if (!leagueKey) return list || [];
+    return (list || []).filter((s) => {
+      const key = s.league_slug || s.league_chiclet || "other";
+      return key === leagueKey || s.league_chiclet === leagueKey;
+    });
+  }
+
+  function betsDailyBuckets(list, dayKeys) {
+    const byDay = new Map(groupSignalsByDay(list));
+    return dayKeys.map((key) => dayBucket(key, byDay.get(key) || []));
+  }
+
+  function betsDefaultDay(dayKeys, list) {
+    const today = dayKeys[dayKeys.length - 1];
+    const byDay = new Map(groupSignalsByDay(list));
+    if (today && byDay.has(today)) return today;
+    for (let i = dayKeys.length - 1; i >= 0; i--) {
+      if (byDay.has(dayKeys[i])) return dayKeys[i];
+    }
+    return today || null;
+  }
+
+  function betsLeagueLabel(g) {
+    return (g && (g.league_chiclet || g.league_name)) || "League";
+  }
+
+  function betsHeroHtml(last30, season) {
     return `<div class="bets-hero">
-      <div class="bets-hero-when">${escapeHtml(whenLabel)}</div>
-      <div class="bets-hero-score">
-        <span class="bets-stat won"><b>${t.won}</b> won</span>
-        <span class="bets-stat lost"><b>${t.lost}</b> lost</span>
-        <span class="bets-stat live"><b>${t.live}</b> live</span>
-        ${t.void ? `<span class="bets-stat void"><b>${t.void}</b> void</span>` : ""}
-      </div>
-      ${t.fired ? betBarHtml(t) : ""}
-      <p class="bets-hero-sub">${t.fired} alarm${t.fired === 1 ? "" : "s"} today · ${settled} · ${hit}</p>
+      <div class="bets-hero-when">No more goals this half</div>
       <div class="bets-records">
         ${betsRecordTileHtml(last30, `Last ${BET_WINDOW_DAYS} days`)}
         ${betsRecordTileHtml(season, "Season")}
       </div>
+      <p class="bets-hero-sub">Each bar is a day — green won, red lost, amber live. The x-axis is the last ${BET_WINDOW_DAYS} days. Click a bar to open those game chiclets. League rows show that league’s record on the same dates.</p>
     </div>`;
   }
 
-  function betsLeagueWindows(last30, season) {
-    return `last ${BET_WINDOW_DAYS}: ${betsRecordLine(last30)} · season ${betsRecordLine(season)}`;
-  }
-
-  function betsLeagueHtml(g, last30, season) {
-    const name = g.league_name && g.league_name !== g.league_chiclet ? g.league_name : "";
-    const sub = g.settled
-      ? `${g.won} won · ${g.lost} lost${g.live ? ` · ${g.live} live` : ""}${g.hit_pct != null ? ` · ${g.hit_pct}%` : ""}`
-      : `${g.fired} alarm${g.fired === 1 ? "" : "s"}${g.live ? ` · ${g.live} still live` : ""}`;
-    return `<section class="bets-league">
-      <header class="bets-league-head">
-        <div>
-          <h2>${escapeHtml(g.league_chiclet || "League")}</h2>
-          ${name ? `<p>${escapeHtml(name)}</p>` : ""}
-        </div>
-        <div class="bets-league-score"><b>${g.won}</b><span>/ ${g.settled || g.fired} won today</span></div>
-      </header>
-      <p class="bets-league-sub">${escapeHtml(sub)}</p>
-      <p class="bets-league-windows">${escapeHtml(betsLeagueWindows(last30, season))}</p>
-      <div class="bets-grid">${g.signals.map(betCardHtml).join("")}</div>
-    </section>`;
-  }
-
-  function betsLeagueRecordRow(g, last30, season) {
-    const name = g.league_name && g.league_name !== g.league_chiclet ? g.league_name : "";
-    return `<div class="bets-league-row">
-      <div>
-        <b>${escapeHtml(g.league_chiclet || "League")}</b>
-        ${name ? `<span>${escapeHtml(name)}</span>` : ""}
+  function betsChartRowHtml(label, sub, days, league, selectedDay, selectedLeague, opts = {}) {
+    return `<section class="bets-day-row bets-league${opts.all ? " all" : ""}">
+      <div class="bets-day-meta">
+        <h2>${escapeHtml(label)}</h2>
+        ${sub ? `<p>${escapeHtml(sub)}</p>` : ""}
       </div>
-      <div class="bets-league-row-score">
-        <span>last ${BET_WINDOW_DAYS} ${escapeHtml(betsRecordLine(last30))}</span>
-        <span>season ${escapeHtml(betsRecordLine(season))}</span>
-      </div>
-    </div>`;
-  }
-
-  function betsOtherLeaguesHtml(seasonLeagues, todayKeys, last30Map) {
-    const others = (seasonLeagues || []).filter((g) => !todayKeys.has(betsLeagueKey(g)));
-    if (!others.length) return "";
-    return `<section class="bets-other-leagues">
-      <header class="bets-league-head">
-        <div><h2>Other leagues</h2><p>No alarm today — last ${BET_WINDOW_DAYS} days and season</p></div>
-      </header>
-      ${others
-        .map((g) => {
-          const key = betsLeagueKey(g);
-          return betsLeagueRecordRow(g, last30Map.get(key) || last30Map.get(g.league_chiclet), g);
-        })
-        .join("")}
+      <div class="bets-days">${dailyBarsHtml(days, selectedDay, {
+        compact: !opts.all,
+        labels: Boolean(opts.all),
+        league,
+        selectedLeague,
+        wonWord: "won",
+        lostWord: "lost",
+        aria: `${label} daily no-more-goals record`,
+      })}</div>
     </section>`;
   }
 
@@ -507,32 +501,63 @@
     const mount = $("#betsBoard");
     if (!mount) return;
     const nowSec = Date.now() / 1000;
-    const todayKey = sigDayKey(nowSec);
-    const today = (signals || []).filter((s) => sigDayKey(s.fired_at) === todayKey);
     const last30List = betsInWindow(signals || [], BET_WINDOW_DAYS, nowSec);
-    const t = tallyBets(today);
     const last30 = tallyBets(last30List);
     const season = tallyBets(signals || []);
-    const leagues = betsByLeague(today);
-    const last30Map = betsLeagueMap(last30List);
-    const seasonMap = betsLeagueMap(signals || []);
+    const dayKeys = betsDayKeys(BET_WINDOW_DAYS, nowSec);
     const seasonLeagues = betsByLeague(signals || []);
-    const todayKeys = new Set(leagues.map(betsLeagueKey));
-    const when = sigDayLabel(todayKey);
-    const todayHtml = leagues
+    const last30Map = betsLeagueMap(last30List);
+    const scoped = betsSignalsForLeague(last30List, state.betsLeague);
+    if (!state.betsDay || !dayKeys.includes(state.betsDay)) {
+      state.betsDay = betsDefaultDay(dayKeys, scoped.length ? scoped : last30List);
+    }
+    const allDays = betsDailyBuckets(last30List, dayKeys);
+    const rows = seasonLeagues
       .map((g) => {
         const key = betsLeagueKey(g);
-        return betsLeagueHtml(g, last30Map.get(key) || last30Map.get(g.league_chiclet), seasonMap.get(key) || seasonMap.get(g.league_chiclet) || g);
+        const window = last30Map.get(key) || last30Map.get(g.league_chiclet);
+        const days = betsDailyBuckets(betsSignalsForLeague(last30List, key), dayKeys);
+        if (!days.some((d) => d.fired) && !g.settled && !g.fired) return "";
+        const sub = `last ${BET_WINDOW_DAYS}: ${betsRecordLine(window)} · season ${betsRecordLine(g)}`;
+        return betsChartRowHtml(betsLeagueLabel(g), sub, days, key, state.betsDay, state.betsLeague);
       })
       .join("");
-    const othersHtml = betsOtherLeaguesHtml(seasonLeagues, todayKeys, last30Map);
-    const empty = today.length
+    const empty = last30List.length
       ? ""
       : `<div class="bets-empty">
-          <p>No no-more-goals alarms have fired today.</p>
+          <p>No no-more-goals alarms in the last ${BET_WINDOW_DAYS} days.</p>
           <p class="sig-muted">An alarm fires once per half when P(no goal) clears the threshold inside the betting window. Live games show the reading on each chiclet; the Signals tab has the model.</p>
         </div>`;
-    mount.innerHTML = `${betsHeroHtml(t, when, last30, season)}${empty}${todayHtml}${othersHtml}`;
+    mount.innerHTML = `${betsHeroHtml(last30, season)}
+      ${betsChartRowHtml("All leagues", `${betsRecordLine(last30)} last ${BET_WINDOW_DAYS} days`, allDays, "", state.betsDay, state.betsLeague, { all: true })}
+      ${rows}
+      ${empty}
+      <div id="betsDayGames" class="bets-day-games"></div>`;
+    bindDailyBars(mount, selectBetsDay);
+    renderBetsDayGames();
+  }
+
+  function selectBetsDay(key, league) {
+    state.betsDay = key || null;
+    state.betsLeague = league || "";
+    const root = $("#betsBoard");
+    if (root) {
+      root.querySelectorAll("[data-sig-day]").forEach((el) => {
+        const on = el.dataset.sigDay === state.betsDay && (el.dataset.betsLeague || "") === state.betsLeague;
+        el.classList.toggle("on", on);
+      });
+    }
+    renderBetsDayGames();
+  }
+
+  function renderBetsDayGames() {
+    const leagues = betsByLeague(state.sigSignals || []);
+    const g = leagues.find((x) => betsLeagueKey(x) === state.betsLeague || x.league_chiclet === state.betsLeague);
+    renderDayGameChiclets($("#betsDayGames"), state.betsDay, state.betsLeague, {
+      keepEmpty: Boolean(state.betsDay),
+      leagueLabel: state.betsLeague ? (g ? betsLeagueLabel(g) : state.betsLeague) : "",
+      words: { won: "won", lost: "lost", noun: "alarm" },
+    });
   }
 
   async function refreshBets(opts = {}) {
@@ -543,21 +568,17 @@
       state.sigSignals = rec.signals || [];
       renderBetsBoard(state.sigSignals);
       const nowSec = Date.now() / 1000;
-      const today = (state.sigSignals || []).filter((s) => sigDayKey(s.fired_at) === sigDayKey(nowSec));
-      const t = tallyBets(today);
       const last30 = tallyBets(betsInWindow(state.sigSignals || [], BET_WINDOW_DAYS, nowSec));
       const season = tallyBets(state.sigSignals || []);
       if (stamp) {
-        stamp.textContent = `last ${BET_WINDOW_DAYS}: ${betsRecordLine(last30)} · season ${betsRecordLine(season)}${
-          t.fired ? ` · today ${t.won} won · ${t.lost} lost${t.live ? ` · ${t.live} live` : ""}` : ""
-        }`;
+        stamp.textContent = `last ${BET_WINDOW_DAYS}: ${betsRecordLine(last30)} · season ${betsRecordLine(season)}`;
       }
     } catch (err) {
       if (quiet) return;
       if (stamp) stamp.textContent = "bets unavailable";
       const mount = $("#betsBoard");
       if (mount && !mount.innerHTML) {
-        mount.innerHTML = `<div class="bets-empty"><p>Couldn’t load today’s alarms.</p></div>`;
+        mount.innerHTML = `<div class="bets-empty"><p>Couldn’t load the bets record.</p></div>`;
       }
     }
   }
@@ -621,21 +642,38 @@
     };
   }
 
-  function dailyBarsHtml(days, selected) {
+  function dailyBarsHtml(days, selected, opts = {}) {
     if (!days.length) return "";
+    const compact = Boolean(opts.compact);
+    const showLabels = opts.labels !== false && !compact;
+    const showCounts = opts.counts !== false && !compact;
+    const league = opts.league || "";
+    const selectedLeague = opts.selectedLeague != null ? String(opts.selectedLeague) : league;
+    const wordWon = opts.wonWord || "held";
+    const wordLost = opts.lostWord || "busted";
     const W = Math.max(320, days.length * 52 + 16);
-    const H = 118;
+    const H = compact ? 56 : 118;
     const padL = 6;
     const padR = 6;
-    const padT = 16;
-    const padB = 26;
+    const padT = compact ? 8 : 16;
+    const padB = showLabels ? 26 : compact ? 6 : 26;
     const innerH = H - padT - padB;
     const max = Math.max(1, ...days.map((d) => d.fired));
     const slot = (W - padL - padR) / days.length;
-    const bw = Math.min(34, Math.max(14, slot - 10));
+    const bw = Math.min(34, Math.max(10, slot - 10));
     const bars = days
       .map((d, i) => {
         const x = padL + i * slot + (slot - bw) / 2;
+        const short = new Date(`${d.key}T00:00:00`).toLocaleDateString([], { month: "short", day: "numeric" });
+        const labeled =
+          showLabels &&
+          (days.length <= 14 || i === 0 || i === days.length - 1 || i % 3 === 0);
+        const label = labeled
+          ? `<text class="sig-day-label" x="${(x + bw / 2).toFixed(1)}" y="${H - 8}" text-anchor="middle">${escapeHtml(short)}</text>`
+          : "";
+        if (!d.fired) {
+          return `<g class="sig-day empty" aria-hidden="true">${label}</g>`;
+        }
         let y = padT + innerH;
         const segs = [];
         const stack = [
@@ -653,18 +691,18 @@
         const frameY = padT + innerH - (d.fired / max) * innerH;
         const frameH = (d.fired / max) * innerH;
         const hit = d.hit_pct != null ? `${d.held}/${d.held + d.busted}` : `${d.fired}`;
-        const title = `${sigDayLabel(d.key)} · ${d.held} held · ${d.busted} busted${d.open ? ` · ${d.open} open` : ""}${d.void ? ` · ${d.void} void` : ""}`;
-        const short = new Date(`${d.key}T00:00:00`).toLocaleDateString([], { month: "short", day: "numeric" });
-        return `<g class="sig-day${d.key === selected ? " on" : ""}" role="button" tabindex="0" data-sig-day="${escapeHtml(d.key)}" aria-label="${escapeHtml(title)}">
+        const title = `${sigDayLabel(d.key)} · ${d.held} ${wordWon} · ${d.busted} ${wordLost}${d.open ? ` · ${d.open} open` : ""}${d.void ? ` · ${d.void} void` : ""}`;
+        const on = d.key === selected && league === selectedLeague;
+        return `<g class="sig-day${on ? " on" : ""}" role="button" tabindex="0" data-sig-day="${escapeHtml(d.key)}" data-bets-league="${escapeHtml(league)}" aria-label="${escapeHtml(title)}">
           <title>${escapeHtml(title)}</title>
           <rect class="sig-day-frame" x="${x.toFixed(1)}" y="${frameY.toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.max(frameH, 2).toFixed(1)}"/>
           ${segs.join("")}
-          <text class="sig-day-count" x="${(x + bw / 2).toFixed(1)}" y="${Math.max(padT - 2, frameY - 3).toFixed(1)}" text-anchor="middle">${hit}</text>
-          <text class="sig-day-label" x="${(x + bw / 2).toFixed(1)}" y="${H - 8}" text-anchor="middle">${escapeHtml(short)}</text>
+          ${showCounts ? `<text class="sig-day-count" x="${(x + bw / 2).toFixed(1)}" y="${Math.max(padT - 2, frameY - 3).toFixed(1)}" text-anchor="middle">${hit}</text>` : ""}
+          ${label}
         </g>`;
       })
       .join("");
-    return `<svg class="sig-days-svg" viewBox="0 0 ${W} ${H}" width="100%" height="${H}" role="img" aria-label="Daily no-goal signal record">${bars}</svg>`;
+    return `<svg class="sig-days-svg" viewBox="0 0 ${W} ${H}" width="100%" height="${H}" role="img" aria-label="${escapeHtml(opts.aria || "Daily no-goal signal record")}">${bars}</svg>`;
   }
 
   function signalStatusLabel(s) {
@@ -706,10 +744,13 @@
     };
   }
 
-  function bindDailyBars(root) {
+  function bindDailyBars(root, onPick) {
     if (!root) return;
     root.querySelectorAll("[data-sig-day]").forEach((el) => {
-      const pick = () => selectSigDay(el.dataset.sigDay);
+      const pick = () => {
+        if (typeof onPick === "function") onPick(el.dataset.sigDay, el.dataset.betsLeague || "");
+        else selectSigDay(el.dataset.sigDay);
+      };
       el.addEventListener("click", (ev) => {
         ev.preventDefault();
         ev.stopPropagation();
@@ -735,17 +776,27 @@
     renderSignalDayGames();
   }
 
-  function renderSignalDayGames() {
-    const mount = $("#sigDayGames");
+  function renderDayGameChiclets(mount, dayKey, leagueKey, opts = {}) {
     if (!mount) return;
-    const byDay = new Map(groupSignalsByDay(state.sigSignals));
-    const key = state.sigDay && byDay.has(state.sigDay) ? state.sigDay : null;
-    if (!key) {
+    const wantLeague = leagueKey || "";
+    const list = (state.sigSignals || []).filter((s) => {
+      if (sigDayKey(s.fired_at) !== dayKey) return false;
+      if (!wantLeague) return true;
+      const key = s.league_slug || s.league_chiclet || "other";
+      return key === wantLeague || s.league_chiclet === wantLeague;
+    });
+    if (!dayKey || !list.length) {
+      if (opts.keepEmpty) {
+        mount.hidden = false;
+        const who = opts.leagueLabel ? ` for ${opts.leagueLabel}` : "";
+        const when = dayKey ? ` on ${sigDayLabel(dayKey)}` : "";
+        mount.innerHTML = `<div class="bets-empty"><p>No alarms${escapeHtml(who)}${escapeHtml(when)}.</p></div>`;
+        return;
+      }
       mount.hidden = true;
       mount.innerHTML = "";
       return;
     }
-    const list = byDay.get(key) || [];
     const games = new Map();
     for (const s of list) {
       const id = String(s.event_id || s.key || "");
@@ -753,12 +804,15 @@
       games.get(id).push(s);
     }
     mount.hidden = false;
-    const held = list.filter((s) => s.status === "held").length;
-    const busted = list.filter((s) => s.status === "busted").length;
-    mount.innerHTML = `<h3>${escapeHtml(sigDayLabel(key))}</h3>
-      <p class="sig-muted">${list.length} signal${list.length === 1 ? "" : "s"} · ${held} held · ${busted} busted — each chiclet is the game as ESPN filed it.</p>
-      <div class="match-chiclet-row match-chiclet-row-tl" id="sigDayGrid"></div>`;
-    const grid = mount.querySelector("#sigDayGrid");
+    const won = list.filter((s) => s.status === "held").length;
+    const lost = list.filter((s) => s.status === "busted").length;
+    const live = list.filter((s) => s.status === "open").length;
+    const words = opts.words || { won: "held", lost: "busted", noun: "signal" };
+    const who = opts.leagueLabel ? ` · ${opts.leagueLabel}` : "";
+    mount.innerHTML = `<h3>${escapeHtml(sigDayLabel(dayKey))}${escapeHtml(who)}</h3>
+      <p class="sig-muted">${list.length} ${words.noun}${list.length === 1 ? "" : "s"} · ${won} ${words.won} · ${lost} ${words.lost}${live ? ` · ${live} live` : ""} — each chiclet is the game as ESPN filed it.</p>
+      <div class="match-chiclet-row match-chiclet-row-tl" data-day-grid></div>`;
+    const grid = mount.querySelector("[data-day-grid]");
     for (const group of games.values()) {
       const m = matchFromSignals(group);
       const btn = buildMatchChicletButton(m, null, null, true);
@@ -773,6 +827,12 @@
         loadMatchTimeline(m, btn.querySelector(".mc-timeline"), btn.querySelector(".mc-xg"), { quiet: true });
       }
     }
+  }
+
+  function renderSignalDayGames() {
+    renderDayGameChiclets($("#sigDayGames"), state.sigDay, "", {
+      words: { won: "held", lost: "busted", noun: "signal" },
+    });
   }
 
   async function refreshSignals() {
