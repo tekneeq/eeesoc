@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
-from eeesoc import clinical, halftime, nogoal, nogoal_monitor
+from eeesoc import clinical, halftime, nogoal, nogoal_monitor, standings
 from eeesoc.data import load_season, previous_season_label
 from eeesoc.live import (
     build_event_timeline,
@@ -324,6 +324,9 @@ def make_handler(state: DashboardState):
                 if league:
                     board = {**board, "leagues": {k: v for k, v in board["leagues"].items() if k == league}}
                 return self._send(200, _json_bytes(board), "application/json")
+
+            if path == "/api/live/standings":
+                return self._send(200, _json_bytes(standings.standings_board()), "application/json")
 
             if path == "/api/nogoal/live":
                 # Latest P(no more goals this half) per in-play game, plus any signal state.
