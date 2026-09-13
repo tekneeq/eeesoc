@@ -1893,6 +1893,37 @@ main {
   stroke-width: 2;
 }
 
+.lu-sub .lu-dot {
+  stroke: var(--warn);
+  stroke-dasharray: 3.2 2.4;
+}
+
+.lu-sub-ring {
+  fill: none;
+  stroke: var(--warn);
+  stroke-width: 1.6;
+  stroke-dasharray: 3.2 2.4;
+  opacity: 0.9;
+}
+
+.lu-sub-badge {
+  fill: rgba(20, 16, 6, 0.88);
+  stroke: var(--warn);
+  stroke-width: 1;
+}
+
+.lu-sub-tag {
+  fill: var(--warn);
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.lu-sub-legend {
+  color: var(--warn);
+}
+
 .lu-jersey {
   fill: rgba(235, 250, 242, 0.96);
   font-family: "IBM Plex Mono", ui-monospace, monospace;

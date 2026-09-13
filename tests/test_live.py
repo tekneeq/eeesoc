@@ -1757,3 +1757,13 @@ def test_build_lineups_unavailable_and_cache():
     assert first is second and len(calls) == 1
     assert "summary?event=44" in calls[0]
     clear_lineup_cache()
+
+
+def test_pitch_lineups_annotate_subbed_in_players():
+    js = Path("src/eeesoc/static/app.js").read_text(encoding="utf-8")
+    css = Path("src/eeesoc/static/app.css").read_text(encoding="utf-8")
+    assert "function lineupPlayerSvg" in js
+    assert "lu-sub" in js and "IN ${p.in_minute}" in js
+    assert "SUB ON" in js
+    assert ".lu-sub .lu-dot" in css and ".lu-sub-tag" in css
+    assert ".lu-sub-badge" in css and ".lu-sub-ring" in css
