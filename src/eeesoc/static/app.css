@@ -1459,6 +1459,13 @@ main {
   white-space: nowrap;
 }
 
+.mc-red {
+  flex: none;
+  font-size: 0.78rem;
+  line-height: 1;
+  letter-spacing: -0.02em;
+}
+
 .mc-key {
   flex: none;
   width: 0.5rem;
@@ -1578,6 +1585,11 @@ main {
 
 .mc-bl-tag.pen {
   color: var(--warn);
+}
+
+.mc-bl-row.red,
+.mc-bl-tag.red {
+  color: var(--danger);
 }
 
 .mc-league {

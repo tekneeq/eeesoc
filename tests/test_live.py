@@ -1400,6 +1400,85 @@ def test_bulletin_lists_scorers_and_substitutions():
     js = Path("src/eeesoc/static/app.js").read_text(encoding="utf-8")
     assert "function chicletBulletinHtml" in js
     assert "data-bulletin-for" in js
+    assert 'r.kind === "red"' in js
+    assert "function chicletRedHtml" in js
+    assert "function applyChicletReds" in js
+
+
+def test_bulletin_lists_red_cards():
+    from eeesoc.live import (
+        _is_red_card,
+        _player_name_from_card,
+        build_event_timeline,
+        clear_timeline_cache,
+    )
+
+    assert _is_red_card("red-card")
+    assert _is_red_card("yellow-red-card")
+    assert _is_red_card(
+        "yellow-card",
+        {"shortText": "Player Second Yellow Card", "text": "shown a second yellow card"},
+    )
+    assert not _is_red_card("yellow-card", {"shortText": "Player Yellow Card", "text": "is shown a yellow card."})
+    assert (
+        _player_name_from_card(
+            {
+                "shortText": "Willian José Red Card",
+                "text": "Willian José (Bahia) is shown a red card.",
+                "athletesInvolved": [{"displayName": "Willian José", "shortName": "Willian José"}],
+            }
+        )
+        == "Willian José"
+    )
+
+    clear_timeline_cache()
+    plays = {
+        "pageCount": 1,
+        "items": [
+            {
+                "type": {"type": "goal"},
+                "scoringPlay": True,
+                "shortText": "Home Goal",
+                "text": "Goal! Home 1, Away 0. Alpha (Home) shot.",
+                "clock": {"displayValue": "12'", "value": 720.0},
+                "team": {"$ref": ".../teams/1"},
+            },
+            {
+                "type": {"type": "red-card"},
+                "shortText": "Willian José Red Card",
+                "text": "Willian José (Away) is shown a red card.",
+                "clock": {"displayValue": "34'", "value": 2040.0},
+                "team": {"$ref": ".../teams/2"},
+                "athletesInvolved": [{"displayName": "Willian José"}],
+            },
+            {
+                "type": {"type": "yellow-red-card"},
+                "shortText": "Beta Second Yellow Card",
+                "text": "Beta (Home) is shown a second yellow card.",
+                "clock": {"displayValue": "71'", "value": 4260.0},
+                "team": {"$ref": ".../teams/1"},
+            },
+        ],
+    }
+    tl = build_event_timeline(
+        "bra.1",
+        "reds",
+        home="Home",
+        away="Away",
+        home_id="1",
+        away_id="2",
+        clock="72'",
+        home_score=1,
+        away_score=0,
+        fetcher=lambda url: plays,
+        use_cache=False,
+    )
+    reds = [e for e in tl["bulletin"] if e["kind"] == "red"]
+    assert [(e["clock"], e["player"], e["team"], e["second_yellow"]) for e in reds] == [
+        ("34'", "Willian José", "away", False),
+        ("71'", "Beta", "home", True),
+    ]
+    assert "red" not in [e["kind"] for e in tl["events"]]
 
 
 def test_timeline_score_prefers_plays_over_stale_board():
