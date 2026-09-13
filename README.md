@@ -5,8 +5,9 @@ Soccer **Matches + Similar** dashboard with a dark Revenant look.
 Freeze an in-play snapshot (cut minute, goal times, shots/SOT) and rank last-season lookalikes. History is cached under `~/.eeesoc/cache` (or `./data/cache` on EC2).
 
 The **Live** tab shows in-play matches as Revenant-style **match chiclets**, grouped by league.
-Tap a chiclet for a live pitch graphic: last 15′ of the ball (home attacking right), fading older
-touches, a heat map of where it has been, pass trails, and shot markers (ESPN play coordinates).
+Tap a chiclet and the live pitch graphic opens at the top of the Live tab: last 15′ of the ball
+(home attacking right), fading older touches, a heat map of where it has been, pass trails, and
+shot markers (ESPN play coordinates).
 Each chiclet also has a rolling 15′ pressure bar (who is in the other side's final third right now),
 a pressure graph of that same window at every minute, possession and duel graphs with three lines
 (home, away, and 50%) over that same last-15′ window at every minute, and a territory heat of

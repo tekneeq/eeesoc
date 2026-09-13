@@ -2747,8 +2747,10 @@
   async function selectLiveMatch(m) {
     state.selectedLive = m;
     renderLiveTabChiclets({ soft: true, refreshTimelines: false });
-    $("#pitchPanel").hidden = false;
+    const panel = $("#pitchPanel");
+    panel.hidden = false;
     $("#pitchTitle").textContent = `${m.home} ${m.home_score}–${m.away_score} ${m.away} · ${matchClockLabel(m)}`;
+    panel.scrollIntoView({ behavior: "smooth", block: "start" });
     if (state.trackTimer) clearInterval(state.trackTimer);
     if (state.lineupTimer) clearInterval(state.lineupTimer);
     // Lineups exist ~1h before kickoff and after FT; refresh slowly while live.

@@ -674,6 +674,16 @@ def test_chiclet_territory_and_pitch_use_last15():
     assert "where the ball has actually been in those last 15′" in html
 
 
+def test_live_pitch_panel_sits_above_the_chiclet_grid():
+    js = Path("src/eeesoc/static/app.js").read_text(encoding="utf-8")
+    html = Path("src/eeesoc/static/index.html").read_text(encoding="utf-8")
+    pitch = html.find('id="pitchPanel"')
+    grid = html.find('id="matchChiclets"')
+    assert 0 <= pitch < grid
+    assert "scrollIntoView" in js
+    assert "at the top" in html
+
+
 def test_chiclet_stats_keep_full_row_and_add_halves():
     js = Path("src/eeesoc/static/app.js").read_text(encoding="utf-8")
     css = Path("src/eeesoc/static/app.css").read_text(encoding="utf-8")
