@@ -407,6 +407,54 @@ def daily_record(signals: dict[str, Any] | list[dict[str, Any]]) -> list[dict[st
     return out
 
 
+def tally_bets(rows: list[dict[str, Any]] | dict[str, Any]) -> dict[str, Any]:
+    """Won = held (half stayed goalless), lost = busted, live = still open."""
+    items = list(rows.values()) if isinstance(rows, dict) else list(rows)
+    won = sum(1 for s in items if s.get("status") == "held")
+    lost = sum(1 for s in items if s.get("status") == "busted")
+    live = sum(1 for s in items if s.get("status") == "open")
+    voided = sum(1 for s in items if s.get("status") == "void")
+    settled = won + lost
+    return {
+        "fired": len(items),
+        "won": won,
+        "lost": lost,
+        "live": live,
+        "void": voided,
+        "settled": settled,
+        "hit_pct": int(round(100 * won / settled)) if settled else None,
+    }
+
+
+def bets_by_league(rows: list[dict[str, Any]] | dict[str, Any]) -> list[dict[str, Any]]:
+    """Group alarms by league, newest first inside each, leagues with the most fires first."""
+    items = list(rows.values()) if isinstance(rows, dict) else list(rows)
+    groups: dict[str, dict[str, Any]] = {}
+    for signal in items:
+        slug = str(signal.get("league_slug") or "")
+        key = slug or str(signal.get("league_chiclet") or "other")
+        group = groups.setdefault(
+            key,
+            {
+                "league_slug": slug,
+                "league_chiclet": str(signal.get("league_chiclet") or slug or "Other"),
+                "league_name": str(signal.get("league_name") or ""),
+                "signals": [],
+            },
+        )
+        if signal.get("league_chiclet"):
+            group["league_chiclet"] = str(signal["league_chiclet"])
+        if signal.get("league_name") and not group["league_name"]:
+            group["league_name"] = str(signal["league_name"])
+        group["signals"].append(signal)
+    out = []
+    for group in groups.values():
+        group["signals"].sort(key=lambda s: float(s.get("fired_at") or 0), reverse=True)
+        out.append({**group, **tally_bets(group["signals"])})
+    out.sort(key=lambda g: (-int(g["fired"]), str(g["league_chiclet"])))
+    return out
+
+
 def signal_log(path: Path | None = None) -> dict[str, Any]:
     signals = load_state(path)["signals"]
     rows = sorted(signals.values(), key=lambda s: float(s.get("fired_at") or 0), reverse=True)
@@ -418,6 +466,7 @@ def signal_log(path: Path | None = None) -> dict[str, Any]:
         "open": sum(1 for s in rows if s.get("status") == "open"),
         "hit_pct": int(round(100 * held / total)) if total else None,
         "daily": daily_record(signals),
+        "bets": {**tally_bets(rows), "leagues": bets_by_league(rows)},
     }
 
 

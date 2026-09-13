@@ -21,6 +21,7 @@
       </div>
       <nav class="tabs" role="tablist">
         <button class="tab active" data-tab="live" role="tab" aria-selected="true">Live</button>
+        <button class="tab" data-tab="bets" role="tab" aria-selected="false">Bets</button>
         <button class="tab" data-tab="winprob" role="tab" aria-selected="false">WinProb</button>
         <button class="tab" data-tab="matches" role="tab" aria-selected="false">Matches</button>
         <button class="tab" data-tab="similar" role="tab" aria-selected="false">Similar</button>
@@ -112,6 +113,25 @@
           <div class="pitch-lineups" id="pitchLineups"></div>
           <div class="pitch-feed" id="pitchFeed"></div>
         </div>
+      </section>
+
+      <section id="panel-bets" class="panel" role="tabpanel" hidden>
+        <div class="panel-head live-head">
+          <div>
+            <h1>Bets</h1>
+            <p class="lede">
+              Every <b>no more goals this half</b> alarm that fired today, split by league.
+              <span class="lede-home">Won</span> means the half stayed goalless after the alarm.
+              <span class="lede-away">Lost</span> means a goal landed. Live bets are still waiting
+              on half-time or the final whistle. The Signals tab has the model behind the trigger.
+            </p>
+          </div>
+          <div class="live-status">
+            <span class="pulse" aria-hidden="true"></span>
+            <span id="betsStamp">loading…</span>
+          </div>
+        </div>
+        <div id="betsBoard" class="bets-board"></div>
       </section>
 
       <section id="panel-winprob" class="panel" role="tabpanel" hidden>

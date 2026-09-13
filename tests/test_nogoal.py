@@ -507,6 +507,81 @@ def test_daily_record_buckets_by_utc_day():
     assert "roma:2" in days[1]["keys"]
 
 
+def test_bets_tally_and_group_by_league():
+    signals = {
+        "epl-a:1": {
+            "status": "held",
+            "fired_at": 10.0,
+            "league_slug": "eng.1",
+            "league_chiclet": "EPL",
+            "league_name": "English Premier League",
+        },
+        "epl-b:2": {
+            "status": "busted",
+            "fired_at": 30.0,
+            "league_slug": "eng.1",
+            "league_chiclet": "EPL",
+        },
+        "epl-c:1": {
+            "status": "open",
+            "fired_at": 40.0,
+            "league_slug": "eng.1",
+            "league_chiclet": "EPL",
+        },
+        "ll-a:1": {
+            "status": "held",
+            "fired_at": 20.0,
+            "league_slug": "esp.1",
+            "league_chiclet": "La Liga",
+            "league_name": "Spanish LALIGA",
+        },
+    }
+    tally = nogoal_monitor.tally_bets(signals)
+    assert tally == {
+        "fired": 4,
+        "won": 2,
+        "lost": 1,
+        "live": 1,
+        "void": 0,
+        "settled": 3,
+        "hit_pct": 67,
+    }
+    leagues = nogoal_monitor.bets_by_league(signals)
+    assert [g["league_chiclet"] for g in leagues] == ["EPL", "La Liga"]
+    epl = leagues[0]
+    assert epl["fired"] == 3 and epl["won"] == 1 and epl["lost"] == 1 and epl["live"] == 1
+    assert epl["hit_pct"] == 50
+    assert [s["fired_at"] for s in epl["signals"]] == [40.0, 30.0, 10.0]
+    liga = leagues[1]
+    assert liga["won"] == 1 and liga["settled"] == 1 and liga["hit_pct"] == 100
+
+
+def test_signal_log_includes_bets_board(tmp_path: Path):
+    path = tmp_path / "signals.json"
+    nogoal_monitor.save_state(
+        {
+            "signals": {
+                "1:1": {
+                    "status": "held",
+                    "fired_at": 10.0,
+                    "league_slug": "eng.1",
+                    "league_chiclet": "EPL",
+                },
+                "2:1": {
+                    "status": "busted",
+                    "fired_at": 20.0,
+                    "league_slug": "esp.1",
+                    "league_chiclet": "La Liga",
+                },
+            }
+        },
+        path,
+    )
+    log = nogoal_monitor.signal_log(path)
+    assert log["bets"]["won"] == 1 and log["bets"]["lost"] == 1 and log["bets"]["hit_pct"] == 50
+    assert [g["league_chiclet"] for g in log["bets"]["leagues"]] == ["EPL", "La Liga"]
+
+
 def test_save_state_trims_log(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(nogoal_monitor, "_MAX_LOG", 3)
     path = tmp_path / "s.json"
@@ -559,3 +634,20 @@ def test_config_helpers(monkeypatch):
     assert nogoal_monitor.monitor_enabled() is True
     monkeypatch.setenv("EEESOC_NOGOAL_STATE", "/tmp/x/y.json")
     assert nogoal_monitor.state_path() == Path("/tmp/x/y.json")
+
+
+def test_bets_tab_lists_todays_alarms_by_league():
+    js = Path("src/eeesoc/static/app.js").read_text(encoding="utf-8")
+    css = Path("src/eeesoc/static/app.css").read_text(encoding="utf-8")
+    html = Path("src/eeesoc/static/index.html").read_text(encoding="utf-8")
+    assert 'data-tab="bets"' in html
+    assert 'id="panel-bets"' in html
+    assert "function refreshBets" in js
+    assert "function betsByLeague" in js
+    assert "function tallyBets" in js
+    assert "function betCardHtml" in js
+    assert "No more goals this half" in js
+    assert "Won" in js and "Lost" in js and "Live" in js
+    assert "if (name === \"bets\") refreshBets()" in js
+    assert ".bets-hero" in css and ".bets-league" in css and ".bets-card.won" in css
+    assert "split by league" in html

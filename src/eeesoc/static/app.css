@@ -2899,6 +2899,239 @@ main {
   color: var(--accent);
 }
 
+/* Bets tab — today's no-more-goals alarms by league */
+.bets-board {
+  display: flex;
+  flex-direction: column;
+  gap: 1.15rem;
+}
+
+.bets-hero {
+  padding: 1rem 1.1rem 1.05rem;
+  border: 1px solid rgba(125, 255, 179, 0.22);
+  border-radius: 0.65rem;
+  background: linear-gradient(160deg, rgba(125, 255, 179, 0.08), rgba(255, 255, 255, 0.02) 55%);
+}
+
+.bets-hero-when {
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 0.45rem;
+}
+
+.bets-hero-score {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.85rem 1.4rem;
+  align-items: baseline;
+}
+
+.bets-stat {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  font-size: 0.95rem;
+  color: var(--muted);
+}
+
+.bets-stat b {
+  font-family: var(--mono);
+  font-size: 2rem;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--text);
+}
+
+.bets-stat.won b {
+  color: var(--accent);
+}
+
+.bets-stat.lost b {
+  color: var(--danger);
+}
+
+.bets-stat.live b {
+  color: var(--warn);
+}
+
+.bets-stat.void b {
+  color: var(--muted);
+}
+
+.bets-bar {
+  display: flex;
+  height: 0.55rem;
+  border-radius: 999px;
+  overflow: hidden;
+  margin: 0.75rem 0 0.45rem;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.bets-bar-won {
+  background: var(--accent);
+}
+
+.bets-bar-lost {
+  background: var(--danger);
+}
+
+.bets-bar-live {
+  background: var(--warn);
+}
+
+.bets-bar-void {
+  background: rgba(180, 210, 200, 0.35);
+}
+
+.bets-hero-sub,
+.bets-hero-season,
+.bets-league-sub {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.86rem;
+}
+
+.bets-hero-season {
+  margin-top: 0.2rem;
+  font-size: 0.78rem;
+}
+
+.bets-empty {
+  padding: 1.1rem 1.15rem;
+  border: 1px dashed rgba(180, 210, 200, 0.22);
+  border-radius: 0.55rem;
+  color: var(--text);
+}
+
+.bets-empty p {
+  margin: 0 0 0.45rem;
+}
+
+.bets-empty p:last-child {
+  margin-bottom: 0;
+}
+
+.bets-league {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.bets-league-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 0.8rem;
+}
+
+.bets-league-head h2 {
+  margin: 0;
+  font-size: 1.15rem;
+  letter-spacing: -0.02em;
+}
+
+.bets-league-head p {
+  margin: 0.1rem 0 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.bets-league-score {
+  font-family: var(--mono);
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.bets-league-score b {
+  font-size: 1.55rem;
+  font-weight: 700;
+  color: var(--accent);
+  margin-right: 0.15rem;
+}
+
+.bets-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 0.65rem;
+}
+
+.bets-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.18rem;
+  padding: 0.7rem 0.8rem 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  background: rgba(255, 255, 255, 0.03);
+  min-width: 0;
+}
+
+.bets-card.won {
+  border-color: rgba(125, 255, 179, 0.32);
+  background: rgba(125, 255, 179, 0.06);
+}
+
+.bets-card.lost {
+  border-color: rgba(255, 107, 107, 0.32);
+  background: rgba(255, 107, 107, 0.06);
+}
+
+.bets-card.live {
+  border-color: rgba(255, 200, 87, 0.38);
+  background: rgba(255, 200, 87, 0.06);
+}
+
+.bets-card.void {
+  opacity: 0.72;
+}
+
+.bets-card-result {
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.bets-card.won .bets-card-result {
+  color: var(--accent);
+}
+
+.bets-card.lost .bets-card-result {
+  color: var(--danger);
+}
+
+.bets-card.live .bets-card-result {
+  color: var(--warn);
+}
+
+.bets-card-half {
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  color: var(--muted);
+}
+
+.bets-card-match {
+  font-size: 0.95rem;
+  line-height: 1.25;
+  margin-top: 0.12rem;
+}
+
+.bets-card-bet {
+  margin: 0.12rem 0 0;
+  font-size: 0.78rem;
+  color: var(--text);
+}
+
+.bets-card-detail,
+.bets-card-meta {
+  margin: 0;
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+
 /* Goals-per-half odds: 0 / 1 / 2 / 3+ cells, the most common bucket highlighted. */
 .mc-half-side {
   gap: 0.22rem;
