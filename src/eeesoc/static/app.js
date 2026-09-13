@@ -1552,7 +1552,7 @@
   ];
 
   const LAST5_HELP =
-    "Each of this club's last five archived games: who they faced, first-half score and second-half score from this club's view (scored–allowed). Oldest → newest. Hover a game for the full-time score.";
+    "Each of this club's last five archived games: who they faced, then the first-half and second-half score as it stood on the pitch (home–away). Away games keep the home club first, so @ Dortmund 2–0 is a 2–0 loss, not 0–2. Oldest → newest. Hover a game for the full-time score.";
 
   function last5OppName(name) {
     const s = String(name || "").trim();
@@ -1574,11 +1574,18 @@
     return `${gf}–${ga}`;
   }
 
+  function last5PitchScore(g, gf, ga) {
+    if (gf == null || ga == null) return "—";
+    // Stored as this club's scored–allowed; show the scoreboard (home–away).
+    return g.venue === "away" ? last5HalfScore(ga, gf) : last5HalfScore(gf, ga);
+  }
+
   function last5GameHalves(g) {
     const known = g.ht_gf != null && g.ht_ga != null;
-    const h1 = known ? last5HalfScore(g.ht_gf, g.ht_ga) : "—";
+    const h1 = known ? last5PitchScore(g, g.ht_gf, g.ht_ga) : "—";
     const h2 = known
-      ? last5HalfScore(
+      ? last5PitchScore(
+          g,
           g.h2_gf != null ? g.h2_gf : Math.max(0, Number(g.gf) - Number(g.ht_gf)),
           g.h2_ga != null ? g.h2_ga : Math.max(0, Number(g.ga) - Number(g.ht_ga)),
         )
@@ -1593,7 +1600,7 @@
       .map((g) => {
         const { h1, h2, known } = last5GameHalves(g);
         const halves = known ? `, 1H ${h1}, 2H ${h2}` : "";
-        return `${g.letter} ${g.gf}–${g.ga}${halves} ${g.venue === "home" ? "v" : "@"} ${g.opponent}`;
+        return `${g.letter} ${last5PitchScore(g, g.gf, g.ga)} FT${halves} ${g.venue === "home" ? "v" : "@"} ${g.opponent}`;
       })
       .join(", ");
   }
@@ -1610,7 +1617,7 @@
     const { h1, h2, known } = last5GameHalves(g);
     const halves = known ? ` · 1H ${h1} · 2H ${h2}` : " · no half-time score archived";
     const when = g.date ? ` · ${g.date}` : "";
-    return `${g.letter} ${g.gf}–${g.ga} FT${halves} ${vs}${when}`;
+    return `${g.letter} ${last5PitchScore(g, g.gf, g.ga)} FT${halves} ${vs}${when}`;
   }
 
   function last5GamesSideHtml(m, side) {

@@ -43,7 +43,8 @@ par), so 100 = allows the league's typical chances, above 100 is *solid*, below 
 shrunk toward the league's points per game; 100 = par form, above is *rising*, below *fading*, with the
 W/D/L letters (oldest → newest) alongside.
 **🥅 Last 5** is those same five games as a strip: who they faced, then the **1H** and **2H**
-score from that club's view (scored–allowed). Hover a game for the full-time score. Games
+score as it stood on the pitch (home–away). Away games keep the home club first, so
+`@ Dortmund 2–0` is a 2–0 loss. Hover a game for the full-time score. Games
 without a half-time score show dashes for the halves.
 **🔮 Potential** is underlying strength with finishing luck stripped out: the geometric mean of the club's
 chance-creation index (xG created vs the league) and its defence power, so 100 = a league-typical side on
