@@ -41,6 +41,8 @@ _DEFAULT_POLL_S = 20
 # An open signal whose game has vanished from the board for this long is voided.
 _VOID_AFTER_S = 3 * 3600
 _MAX_LOG = 400
+# Rolling window for the Bets tab "last 30 days" record (fired_at, not settled_at).
+BET_WINDOW_DAYS = 30
 
 _lock = threading.Lock()
 _latest: dict[str, Any] = {"at": 0.0, "live": {}}
@@ -426,6 +428,35 @@ def tally_bets(rows: list[dict[str, Any]] | dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def bets_in_window(
+    rows: list[dict[str, Any]] | dict[str, Any],
+    *,
+    now: float | None = None,
+    days: int = BET_WINDOW_DAYS,
+) -> list[dict[str, Any]]:
+    """Signals whose ``fired_at`` falls in the last ``days`` days (rolling)."""
+    items = list(rows.values()) if isinstance(rows, dict) else list(rows)
+    cutoff = float(now if now is not None else time.time()) - max(1, int(days)) * 86400.0
+    return [s for s in items if float(s.get("fired_at") or 0) >= cutoff]
+
+
+def bets_board(
+    rows: list[dict[str, Any]] | dict[str, Any],
+    *,
+    now: float | None = None,
+    days: int = BET_WINDOW_DAYS,
+) -> dict[str, Any]:
+    """Season (every stored alarm) plus the last-N window, each with league groups."""
+    items = list(rows.values()) if isinstance(rows, dict) else list(rows)
+    window = bets_in_window(items, now=now, days=days)
+    return {
+        **tally_bets(items),
+        "leagues": bets_by_league(items),
+        "window_days": int(days),
+        "last30": {**tally_bets(window), "leagues": bets_by_league(window)},
+    }
+
+
 def bets_by_league(rows: list[dict[str, Any]] | dict[str, Any]) -> list[dict[str, Any]]:
     """Group alarms by league, newest first inside each, leagues with the most fires first."""
     items = list(rows.values()) if isinstance(rows, dict) else list(rows)
@@ -455,7 +486,7 @@ def bets_by_league(rows: list[dict[str, Any]] | dict[str, Any]) -> list[dict[str
     return out
 
 
-def signal_log(path: Path | None = None) -> dict[str, Any]:
+def signal_log(path: Path | None = None, *, now: float | None = None) -> dict[str, Any]:
     signals = load_state(path)["signals"]
     rows = sorted(signals.values(), key=lambda s: float(s.get("fired_at") or 0), reverse=True)
     held, total = _record(signals)
@@ -466,7 +497,7 @@ def signal_log(path: Path | None = None) -> dict[str, Any]:
         "open": sum(1 for s in rows if s.get("status") == "open"),
         "hit_pct": int(round(100 * held / total)) if total else None,
         "daily": daily_record(signals),
-        "bets": {**tally_bets(rows), "leagues": bets_by_league(rows)},
+        "bets": bets_board(rows, now=now),
     }
 
 

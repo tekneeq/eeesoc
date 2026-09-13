@@ -556,20 +556,63 @@ def test_bets_tally_and_group_by_league():
     assert liga["won"] == 1 and liga["settled"] == 1 and liga["hit_pct"] == 100
 
 
+def test_bets_in_window_and_board():
+    now = 1_700_000_000.0
+    day = 86400.0
+    rows = [
+        {
+            "status": "held",
+            "fired_at": now - 5 * day,
+            "league_slug": "eng.1",
+            "league_chiclet": "EPL",
+        },
+        {
+            "status": "busted",
+            "fired_at": now - 40 * day,
+            "league_slug": "eng.1",
+            "league_chiclet": "EPL",
+        },
+        {
+            "status": "held",
+            "fired_at": now - 10 * day,
+            "league_slug": "esp.1",
+            "league_chiclet": "La Liga",
+        },
+        {
+            "status": "open",
+            "fired_at": now - 1 * day,
+            "league_slug": "esp.1",
+            "league_chiclet": "La Liga",
+        },
+    ]
+    window = nogoal_monitor.bets_in_window(rows, now=now, days=30)
+    assert len(window) == 3
+    assert all(float(s["fired_at"]) >= now - 30 * day for s in window)
+    board = nogoal_monitor.bets_board(rows, now=now)
+    assert board["window_days"] == 30
+    assert board["won"] == 2 and board["lost"] == 1 and board["live"] == 1
+    assert board["settled"] == 3 and board["hit_pct"] == 67
+    assert board["last30"]["won"] == 2 and board["last30"]["lost"] == 0
+    assert board["last30"]["live"] == 1 and board["last30"]["settled"] == 2
+    assert board["last30"]["hit_pct"] == 100
+    assert [g["league_chiclet"] for g in board["last30"]["leagues"]] == ["La Liga", "EPL"]
+
+
 def test_signal_log_includes_bets_board(tmp_path: Path):
     path = tmp_path / "signals.json"
+    now = 1_700_000_000.0
     nogoal_monitor.save_state(
         {
             "signals": {
                 "1:1": {
                     "status": "held",
-                    "fired_at": 10.0,
+                    "fired_at": now - 2 * 86400,
                     "league_slug": "eng.1",
                     "league_chiclet": "EPL",
                 },
                 "2:1": {
                     "status": "busted",
-                    "fired_at": 20.0,
+                    "fired_at": now - 40 * 86400,
                     "league_slug": "esp.1",
                     "league_chiclet": "La Liga",
                 },
@@ -577,9 +620,12 @@ def test_signal_log_includes_bets_board(tmp_path: Path):
         },
         path,
     )
-    log = nogoal_monitor.signal_log(path)
+    log = nogoal_monitor.signal_log(path, now=now)
     assert log["bets"]["won"] == 1 and log["bets"]["lost"] == 1 and log["bets"]["hit_pct"] == 50
     assert [g["league_chiclet"] for g in log["bets"]["leagues"]] == ["EPL", "La Liga"]
+    assert log["bets"]["window_days"] == 30
+    assert log["bets"]["last30"]["won"] == 1 and log["bets"]["last30"]["lost"] == 0
+    assert [g["league_chiclet"] for g in log["bets"]["last30"]["leagues"]] == ["EPL"]
 
 
 def test_save_state_trims_log(tmp_path: Path, monkeypatch):
@@ -645,9 +691,13 @@ def test_bets_tab_lists_todays_alarms_by_league():
     assert "function refreshBets" in js
     assert "function betsByLeague" in js
     assert "function tallyBets" in js
+    assert "function betsInWindow" in js
     assert "function betCardHtml" in js
     assert "No more goals this half" in js
     assert "Won" in js and "Lost" in js and "Live" in js
+    assert "Last ${BET_WINDOW_DAYS} days" in js
+    assert "Season" in js
     assert "if (name === \"bets\") refreshBets()" in js
     assert ".bets-hero" in css and ".bets-league" in css and ".bets-card.won" in css
-    assert "split by league" in html
+    assert ".bets-records" in css and ".bets-record-main" in css
+    assert "last 30 days and season record" in html

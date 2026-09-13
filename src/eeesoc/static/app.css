@@ -2908,7 +2908,7 @@ main {
   color: var(--accent);
 }
 
-/* Bets tab — today's no-more-goals alarms by league */
+/* Bets tab — today's no-more-goals alarms plus last-30 / season records */
 .bets-board {
   display: flex;
   flex-direction: column;
@@ -2995,16 +2995,60 @@ main {
 }
 
 .bets-hero-sub,
-.bets-hero-season,
-.bets-league-sub {
+.bets-league-sub,
+.bets-league-windows {
   margin: 0;
   color: var(--muted);
   font-size: 0.86rem;
 }
 
-.bets-hero-season {
-  margin-top: 0.2rem;
-  font-size: 0.78rem;
+.bets-records {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.65rem;
+  margin-top: 0.85rem;
+}
+
+@media (max-width: 520px) {
+  .bets-records {
+    grid-template-columns: 1fr;
+  }
+}
+
+.bets-record {
+  padding: 0.65rem 0.75rem 0.7rem;
+  border: 1px solid rgba(180, 210, 200, 0.16);
+  border-radius: 0.45rem;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.bets-record-label {
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.bets-record-main {
+  font-family: var(--mono);
+  font-size: 1.55rem;
+  font-weight: 700;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.15;
+  margin: 0.2rem 0 0.1rem;
+}
+
+.bets-record-meta {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+
+.bets-league-windows {
+  font-family: var(--mono);
+  font-size: 0.74rem;
 }
 
 .bets-empty {
@@ -3051,6 +3095,41 @@ main {
   font-family: var(--mono);
   color: var(--muted);
   white-space: nowrap;
+}
+
+.bets-other-leagues {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.bets-league-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.45rem 1rem;
+  padding: 0.45rem 0.15rem;
+  border-bottom: 1px solid rgba(180, 210, 200, 0.1);
+}
+
+.bets-league-row b {
+  margin-right: 0.45rem;
+}
+
+.bets-league-row span {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.bets-league-row-score {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.9rem;
+  font-family: var(--mono);
+  font-size: 0.74rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
 }
 
 .bets-league-score b {

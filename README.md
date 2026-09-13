@@ -115,7 +115,8 @@ state. The model is fitted from the finished-match archive and refits as it grow
   Shots are a noisy by-product of box entries; once entries are in they add nothing out of sample.
 
 The **Bets** tab is today’s slip: every no-more-goals alarm that has fired, grouped
-by league, with a won / lost / still-live count at the top and on each league. **Won**
+by league, with a won / lost / still-live count at the top and on each league, plus
+the last 30 days and season record (every alarm still in the log). **Won**
 means the half stayed goalless after the alarm (held); **lost** means a goal landed
 (busted). Live bets are still waiting on half-time or full-time.
 
