@@ -991,6 +991,10 @@ def test_timeline_payload_includes_possession_and_duels():
     assert poss["away"] == 0
     assert poss["series"][-1]["leader"] == "home"
     assert len(poss["series"]) == 75
+    spells = tl["possession_spells"]
+    assert spells["1h"]["spells"] == []
+    assert spells["2h"]["spells"] == [{"from": 61.0, "to": 75.0, "side": "home"}]
+    assert spells["2h"]["now"] == 75.0
 
     duels = tl["duels"]
     assert duels["leader"] == "away"
@@ -1005,16 +1009,60 @@ def test_chiclet_shows_possession_and_duel_graphs():
     html = Path("src/eeesoc/static/index.html").read_text(encoding="utf-8")
     assert "function shareClockHtml" in js
     assert "function shareSeriesSvg" in js
-    assert 'shareClockHtml(cached, "possession", "Possession")' in js
+    assert "function possessionRibbonsHtml" in js
+    assert "function possessionRibbonSvg" in js
+    assert "possessionRibbonsHtml(cached)" in js
     assert 'shareClockHtml(cached, "duels", "Duels")' in js
+    assert "poss-seg poss-${sp.side}" in js
     assert "share-line-h" in js and "share-line-a" in js and "share-line-mid" in js
     assert "home / 50% / away" in js
     assert ".mc-share-wrap" in css
     assert ".share-line-h" in css
+    assert ".poss-seg.poss-home" in css and ".poss-seg.poss-away" in css
     assert "possession graph" in html
     assert "duel graph" in html
-    assert "Possession · last 15′" in html
+    assert "Possession · 1H / 2H ribbons" in html
     assert "Duels · last 15′" in html
+
+
+def test_possession_spells_colour_each_half_by_who_has_the_ball():
+    from eeesoc.live import _build_possession_spells
+
+    touches = [
+        (2.0, "home", "1h"),
+        (3.0, "home", "1h"),
+        (10.0, "away", "1h"),
+        (10.02, "home", "1h"),  # one-second wobble collapses into the away spell
+        (10.03, "away", "1h"),
+        (20.0, "home", "1h"),
+        (46.5, "away", "2h"),
+        (60.0, "home", "2h"),
+    ]
+    live = _build_possession_spells(touches, now_minute=70)
+    h1 = live["1h"]
+    assert h1["from"] == 0.0 and h1["to"] == 45.0 and h1["now"] == 45.0
+    assert [(s["from"], s["to"], s["side"]) for s in h1["spells"]] == [
+        (2.0, 10.0, "home"),
+        (10.0, 20.0, "away"),
+        (20.0, 45.0, "home"),
+    ]
+    assert h1["flips"] == 2
+    assert h1["minutes"] == {"home": 33.0, "away": 10.0}
+    assert h1["share"]["home"] == round(33 / 43, 3)
+    h2 = live["2h"]
+    assert h2["now"] == 70.0
+    assert [(s["from"], s["to"], s["side"]) for s in h2["spells"]] == [
+        (46.5, 60.0, "away"),
+        (60.0, 70.0, "home"),
+    ]
+
+    early = _build_possession_spells(touches[:3], now_minute=12)
+    assert early["1h"]["now"] == 12.0
+    assert early["1h"]["spells"][-1] == {"from": 10.0, "to": 12.0, "side": "away"}
+    assert early["2h"]["spells"] == []
+
+    done = _build_possession_spells(touches, now_minute=90, final=True)
+    assert done["2h"]["spells"][-1]["to"] == 90.0
 
 
 def test_timeline_payload_includes_pressure():

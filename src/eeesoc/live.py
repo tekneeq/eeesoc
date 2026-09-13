@@ -1709,6 +1709,92 @@ def _build_share_series(
     return series
 
 
+_HALF_SPAN = {"1h": (0.0, 45.0), "2h": (45.0, 90.0)}
+
+
+def _play_minute_exact(play: dict[str, Any], minute: int) -> float:
+    """Minute with seconds when ESPN files ``clock.value``; else the whole minute."""
+    clock = play.get("clock") or {}
+    if isinstance(clock, dict) and clock.get("value") is not None:
+        try:
+            return max(0.0, float(clock["value"]) / 60.0)
+        except (TypeError, ValueError):
+            pass
+    return float(minute)
+
+
+def _build_possession_spells(
+    touches: list[tuple[float, str, str]],
+    *,
+    now_minute: int,
+    final: bool = False,
+) -> dict[str, Any]:
+    """
+    Who had the ball, minute by minute, as coloured spells per half.
+
+    ``touches`` is ``(minute_float, side, half)`` for every on-ball play. A
+    spell starts at a team's first touch and runs until the other side's next
+    touch; the open spell runs to the current minute (or the end of the half).
+    Sub-minute flips inside one minute collapse to whoever ended it.
+    """
+    out: dict[str, Any] = {}
+    now = float(max(0, min(90, int(now_minute))))
+    for half, (lo, hi) in _HALF_SPAN.items():
+        pts = sorted(((t, s) for t, s, h in touches if h == half and s in {"home", "away"}), key=lambda p: p[0])
+        if half == "1h":
+            end = hi if (now >= hi or final) else max(lo, now)
+        else:
+            end = hi if final else max(lo, min(hi, now))
+        spells: list[dict[str, Any]] = []
+        for t, side in pts:
+            t = max(lo, min(hi, float(t)))
+            if spells and spells[-1]["side"] == side:
+                continue
+            if spells:
+                spells[-1]["to"] = t
+            spells.append({"from": t, "to": t, "side": side})
+        if spells:
+            spells[-1]["to"] = max(spells[-1]["from"], end)
+        # A one-second wobble draws as a stripe; keep flips that lasted a bit and
+        # hand the wobble's start to whoever ended up with the ball.
+        kept: list[dict[str, Any]] = []
+        pending: float | None = None
+        for sp in spells:
+            if sp["to"] - sp["from"] < 0.05 and kept:
+                if pending is None:
+                    pending = sp["from"]
+                continue
+            start = pending if pending is not None else sp["from"]
+            pending = None
+            if kept and kept[-1]["side"] == sp["side"]:
+                kept[-1]["to"] = sp["to"]
+                continue
+            if kept:
+                kept[-1]["to"] = start
+            kept.append({"from": start, "to": sp["to"], "side": sp["side"]})
+        if kept and spells:
+            kept[-1]["to"] = max(kept[-1]["to"], spells[-1]["to"])
+        held = {"home": 0.0, "away": 0.0}
+        for sp in kept:
+            held[sp["side"]] += max(0.0, sp["to"] - sp["from"])
+        total = held["home"] + held["away"]
+        out[half] = {
+            "from": lo,
+            "to": hi,
+            "now": end,
+            "spells": [
+                {"from": round(sp["from"], 2), "to": round(sp["to"], 2), "side": sp["side"]} for sp in kept
+            ],
+            "minutes": {"home": round(held["home"], 1), "away": round(held["away"], 1)},
+            "share": {
+                "home": round(held["home"] / total, 3) if total else None,
+                "away": round(held["away"] / total, 3) if total else None,
+            },
+            "flips": max(0, len(kept) - 1),
+        }
+    return out
+
+
 def _cumulative_xg_series(
     points: list[tuple[int, float]],
 ) -> list[dict[str, Any]]:
@@ -1802,6 +1888,7 @@ def build_event_timeline(
     territory_pts: list[tuple[Any, ...]] = []
     pressure_pts: list[tuple[int, float, float, str, str | None]] = []
     poss_pts: list[tuple[int, str]] = []
+    touches: list[tuple[float, str, str]] = []
     duel_pts: list[tuple[int, str]] = []
     bulletin: list[dict[str, Any]] = []
 
@@ -1842,6 +1929,7 @@ def build_event_timeline(
             if pmin is not None:
                 if _is_possession_play(ptype):
                     poss_pts.append((pmin, side))
+                    touches.append((_play_minute_exact(play, pmin), side, half))
                 if _is_duel_play(ptype):
                     duel_pts.append((pmin, side))
             px = _coord(play, "fieldPositionX")
@@ -1978,6 +2066,7 @@ def build_event_timeline(
             min_actions=_POSSESSION_MIN_ACTIONS,
             tilt=_POSSESSION_TILT,
         ),
+        "possession_spells": _build_possession_spells(touches, now_minute=minute, final=final),
         "duels": _build_share_clock(
             duel_pts,
             now_minute=minute,

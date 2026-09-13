@@ -1073,6 +1073,62 @@ main {
   stroke-dasharray: 4 3;
 }
 
+/* Possession ribbons: one bar per half, coloured by who had the ball. */
+.mc-poss-svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+  margin-top: 0.15rem;
+}
+
+.poss-track {
+  fill: rgba(255, 255, 255, 0.05);
+  stroke: rgba(180, 210, 200, 0.16);
+  stroke-width: 1;
+}
+
+.poss-seg {
+  shape-rendering: crispEdges;
+}
+
+.poss-seg.poss-home {
+  fill: var(--accent);
+}
+
+.poss-seg.poss-away {
+  fill: rgba(125, 200, 255, 0.95);
+}
+
+.poss-tick {
+  stroke: rgba(7, 20, 14, 0.55);
+  stroke-width: 1;
+}
+
+.poss-half {
+  fill: rgba(230, 245, 238, 0.85);
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.poss-key {
+  display: inline-block;
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 2px;
+  vertical-align: middle;
+  margin: 0 0.15rem 0 0.3rem;
+}
+
+.poss-key.poss-home {
+  background: var(--accent);
+}
+
+.poss-key.poss-away {
+  background: rgba(125, 200, 255, 0.95);
+}
+
 .mc-pressure.lead-home {
   border-color: rgba(125, 255, 179, 0.28);
 }

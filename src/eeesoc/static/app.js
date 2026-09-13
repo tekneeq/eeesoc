@@ -1993,8 +1993,8 @@
               <span class="mc-pressure-wrap" data-press-for="${escapeHtml(m.event_id)}" aria-label="Rolling pressure versus time">${
                 cached ? pressureHtml(cached) : `<span class="mc-timeline-loading">pressure…</span>`
               }</span>
-              <span class="mc-share-wrap" data-poss-for="${escapeHtml(m.event_id)}" aria-label="Rolling possession versus time">${
-                cached ? shareClockHtml(cached, "possession", "Possession") : `<span class="mc-timeline-loading">possession…</span>`
+              <span class="mc-share-wrap" data-poss-for="${escapeHtml(m.event_id)}" aria-label="Who had the ball, by half and minute">${
+                cached ? possessionRibbonsHtml(cached) : `<span class="mc-timeline-loading">possession…</span>`
               }</span>
               <span class="mc-share-wrap" data-duel-for="${escapeHtml(m.event_id)}" aria-label="Rolling duels versus time">${
                 cached ? shareClockHtml(cached, "duels", "Duels") : `<span class="mc-timeline-loading">duels…</span>`
@@ -2534,6 +2534,79 @@
     </svg>`;
   }
 
+  function possessionRibbonSvg(tl, half, label) {
+    const W = 640;
+    const H = 34;
+    const padL = 26;
+    const padR = 8;
+    const barY = 4;
+    const barH = 16;
+    const lo = Number(half?.from) || 0;
+    const hi = Number(half?.to) || lo + 45;
+    const span = Math.max(1, hi - lo);
+    const xAt = (m) => padL + ((Math.max(lo, Math.min(hi, Number(m))) - lo) / span) * (W - padL - padR);
+    const homeName = shortName(tl.home || "Home");
+    const awayName = shortName(tl.away || "Away");
+    const segs = (half?.spells || [])
+      .map((sp) => {
+        const x1 = xAt(sp.from);
+        const x2 = xAt(sp.to);
+        const w = Math.max(1.2, x2 - x1);
+        const who = sp.side === "home" ? homeName : awayName;
+        const f = Math.round(sp.from);
+        const t = Math.round(sp.to);
+        const when = f === t ? `${f}'` : `${f}'–${t}'`;
+        return `<rect class="poss-seg poss-${sp.side}" x="${x1.toFixed(1)}" y="${barY}" width="${w.toFixed(1)}" height="${barH}"><title>${escapeHtml(when)} · ${escapeHtml(who)} on the ball</title></rect>`;
+      })
+      .join("");
+    const ticks = [15, 30]
+      .map((off) => {
+        const tx = xAt(lo + off).toFixed(1);
+        return `<line x1="${tx}" y1="${barY}" x2="${tx}" y2="${barY + barH}" class="poss-tick"/>
+      <text x="${tx}" y="${H - 3}" class="tl-label" text-anchor="middle">${lo + off}'</text>`;
+      })
+      .join("");
+    const now = Number(half?.now);
+    const nowMark =
+      Number.isFinite(now) && now > lo && now < hi
+        ? `<line x1="${xAt(now).toFixed(1)}" y1="${barY - 2}" x2="${xAt(now).toFixed(1)}" y2="${barY + barH + 2}" class="tl-now"/>`
+        : "";
+    return `<svg class="mc-poss-svg" viewBox="0 0 ${W} ${H}" width="100%" height="${H}" role="img" aria-label="${escapeHtml(label)} possession, who had the ball by minute">
+      <text x="3" y="${barY + barH - 3}" class="poss-half">${escapeHtml(label)}</text>
+      <rect class="poss-track" x="${padL}" y="${barY}" width="${W - padL - padR}" height="${barH}" rx="2"/>
+      ${segs}
+      ${ticks}
+      ${nowMark}
+      <text x="${padL}" y="${H - 3}" class="tl-label">${lo}'</text>
+      <text x="${W - padR}" y="${H - 3}" class="tl-label" text-anchor="end">${hi}'</text>
+    </svg>`;
+  }
+
+  function possessionHalfMeta(tl, half) {
+    if (!half || !(half.spells || []).length) return "waiting for the ball…";
+    const homeName = shortName(tl.home || "Home");
+    const awayName = shortName(tl.away || "Away");
+    const m = half.minutes || {};
+    const h = Math.round(Number(m.home) || 0);
+    const a = Math.round(Number(m.away) || 0);
+    return `${homeName} ${h}′ · ${awayName} ${a}′ · ${half.flips || 0} changes`;
+  }
+
+  function possessionRibbonsHtml(tl) {
+    const sp = tl?.possession_spells;
+    if (!sp) return "";
+    const h1 = sp["1h"];
+    const h2 = sp["2h"];
+    const showSecond = h2 && ((h2.spells || []).length || Number(h2.now) > Number(h2.from));
+    return `<span class="mc-pressure mc-poss">
+      <span class="mc-pressure-head">Possession · who has the ball · <i class="poss-key poss-home"></i> home <i class="poss-key poss-away"></i> away</span>
+      ${possessionRibbonSvg(tl, h1, "1H")}
+      <span class="mc-pressure-meta">${escapeHtml(possessionHalfMeta(tl, h1))}</span>
+      ${showSecond ? possessionRibbonSvg(tl, h2, "2H") : ""}
+      ${showSecond ? `<span class="mc-pressure-meta">${escapeHtml(possessionHalfMeta(tl, h2))}</span>` : ""}
+    </span>`;
+  }
+
   function shareClockHtml(tl, key, title) {
     const c = tl[key];
     if (!c) return "";
@@ -2676,7 +2749,7 @@
       const press = root.querySelector(`.mc-pressure-wrap[data-press-for="${eid}"]`);
       if (press) press.innerHTML = pressureHtml(tl);
       const poss = root.querySelector(`.mc-share-wrap[data-poss-for="${eid}"]`);
-      if (poss) poss.innerHTML = shareClockHtml(tl, "possession", "Possession");
+      if (poss) poss.innerHTML = possessionRibbonsHtml(tl);
       const duel = root.querySelector(`.mc-share-wrap[data-duel-for="${eid}"]`);
       if (duel) duel.innerHTML = shareClockHtml(tl, "duels", "Duels");
       if (card) {
@@ -2715,6 +2788,13 @@
           tl.possession?.away,
           tl.possession?.series?.length,
           tl.possession?.series?.at(-1)?.home,
+        ],
+        spells: [
+          tl.possession_spells?.["1h"]?.spells?.length,
+          tl.possession_spells?.["1h"]?.now,
+          tl.possession_spells?.["2h"]?.spells?.length,
+          tl.possession_spells?.["2h"]?.now,
+          tl.possession_spells?.["2h"]?.spells?.at(-1)?.to,
         ],
         duel: [
           tl.duels?.to_minute,
