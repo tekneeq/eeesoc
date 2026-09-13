@@ -2908,7 +2908,7 @@ main {
   color: var(--accent);
 }
 
-/* Bets tab — today's no-more-goals alarms plus last-30 / season records */
+/* Bets tab — last-30 daily bars by league; click a day for game chiclets */
 .bets-board {
   display: flex;
   flex-direction: column;
@@ -3130,6 +3130,59 @@ main {
   font-size: 0.74rem;
   color: var(--muted);
   font-variant-numeric: tabular-nums;
+}
+
+.bets-day-row {
+  display: grid;
+  grid-template-columns: minmax(9.5rem, 13.5rem) minmax(0, 1fr);
+  gap: 0.35rem 0.9rem;
+  align-items: center;
+}
+
+.bets-day-row.all {
+  align-items: end;
+  padding-bottom: 0.15rem;
+  border-bottom: 1px solid rgba(180, 210, 200, 0.12);
+}
+
+.bets-day-meta h2 {
+  margin: 0;
+  font-size: 0.95rem;
+  letter-spacing: -0.02em;
+}
+
+.bets-day-meta p {
+  margin: 0.15rem 0 0;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 0.7rem;
+}
+
+.bets-days {
+  min-width: 0;
+}
+
+.bets-days .sig-days-svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+
+.bets-day-games {
+  margin-top: 0.25rem;
+}
+
+.bets-day-games h3 {
+  margin: 0 0 0.25rem;
+  font-size: 1.05rem;
+}
+
+@media (max-width: 720px) {
+  .bets-day-row {
+    grid-template-columns: 1fr;
+    align-items: start;
+  }
 }
 
 .bets-league-score b {
