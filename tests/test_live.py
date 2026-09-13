@@ -702,6 +702,8 @@ def test_live_chiclets_show_last5_games_with_halves():
     assert "function last5GamesSideHtml" in js
     assert "function last5OppName" in js
     assert "function last5GameHalves" in js
+    assert "function last5PitchScore" in js
+    assert 'g.venue === "away" ? last5HalfScore(ga, gf)' in js
     assert '">🥅 last 5</span>' in js
     assert "1H ${h1}" in js and "2H ${h2}" in js
     assert "rows.splice(afterMomentum + 1, 0, last5)" in js

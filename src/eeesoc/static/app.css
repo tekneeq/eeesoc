@@ -3289,7 +3289,7 @@ main {
   white-space: nowrap;
 }
 
-/* Last five games: opponent + 1H / 2H score from this club's view. */
+/* Last five games: opponent + 1H / 2H score as it stood on the pitch (home–away). */
 .mc-form-side {
   align-items: flex-end;
   gap: 0.2rem;
