@@ -286,6 +286,8 @@
   // Bets tab — today's no-more-goals alarms, won / lost / live, by league
   // ---------------------------------------------------------------------------
 
+  const BET_WINDOW_DAYS = 30;
+
   function tallyBets(list) {
     const won = list.filter((s) => s.status === "held").length;
     const lost = list.filter((s) => s.status === "busted").length;
@@ -301,6 +303,33 @@
       settled,
       hit_pct: settled ? Math.round((100 * won) / settled) : null,
     };
+  }
+
+  function betsInWindow(list, days, nowSec) {
+    const cutoff = (nowSec ?? Date.now() / 1000) - Math.max(1, days) * 86400;
+    return (list || []).filter((s) => (Number(s.fired_at) || 0) >= cutoff);
+  }
+
+  function betsLeagueKey(g) {
+    return g.league_slug || g.league_chiclet || g.key || "other";
+  }
+
+  function betsLeagueMap(list) {
+    const map = new Map();
+    for (const g of betsByLeague(list || [])) {
+      map.set(betsLeagueKey(g), g);
+      if (g.league_chiclet) map.set(g.league_chiclet, g);
+    }
+    return map;
+  }
+
+  function betsRecordLine(t) {
+    if (!t || !t.fired) return "no alarms";
+    if (!t.settled) {
+      return `${t.fired} alarm${t.fired === 1 ? "" : "s"} · none settled`;
+    }
+    const pct = t.hit_pct != null ? ` · ${t.hit_pct}%` : "";
+    return `${t.won} / ${t.settled}${pct}`;
   }
 
   function betsByLeague(list) {
@@ -386,17 +415,24 @@
     </article>`;
   }
 
-  function betsHeroHtml(t, whenLabel, season) {
+  function betsRecordTileHtml(t, label) {
+    const frac = t && t.settled ? `${t.won} / ${t.settled}` : t && t.fired ? "0 / 0" : "—";
+    const hit = t && t.hit_pct != null ? `${t.hit_pct}% won` : t && t.fired ? "waiting on results" : "no alarms";
+    const live = t && t.live ? ` · ${t.live} live` : "";
+    return `<div class="bets-record">
+      <div class="bets-record-label">${escapeHtml(label)}</div>
+      <div class="bets-record-main">${escapeHtml(frac)}</div>
+      <div class="bets-record-meta">${escapeHtml(hit)}${escapeHtml(live)}</div>
+    </div>`;
+  }
+
+  function betsHeroHtml(t, whenLabel, last30, season) {
     const hit = t.hit_pct != null ? `${t.hit_pct}% won` : "waiting on results";
     const settled = t.settled
       ? `${t.won} of ${t.settled} settled`
       : t.fired
         ? "none settled yet"
         : "no alarms yet";
-    const seasonLine =
-      season && season.settled
-        ? `All recorded alarms: ${season.won} won / ${season.settled} settled${season.hit_pct != null ? ` · ${season.hit_pct}%` : ""}.`
-        : "";
     return `<div class="bets-hero">
       <div class="bets-hero-when">${escapeHtml(whenLabel)}</div>
       <div class="bets-hero-score">
@@ -407,11 +443,18 @@
       </div>
       ${t.fired ? betBarHtml(t) : ""}
       <p class="bets-hero-sub">${t.fired} alarm${t.fired === 1 ? "" : "s"} today · ${settled} · ${hit}</p>
-      ${seasonLine ? `<p class="bets-hero-season">${escapeHtml(seasonLine)}</p>` : ""}
+      <div class="bets-records">
+        ${betsRecordTileHtml(last30, `Last ${BET_WINDOW_DAYS} days`)}
+        ${betsRecordTileHtml(season, "Season")}
+      </div>
     </div>`;
   }
 
-  function betsLeagueHtml(g) {
+  function betsLeagueWindows(last30, season) {
+    return `last ${BET_WINDOW_DAYS}: ${betsRecordLine(last30)} · season ${betsRecordLine(season)}`;
+  }
+
+  function betsLeagueHtml(g, last30, season) {
     const name = g.league_name && g.league_name !== g.league_chiclet ? g.league_name : "";
     const sub = g.settled
       ? `${g.won} won · ${g.lost} lost${g.live ? ` · ${g.live} live` : ""}${g.hit_pct != null ? ` · ${g.hit_pct}%` : ""}`
@@ -422,31 +465,74 @@
           <h2>${escapeHtml(g.league_chiclet || "League")}</h2>
           ${name ? `<p>${escapeHtml(name)}</p>` : ""}
         </div>
-        <div class="bets-league-score"><b>${g.won}</b><span>/ ${g.settled || g.fired} won</span></div>
+        <div class="bets-league-score"><b>${g.won}</b><span>/ ${g.settled || g.fired} won today</span></div>
       </header>
       <p class="bets-league-sub">${escapeHtml(sub)}</p>
+      <p class="bets-league-windows">${escapeHtml(betsLeagueWindows(last30, season))}</p>
       <div class="bets-grid">${g.signals.map(betCardHtml).join("")}</div>
+    </section>`;
+  }
+
+  function betsLeagueRecordRow(g, last30, season) {
+    const name = g.league_name && g.league_name !== g.league_chiclet ? g.league_name : "";
+    return `<div class="bets-league-row">
+      <div>
+        <b>${escapeHtml(g.league_chiclet || "League")}</b>
+        ${name ? `<span>${escapeHtml(name)}</span>` : ""}
+      </div>
+      <div class="bets-league-row-score">
+        <span>last ${BET_WINDOW_DAYS} ${escapeHtml(betsRecordLine(last30))}</span>
+        <span>season ${escapeHtml(betsRecordLine(season))}</span>
+      </div>
+    </div>`;
+  }
+
+  function betsOtherLeaguesHtml(seasonLeagues, todayKeys, last30Map) {
+    const others = (seasonLeagues || []).filter((g) => !todayKeys.has(betsLeagueKey(g)));
+    if (!others.length) return "";
+    return `<section class="bets-other-leagues">
+      <header class="bets-league-head">
+        <div><h2>Other leagues</h2><p>No alarm today — last ${BET_WINDOW_DAYS} days and season</p></div>
+      </header>
+      ${others
+        .map((g) => {
+          const key = betsLeagueKey(g);
+          return betsLeagueRecordRow(g, last30Map.get(key) || last30Map.get(g.league_chiclet), g);
+        })
+        .join("")}
     </section>`;
   }
 
   function renderBetsBoard(signals) {
     const mount = $("#betsBoard");
     if (!mount) return;
-    const todayKey = sigDayKey(Date.now() / 1000);
+    const nowSec = Date.now() / 1000;
+    const todayKey = sigDayKey(nowSec);
     const today = (signals || []).filter((s) => sigDayKey(s.fired_at) === todayKey);
+    const last30List = betsInWindow(signals || [], BET_WINDOW_DAYS, nowSec);
     const t = tallyBets(today);
-    const leagues = betsByLeague(today);
+    const last30 = tallyBets(last30List);
     const season = tallyBets(signals || []);
+    const leagues = betsByLeague(today);
+    const last30Map = betsLeagueMap(last30List);
+    const seasonMap = betsLeagueMap(signals || []);
+    const seasonLeagues = betsByLeague(signals || []);
+    const todayKeys = new Set(leagues.map(betsLeagueKey));
     const when = sigDayLabel(todayKey);
-    if (!today.length) {
-      mount.innerHTML = `${betsHeroHtml(t, when, season)}
-        <div class="bets-empty">
+    const todayHtml = leagues
+      .map((g) => {
+        const key = betsLeagueKey(g);
+        return betsLeagueHtml(g, last30Map.get(key) || last30Map.get(g.league_chiclet), seasonMap.get(key) || seasonMap.get(g.league_chiclet) || g);
+      })
+      .join("");
+    const othersHtml = betsOtherLeaguesHtml(seasonLeagues, todayKeys, last30Map);
+    const empty = today.length
+      ? ""
+      : `<div class="bets-empty">
           <p>No no-more-goals alarms have fired today.</p>
           <p class="sig-muted">An alarm fires once per half when P(no goal) clears the threshold inside the betting window. Live games show the reading on each chiclet; the Signals tab has the model.</p>
         </div>`;
-      return;
-    }
-    mount.innerHTML = `${betsHeroHtml(t, when, season)}${leagues.map(betsLeagueHtml).join("")}`;
+    mount.innerHTML = `${betsHeroHtml(t, when, last30, season)}${empty}${todayHtml}${othersHtml}`;
   }
 
   async function refreshBets(opts = {}) {
@@ -456,12 +542,15 @@
       const rec = await (await fetch("/api/nogoal/signals")).json();
       state.sigSignals = rec.signals || [];
       renderBetsBoard(state.sigSignals);
-      const today = (state.sigSignals || []).filter((s) => sigDayKey(s.fired_at) === sigDayKey(Date.now() / 1000));
+      const nowSec = Date.now() / 1000;
+      const today = (state.sigSignals || []).filter((s) => sigDayKey(s.fired_at) === sigDayKey(nowSec));
       const t = tallyBets(today);
+      const last30 = tallyBets(betsInWindow(state.sigSignals || [], BET_WINDOW_DAYS, nowSec));
+      const season = tallyBets(state.sigSignals || []);
       if (stamp) {
-        stamp.textContent = t.fired
-          ? `${t.won} won · ${t.lost} lost${t.live ? ` · ${t.live} live` : ""} today`
-          : "no alarms today";
+        stamp.textContent = `last ${BET_WINDOW_DAYS}: ${betsRecordLine(last30)} · season ${betsRecordLine(season)}${
+          t.fired ? ` · today ${t.won} won · ${t.lost} lost${t.live ? ` · ${t.live} live` : ""}` : ""
+        }`;
       }
     } catch (err) {
       if (quiet) return;
