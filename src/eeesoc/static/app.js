@@ -29,6 +29,7 @@
     htTimer: null,
     htLoading: false,
     clinical: null, // /api/clinical board: leagues[slug].teams[]
+    standings: null, // /api/live/standings: leagues[slug].teams[id]
     clinicalTimer: null,
     sigDay: null, // "YYYY-MM-DD" local day selected on the Signals daily bars
     sigSignals: [],
@@ -1383,6 +1384,55 @@
     tag: (r) => ({ cls: r.tight ? "tight" : "porous", text: `${r.clean_sheet_pct}%` }),
   };
 
+  function ordinal(n) {
+    const i = Number(n);
+    if (!Number.isFinite(i)) return "";
+    const v = i % 100;
+    const suf = v >= 11 && v <= 13 ? "th" : { 1: "st", 2: "nd", 3: "rd" }[i % 10] || "th";
+    return `${i}${suf}`;
+  }
+
+  function standingsFor(m, side) {
+    const name = side === "home" ? m.home : m.away;
+    const id = side === "home" ? m.home_id : m.away_id;
+    const league = state.standings?.leagues?.[m.league_slug];
+    if (!league) return null;
+    const teams = league.teams || {};
+    if (id && teams[String(id)]) return { ...teams[String(id)], _league: league };
+    const key = teamKey(name);
+    const hit = Object.values(teams).find((t) => teamKey(t.team) === key);
+    return hit ? { ...hit, _league: league } : null;
+  }
+
+  function standingsTitle(row, name) {
+    if (!row) return `${name}: no league table yet`;
+    const n = row.group_n || row._league?.teams_n || 0;
+    const place = row.rank != null ? `${ordinal(row.rank)} of ${n || "?"}` : "unranked";
+    const group = row.group ? ` in ${row.group}` : "";
+    const gd = Number(row.gd) > 0 ? `+${row.gd}` : String(row.gd ?? 0);
+    const goals = row.gf != null ? ` · ${row.gf}–${row.ga} (${gd})` : "";
+    const note = row.note ? ` · ${row.note}` : "";
+    return `${row.team}: ${place}${group} · ${row.record} · ${row.points} pts${goals}${note}. Official ESPN table.`;
+  }
+
+  function standingsSideHtml(m, side) {
+    const name = side === "home" ? m.home : m.away;
+    const row = standingsFor(m, side);
+    const title = escapeHtml(standingsTitle(row, name));
+    if (!row || row.rank == null) {
+      return `<span class="mc-power-side mc-table-side ${side} none" title="${title}"><b class="mc-power-num">—</b></span>`;
+    }
+    const n = row.group_n || row._league?.teams_n || "?";
+    const group = row.group
+      ? ` ${escapeHtml(String(row.group).replace(/ Conference$/i, "").replace(/ Phase.*$/i, ""))}`
+      : "";
+    return `<span class="mc-power-side mc-table-side ${side}" title="${title}"><b class="mc-power-num">#${row.rank}</b><span class="mc-power-rank">of ${n}${group}</span><span class="mc-power-stat">${escapeHtml(row.record)}</span><span class="mc-power-tag">${row.points} pts</span></span>`;
+  }
+
+  function standingsRowHtml(m) {
+    return `${standingsSideHtml(m, "home")}<span class="mc-power-label" title="Official league table: position, win–draw–loss record and points.">📊 table</span>${standingsSideHtml(m, "away")}`;
+  }
+
   const POWER_ROWS = [
     { spec: CLINICAL_SPEC, label: "⚡ clinical", help: "Clinical power: goals per 100 xG this season, ranked within the league. 100 = par." },
     {
@@ -1714,19 +1764,23 @@
   }
 
   function clinicalRowHtml(m) {
-    if (!state.clinical) return "";
-    const rows = POWER_ROWS.map(
-      (row) =>
-        `${powerSideHtml(m, "home", row.spec)}<span class="mc-power-label" title="${escapeHtml(row.help)}">${row.label}</span>${powerSideHtml(m, "away", row.spec)}`,
-    );
-    // Last five games sit with momentum (same window), before potential.
-    const afterMomentum = rows.findIndex((html) => html.includes("📈 momentum"));
-    const last5 = last5GamesRowHtml(m);
-    if (afterMomentum >= 0) rows.splice(afterMomentum + 1, 0, last5);
-    else rows.push(last5);
+    if (!state.clinical && !state.standings) return "";
+    const rows = [];
+    if (state.clinical) {
+      for (const row of POWER_ROWS) {
+        rows.push(
+          `${powerSideHtml(m, "home", row.spec)}<span class="mc-power-label" title="${escapeHtml(row.help)}">${row.label}</span>${powerSideHtml(m, "away", row.spec)}`,
+        );
+      }
+      const afterMomentum = rows.findIndex((html) => html.includes("📈 momentum"));
+      const last5 = last5GamesRowHtml(m);
+      if (afterMomentum >= 0) rows.splice(afterMomentum + 1, 0, last5);
+      else rows.push(last5);
+    }
+    if (state.standings) rows.unshift(standingsRowHtml(m));
     const nogoal = nogoalRowHtml(m);
     if (nogoal) rows.unshift(nogoal);
-    return rows.concat(halfGoalsRowsHtml(m)).join("\n      ");
+    return rows.concat(state.clinical ? halfGoalsRowsHtml(m) : []).join("\n      ");
   }
 
   function paintPowerRow(card) {
@@ -1751,6 +1805,16 @@
       paintClinicalRows();
     } catch (err) {
       /* chiclets simply show — until the next poll */
+    }
+  }
+
+  async function refreshStandings() {
+    try {
+      const board = await (await fetch("/api/live/standings")).json();
+      state.standings = board;
+      paintClinicalRows();
+    } catch (err) {
+      /* table row stays empty until the next poll */
     }
   }
 
@@ -4370,8 +4434,12 @@
     $("#htBackfill")?.addEventListener("click", triggerHtBackfill);
 
     refreshClinical();
+    refreshStandings();
     state.clinicalTimer = setInterval(() => {
-      if (!document.hidden) refreshClinical();
+      if (!document.hidden) {
+        refreshClinical();
+        refreshStandings();
+      }
     }, CLINICAL_POLL_MS);
     refreshNogoal();
     state.nogoalTimer = setInterval(() => {

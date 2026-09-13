@@ -2629,6 +2629,14 @@ main {
   font-variant-numeric: tabular-nums;
 }
 
+.mc-table-side .mc-power-num {
+  color: var(--text);
+}
+
+.mc-table-side .mc-power-tag {
+  color: var(--text);
+}
+
 /* No more goals this half — one full-width row at the top of the power block. */
 .mc-nogoal {
   grid-column: 1 / -1;
