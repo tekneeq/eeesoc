@@ -1145,6 +1145,56 @@ main {
   background: rgba(125, 200, 255, 0.95);
 }
 
+.mc-intensity {
+  display: block;
+  width: 100%;
+  margin-top: 0.45rem;
+}
+
+.mc-int-svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+  margin-top: 0.15rem;
+}
+
+.int-line {
+  stroke: #ffd27a;
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.int-fill {
+  fill: rgba(255, 210, 122, 0.18);
+}
+
+.int-league {
+  stroke: rgba(230, 245, 238, 0.55);
+  stroke-width: 1.4;
+  stroke-dasharray: 5 4;
+  fill: none;
+}
+
+.int-key {
+  display: inline-block;
+  width: 0.7rem;
+  height: 0.18rem;
+  vertical-align: middle;
+  margin: 0 0.15rem 0 0.3rem;
+}
+
+.int-key.int-game {
+  background: #ffd27a;
+}
+
+.int-key.int-par {
+  background: rgba(230, 245, 238, 0.55);
+  height: 0;
+  border-top: 1.5px dashed rgba(230, 245, 238, 0.7);
+}
+
 .mc-pressure.lead-home {
   border-color: rgba(125, 255, 179, 0.28);
 }
@@ -1352,6 +1402,13 @@ main {
 
 .tl-mark.tl-duel {
   background: linear-gradient(90deg, var(--accent) 0 36%, rgba(230, 245, 238, 0.45) 36% 64%, rgba(125, 200, 255, 0.95) 64% 100%);
+}
+
+.tl-mark.tl-int {
+  width: 0.85rem;
+  height: 0.15rem;
+  background: #ffd27a;
+  border-radius: 1px;
 }
 
 .mc-top {

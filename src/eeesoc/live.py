@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 import time
 import urllib.error
@@ -1795,6 +1796,179 @@ def _build_possession_spells(
     return out
 
 
+INTENSITY_WINDOW_MIN = 5
+INTENSITY_SWING_SEC = 22.0
+INTENSITY_PRIOR_MEAN = 0.33
+_PITCH_X_M = 105.0
+_PITCH_Y_M = 68.0
+_END_LO = 100.0 / 3.0
+_END_HI = 200.0 / 3.0
+
+
+def _intensity_end(x: float) -> str | None:
+    """Which end of the absolute pitch the ball is in, or None in midfield."""
+    if x <= _END_LO:
+        return "L"
+    if x >= _END_HI:
+        return "R"
+    return None
+
+
+def _pitch_metres(x0: float, y0: float, x1: float, y1: float) -> float:
+    dx = (x1 - x0) / 100.0 * _PITCH_X_M
+    dy = (y1 - y0) / 100.0 * _PITCH_Y_M
+    return math.hypot(dx, dy)
+
+
+def intensity_score(swings: float, ball_km: float, plays: float) -> float:
+    """0–1 frantic-ness: end-to-end swings first, then how far the ball travelled."""
+    raw = (
+        0.55 * math.tanh(swings / 2.4)
+        + 0.35 * math.tanh(ball_km / 0.85)
+        + 0.10 * math.tanh(plays / 18.0)
+    )
+    return round(min(1.0, max(0.0, raw)), 3)
+
+
+def _intensity_swings(
+    points: list[tuple[float, float, float]],
+    *,
+    swing_sec: float = INTENSITY_SWING_SEC,
+) -> list[float]:
+    """Minutes where the ball reached the opposite end within ``swing_sec``."""
+    last_end: str | None = None
+    last_t: float | None = None
+    swings: list[float] = []
+    for t, x, _y in points:
+        end = _intensity_end(x)
+        if end is None:
+            continue
+        if last_end and last_end != end and last_t is not None:
+            if (t - last_t) * 60.0 <= swing_sec:
+                swings.append(t)
+        last_end, last_t = end, t
+    return swings
+
+
+def _intensity_travel(
+    points: list[tuple[float, float, float]],
+) -> list[tuple[float, float]]:
+    """(arrival_minute, metres) for each hop that looks like real ball movement."""
+    hops: list[tuple[float, float]] = []
+    prev: tuple[float, float, float] | None = None
+    for t, x, y in points:
+        if prev is not None:
+            dt = t - prev[0]
+            if 0.0 < dt <= 2.0:
+                hops.append((t, _pitch_metres(prev[1], prev[2], x, y)))
+        prev = (t, x, y)
+    return hops
+
+
+def _build_intensity(
+    points: list[tuple[float, float, float]],
+    *,
+    now_minute: int,
+    window: int = INTENSITY_WINDOW_MIN,
+    league: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """
+    How frantic the game is — not who is pinning whom.
+
+    Pressure can be 50-50 in a ping-pong and still look "even". Intensity
+    rises when the ball goes from one end to the other in a short time
+    (everyone tracking back or breaking) and when it covers a lot of grass.
+    ESPN publishes no player GPS, so metres are the ball's path, not miles run.
+    """
+    now_minute = max(1, min(90, int(now_minute)))
+    pts = sorted(
+        ((float(t), float(x), float(y)) for t, x, y in points if t is not None),
+        key=lambda p: p[0],
+    )
+    pts = [p for p in pts if 0.0 <= p[0] <= now_minute + 0.99]
+    swings = _intensity_swings(pts)
+    hops = _intensity_travel(pts)
+
+    def _in_window(t: float, lo: float, hi: float) -> bool:
+        return lo < t <= hi
+
+    series: list[dict[str, Any]] = []
+    for t in range(1, now_minute + 1):
+        lo = max(0.0, float(t - window))
+        hi = float(t)
+        n_swing = sum(1 for s in swings if _in_window(s, lo, hi))
+        metres = sum(m for ht, m in hops if _in_window(ht, lo, hi))
+        n_play = sum(1 for p in pts if lo < p[0] <= hi)
+        km = metres / 1000.0
+        series.append(
+            {
+                "minute": t,
+                "score": intensity_score(n_swing, km, n_play),
+                "swings": n_swing,
+                "ball_km": round(km, 3),
+                "plays": n_play,
+            }
+        )
+
+    lo_now = max(0.0, float(now_minute - window))
+    hi_now = float(now_minute)
+    now_swings = sum(1 for s in swings if _in_window(s, lo_now, hi_now))
+    now_m = sum(m for ht, m in hops if _in_window(ht, lo_now, hi_now))
+    now_plays = sum(1 for p in pts if lo_now < p[0] <= hi_now)
+    now_km = now_m / 1000.0
+    total_km = sum(m for _t, m in hops) / 1000.0
+    scores = [p["score"] for p in series]
+    mean = round(sum(scores) / len(scores), 3) if scores else 0.0
+    label = (
+        "end to end"
+        if series and series[-1]["score"] >= 0.62
+        else "busy"
+        if series and series[-1]["score"] >= 0.42
+        else "steady"
+        if series and series[-1]["score"] >= 0.22
+        else "quiet"
+    )
+    return {
+        "window": window,
+        "to_minute": now_minute,
+        "score": intensity_score(now_swings, now_km, now_plays),
+        "label": label,
+        "mean": mean,
+        "swings": now_swings,
+        "swings_total": len(swings),
+        "ball_km": round(now_km, 3),
+        "ball_km_total": round(total_km, 3),
+        "ball_mi_total": round(total_km * 0.621371, 3),
+        "plays": now_plays,
+        "series": series,
+        "league": league
+        or {
+            "mean": INTENSITY_PRIOR_MEAN,
+            "series": None,
+            "games": 0,
+            "source": "prior",
+        },
+    }
+
+
+def compact_intensity(block: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Archive-sized intensity: mean, totals, and the per-minute score strip."""
+    if not isinstance(block, dict) or not block.get("series"):
+        return None
+    strip = []
+    for pt in block["series"]:
+        if isinstance(pt, dict):
+            strip.append(round(float(pt.get("score") or 0.0), 3))
+        else:
+            strip.append(round(float(pt or 0.0), 3))
+    return {
+        "mean": block.get("mean"),
+        "swings": block.get("swings_total", block.get("swings")),
+        "ball_km": block.get("ball_km_total", block.get("ball_km")),
+        "series": strip,
+    }
+
+
 def _cumulative_xg_series(
     points: list[tuple[int, float]],
 ) -> list[dict[str, Any]]:
@@ -1829,6 +2003,8 @@ def build_event_timeline(
     ``xg`` holds per-side cumulative expected-goals vs minute for the chart.
     ``possession`` / ``duels`` are rolling last-15′ shares (home, away, 50%)
     of on-ball events and 1v1 contests, same window as pressure.
+    ``intensity`` is end-to-end swings + ball travel over a rolling 5′ — how
+    frantic the game is, not who is pinning whom.
     ``elapsed_seconds`` is the best live clock for a client-side 1s cursor tick;
     ``frozen`` flags HT/FT-style clocks where the tick should pause.
     """
@@ -1889,6 +2065,7 @@ def build_event_timeline(
     pressure_pts: list[tuple[int, float, float, str, str | None]] = []
     poss_pts: list[tuple[int, str]] = []
     touches: list[tuple[float, str, str]] = []
+    intensity_pts: list[tuple[float, float, float]] = []
     duel_pts: list[tuple[int, str]] = []
     bulletin: list[dict[str, Any]] = []
 
@@ -1938,6 +2115,9 @@ def build_event_timeline(
                 territory_pts.append((px, py, side, pmin))
                 if pmin is not None:
                     pressure_pts.append((pmin, px, py, side, kind))
+                    ax, ay = _absolute_xy(px, py, side)
+                    if ax is not None and ay is not None:
+                        intensity_pts.append((_play_minute_exact(play, pmin), ax, ay))
 
         if "foul" in ptype and side in {"home", "away"}:
             counts["foul"] += 1
@@ -2067,6 +2247,7 @@ def build_event_timeline(
             tilt=_POSSESSION_TILT,
         ),
         "possession_spells": _build_possession_spells(touches, now_minute=minute, final=final),
+        "intensity": _build_intensity(intensity_pts, now_minute=minute),
         "duels": _build_share_clock(
             duel_pts,
             now_minute=minute,

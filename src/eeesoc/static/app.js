@@ -2635,9 +2635,121 @@
     return `${homeName} ${h}′${hPct} · ${awayName} ${a}′${aPct} · ${flips} ${flips === 1 ? "change" : "changes"}`;
   }
 
+  function intensityKmWords(km) {
+    const n = Number(km);
+    if (!Number.isFinite(n) || n <= 0) return "0 km";
+    const mi = n * 0.621371;
+    const k = n >= 10 ? n.toFixed(1) : n.toFixed(2);
+    const m = mi >= 10 ? mi.toFixed(1) : mi.toFixed(2);
+    return `${k} km · ${m} mi`;
+  }
+
+  function intensityLeagueWords(league) {
+    if (!league) return "league par";
+    const n = Number(league.games) || 0;
+    if (league.source === "league" && n) return `league · ${n} game${n === 1 ? "" : "s"}`;
+    if (league.source === "archive" && n) return `archive · ${n} game${n === 1 ? "" : "s"}`;
+    return "typical game (no archive yet)";
+  }
+
+  function intensitySvg(tl) {
+    const block = tl.intensity;
+    const series = block?.series || [];
+    const W = 640;
+    const H = 88;
+    const padL = 28;
+    const padR = 10;
+    const padT = 12;
+    const padB = 18;
+    const { maxM, now } = chartAxis(tl);
+    const ticks = maxM <= 45 ? [15, 30] : [15, 30, 45, 60, 75];
+    const xAt = (m) => padL + ((Number(m) / maxM) * (W - padL - padR));
+    const yAt = (v) => padT + ((1 - Math.max(0, Math.min(1, Number(v) || 0))) * (H - padT - padB));
+    const nowX = xAt(now).toFixed(1);
+    const y0 = yAt(0).toFixed(1);
+    const yMid = yAt(0.5).toFixed(1);
+    const yTop = yAt(1).toFixed(1);
+    const pts = series.filter((pt) => pt.score != null);
+    const gamePath = pts.length
+      ? `<path class="int-line" d="M ${pts.map((pt) => `${xAt(pt.minute).toFixed(1)} ${yAt(pt.score).toFixed(1)}`).join(" L ")}" fill="none"/>
+      <path class="int-fill" d="M ${xAt(pts[0].minute).toFixed(1)} ${y0} L ${pts.map((pt) => `${xAt(pt.minute).toFixed(1)} ${yAt(pt.score).toFixed(1)}`).join(" L ")} L ${xAt(pts[pts.length - 1].minute).toFixed(1)} ${y0} Z"/>`
+      : "";
+    const league = block?.league || {};
+    const lSeries = Array.isArray(league.series) ? league.series : null;
+    let leaguePath = "";
+    if (lSeries && lSeries.length) {
+      const lpts = lSeries
+        .map((v, i) => ({ minute: i + 1, score: v }))
+        .filter((pt) => pt.minute <= maxM);
+      if (lpts.length) {
+        leaguePath = `<path class="int-league" d="M ${lpts.map((pt) => `${xAt(pt.minute).toFixed(1)} ${yAt(pt.score).toFixed(1)}`).join(" L ")}" fill="none"/>`;
+      }
+    } else if (league.mean != null) {
+      const yL = yAt(league.mean).toFixed(1);
+      leaguePath = `<line class="int-league" x1="${padL}" y1="${yL}" x2="${W - padR}" y2="${yL}"/>`;
+    }
+    const tickMarks = ticks
+      .filter((t) => t < maxM)
+      .map((t) => {
+        const tx = xAt(t).toFixed(1);
+        return `<line x1="${tx}" y1="${padT}" x2="${tx}" y2="${y0}" class="tl-ht"/>
+      <text x="${tx}" y="${H - 4}" class="tl-label" text-anchor="middle">${t}'</text>`;
+      })
+      .join("");
+    const tips = pts
+      .filter((pt) => pt.minute % 5 === 0 || pt.minute === pts[pts.length - 1].minute)
+      .map((pt) => {
+        const x = xAt(pt.minute);
+        const w = Math.max(6, (W - padL - padR) / maxM);
+        const vs = league.mean != null ? ` · league ${Math.round(Number(league.mean) * 100)}` : "";
+        return `<rect x="${(x - w / 2).toFixed(1)}" y="${padT}" width="${w.toFixed(1)}" height="${(H - padT - padB).toFixed(1)}" class="press-hit" aria-hidden="true"><title>${pt.minute}' · intensity ${Math.round(pt.score * 100)} · ${pt.swings || 0} end-to-end · ball ${Number(pt.ball_km || 0).toFixed(2)} km${vs}</title></rect>`;
+      })
+      .join("");
+    return `<svg class="mc-int-svg" viewBox="0 0 ${W} ${H}" width="100%" height="${H}" role="img" aria-label="Game intensity versus league average">
+      <text x="4" y="${Number(yTop) + 3}" class="tl-label">hot</text>
+      <text x="4" y="${Number(yMid) + 3}" class="tl-label">par</text>
+      <text x="4" y="${Number(y0) + 3}" class="tl-label">calm</text>
+      <line x1="${padL}" y1="${yTop}" x2="${W - padR}" y2="${yTop}" class="tl-grid"/>
+      <line x1="${padL}" y1="${y0}" x2="${W - padR}" y2="${y0}" class="tl-axis"/>
+      ${tickMarks}
+      <line x1="${nowX}" y1="${padT}" x2="${nowX}" y2="${y0}" class="tl-now"/>
+      ${leaguePath}
+      ${gamePath}
+      ${tips}
+      <text x="${padL}" y="${H - 4}" class="tl-label">0'</text>
+      <text x="${W - padR}" y="${H - 4}" class="tl-label" text-anchor="end">${maxM}'</text>
+    </svg>`;
+  }
+
+  function intensityHtml(tl) {
+    const block = tl?.intensity;
+    if (!block) return "";
+    const win = block.window || 5;
+    const league = block.league || {};
+    const here = Math.round((Number(block.score) || 0) * 100);
+    const par = league.mean != null ? Math.round(Number(league.mean) * 100) : null;
+    const vs =
+      par == null
+        ? ""
+        : here > par + 8
+          ? "hotter than the league"
+          : here < par - 8
+            ? "quieter than the league"
+            : "about league pace";
+    const swings = Number(block.swings) || 0;
+    const meta = `${escapeHtml(block.label || "reading")} · last ${win}' · ${swings} end-to-end · ball ${escapeHtml(intensityKmWords(block.ball_km))} · this ${here}${par != null ? ` vs ${par}` : ""}${vs ? ` · ${vs}` : ""}`;
+    const foot = `Ball ${escapeHtml(intensityKmWords(block.ball_km_total))} this game · ESPN has no player GPS, so this is the ball's path, not miles run · ${escapeHtml(intensityLeagueWords(league))}`;
+    return `<span class="mc-intensity">
+      <span class="mc-pressure-head">Intensity · end-to-end + ball travel · not pressure · <i class="int-key int-game"></i> this game <i class="int-key int-par"></i> ${escapeHtml(intensityLeagueWords(league))}</span>
+      ${intensitySvg(tl)}
+      <span class="mc-pressure-meta">${meta}</span>
+      <span class="mc-pressure-meta">${foot}</span>
+    </span>`;
+  }
+
   function possessionRibbonsHtml(tl) {
     const sp = tl?.possession_spells;
-    if (!sp) return "";
+    if (!sp) return intensityHtml(tl);
     const h1 = sp["1h"];
     const h2 = sp["2h"];
     const showSecond = h2 && ((h2.spells || []).length || Number(h2.now) > Number(h2.from));
@@ -2647,6 +2759,7 @@
       <span class="mc-pressure-meta">${escapeHtml(possessionHalfMeta(tl, h1))}</span>
       ${showSecond ? possessionRibbonSvg(tl, h2, "2H") : ""}
       ${showSecond ? `<span class="mc-pressure-meta">${escapeHtml(possessionHalfMeta(tl, h2))}</span>` : ""}
+      ${intensityHtml(tl)}
     </span>`;
   }
 
@@ -2840,6 +2953,14 @@
           tl.possession_spells?.["2h"]?.now,
           tl.possession_spells?.["2h"]?.share?.home,
           tl.possession_spells?.["2h"]?.spells?.at(-1)?.to,
+        ],
+        intensity: [
+          tl.intensity?.to_minute,
+          tl.intensity?.score,
+          tl.intensity?.swings_total,
+          tl.intensity?.ball_km_total,
+          tl.intensity?.league?.mean,
+          tl.intensity?.series?.at(-1)?.score,
         ],
         duel: [
           tl.duels?.to_minute,
