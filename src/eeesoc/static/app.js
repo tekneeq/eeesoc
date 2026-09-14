@@ -947,12 +947,33 @@
       .replaceAll('"', "&quot;");
   }
 
+  const TEAM_DROP = /^(fc|cf|afc|sc|ac|as|ss|ud|cd|rc|the|&|and)$/i;
+  const TEAM_GENERIC = /^(united|city|town|athletic|rovers|wanderers|albion|hotspur|county)$/i;
+
+  function teamNameParts(name) {
+    return String(name || "")
+      .replace(/-/g, " ")
+      .split(/\s+/)
+      .filter((p) => p && !TEAM_DROP.test(p.replace(/\./g, "")));
+  }
+
+  function shortTeamName(name, maxLen) {
+    const s = String(name || "").trim();
+    if (!s) return "";
+    if (s.length <= maxLen) return s;
+    const parts = teamNameParts(s);
+    if (!parts.length) return `${s.slice(0, Math.max(1, maxLen - 1))}…`;
+    // Drop trailing "United" / "City" / … so the first name can stand alone.
+    while (parts.length > 1 && TEAM_GENERIC.test(parts[parts.length - 1])) parts.pop();
+    const core = parts.join(" ");
+    if (core.length <= maxLen) return core;
+    const first = parts[0];
+    if (first.length <= maxLen) return first;
+    return `${first.slice(0, maxLen - 1)}…`;
+  }
+
   function shortName(name) {
-    const s = String(name || "");
-    if (s.length <= 14) return s;
-    const parts = s.split(/\s+/);
-    if (parts.length === 1) return s.slice(0, 12) + "…";
-    return parts.map((p, i) => (i === parts.length - 1 ? p : p[0] + ".")).join(" ");
+    return shortTeamName(name, 14) || String(name || "");
   }
 
   // scope: "live" (default) | "upcoming" | "finished" | "all"
@@ -1564,18 +1585,7 @@
     "Each of this club's last five archived games: who they faced, the first-half and second-half score as it stood on the pitch (home–away), then clinical / offence / defence (power and league rank) and the archive table rank plus W–D–L as they stood after that night. Away games keep the home club first, so @ Dortmund 2–0 is a 2–0 loss, not 0–2. Oldest → newest.";
 
   function last5OppName(name) {
-    const s = String(name || "").trim();
-    if (!s) return "—";
-    const drop = /^(fc|cf|afc|sc|ac|as|ss|ud|cd|rc|the|&|and)$/i;
-    const parts = s.replace(/-/g, " ").split(/\s+/).filter((p) => !drop.test(p.replace(/\./g, "")));
-    if (!parts.length) return s.length <= 9 ? s : `${s.slice(0, 8)}…`;
-    const last = parts[parts.length - 1];
-    const generic = /^(united|city|town|athletic|rovers|wanderers|albion|hotspur)$/i;
-    if (parts.length >= 2 && generic.test(last)) {
-      const label = `${parts[parts.length - 2][0]}. ${last}`;
-      return label.length <= 10 ? label : last.slice(0, 9);
-    }
-    return last.length <= 9 ? last : `${last.slice(0, 8)}…`;
+    return shortTeamName(name, 10) || "—";
   }
 
   function last5HalfScore(gf, ga) {

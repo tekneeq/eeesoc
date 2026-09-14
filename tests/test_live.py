@@ -701,6 +701,9 @@ def test_live_chiclets_show_last5_games_with_halves():
     assert "function last5GamesRowHtml" in js
     assert "function last5GamesSideHtml" in js
     assert "function last5OppName" in js
+    assert "function shortTeamName" in js
+    assert "N. United" not in js
+    assert '${parts[parts.length - 2][0]}. ${last}' not in js
     assert "function last5GameHalves" in js
     assert "function last5PitchScore" in js
     assert "function last5ThenBits" in js
@@ -714,6 +717,41 @@ def test_live_chiclets_show_last5_games_with_halves():
     assert ".mc-form-then" in css
     assert "who they faced" in html
     assert "first-half score" in html and "second-half score" in html
+
+
+def test_short_team_name_prefers_first_word():
+    import subprocess
+
+    js = Path("src/eeesoc/static/app.js").read_text(encoding="utf-8")
+    start = js.index("  const TEAM_DROP")
+    end = js.index("  function last5HalfScore")
+    src = js[start:end]
+    script = src + """
+const cases = [
+  ["Newcastle United", 14, "Newcastle"],
+  ["Newcastle United", 10, "Newcastle"],
+  ["Manchester United", 14, "Manchester"],
+  ["West Ham United", 14, "West Ham"],
+  ["Tottenham Hotspur", 14, "Tottenham"],
+  ["Brighton & Hove Albion", 14, "Brighton Hove"],
+  ["Crystal Palace", 14, "Crystal Palace"],
+  ["Real Madrid", 14, "Real Madrid"],
+  ["Wolverhampton Wanderers", 14, "Wolverhampton"],
+  ["Wolverhampton Wanderers", 10, "Wolverham…"],
+  ["AFC Bournemouth", 14, "Bournemouth"],
+];
+let bad = 0;
+for (const [name, max, want] of cases) {
+  const got = shortTeamName(name, max);
+  if (got !== want) { console.error(JSON.stringify({name, max, want, got})); bad++; }
+}
+if (shortName("Newcastle United") !== "Newcastle") { console.error("shortName"); bad++; }
+if (last5OppName("Newcastle United") !== "Newcastle") { console.error("last5"); bad++; }
+if (last5OppName("Newcastle United") === "N. United") { console.error("old last5"); bad++; }
+process.exit(bad ? 1 : 0);
+"""
+    r = subprocess.run(["node", "-e", script], capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr or r.stdout
 
 
 def test_timeline_fouls_and_territory():
