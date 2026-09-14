@@ -1014,7 +1014,10 @@ def test_chiclet_shows_possession_and_duel_graphs():
     assert "function possessionHalfPcts" in js
     assert "function possessionPctLabels" in js
     assert "possessionRibbonsHtml(cached)" in js
-    assert "poss-pct poss-pct-${side}" in js
+    assert "poss-chip poss-home" in js
+    assert "poss-chip poss-away" in js
+    assert "poss-pct poss-pct-home" in js
+    assert "function longestPossessionSpell" not in js
     assert 'shareClockHtml(cached, "duels", "Duels")' in js
     assert "poss-seg poss-${sp.side}" in js
     assert "share-line-h" in js and "share-line-a" in js and "share-line-mid" in js
@@ -1023,6 +1026,7 @@ def test_chiclet_shows_possession_and_duel_graphs():
     assert ".share-line-h" in css
     assert ".poss-seg.poss-home" in css and ".poss-seg.poss-away" in css
     assert ".poss-pct" in css
+    assert ".poss-chip.poss-home" in css
     assert "possession graph" in html
     assert "duel graph" in html
     assert "Possession · 1H / 2H ribbons" in html

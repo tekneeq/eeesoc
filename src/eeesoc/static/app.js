@@ -2549,39 +2549,30 @@
     return { home, away: Math.max(0, 100 - home) };
   }
 
-  function longestPossessionSpell(spells, side) {
-    let best = null;
-    for (const sp of spells || []) {
-      if (sp.side !== side) continue;
-      const dur = Number(sp.to) - Number(sp.from);
-      if (!best || dur > best.dur) best = { from: Number(sp.from), to: Number(sp.to), dur };
-    }
-    return best;
-  }
-
-  function possessionPctLabels(tl, half, xAt, barY, barH) {
+  function possessionPctLabels(half, barY, barH, padL, padR, W) {
     const pct = possessionHalfPcts(half);
     if (!pct) return "";
+    const chipW = 30;
+    const gap = 4;
     const y = barY + barH / 2 + 3.5;
-    return ["home", "away"]
-      .map((side) => {
-        const n = pct[side];
-        if (!n) return "";
-        const sp = longestPossessionSpell(half.spells, side);
-        if (!sp) return "";
-        const x1 = xAt(sp.from);
-        const x2 = xAt(sp.to);
-        if (x2 - x1 < 26) return "";
-        return `<text class="poss-pct poss-pct-${side}" x="${((x1 + x2) / 2).toFixed(1)}" y="${y.toFixed(1)}" text-anchor="middle">${n}%</text>`;
-      })
-      .join("");
+    const home =
+      pct.home > 0
+        ? `<rect class="poss-chip poss-home" x="${(padL - gap - chipW).toFixed(1)}" y="${barY}" width="${chipW}" height="${barH}" rx="2"/>
+      <text class="poss-pct poss-pct-home" x="${(padL - gap - chipW / 2).toFixed(1)}" y="${y.toFixed(1)}" text-anchor="middle">${pct.home}%</text>`
+        : "";
+    const away =
+      pct.away > 0
+        ? `<rect class="poss-chip poss-away" x="${(W - padR + gap).toFixed(1)}" y="${barY}" width="${chipW}" height="${barH}" rx="2"/>
+      <text class="poss-pct poss-pct-away" x="${(W - padR + gap + chipW / 2).toFixed(1)}" y="${y.toFixed(1)}" text-anchor="middle">${pct.away}%</text>`
+        : "";
+    return home + away;
   }
 
   function possessionRibbonSvg(tl, half, label) {
     const W = 640;
     const H = 34;
-    const padL = 26;
-    const padR = 8;
+    const padL = 62;
+    const padR = 42;
     const barY = 4;
     const barH = 16;
     const lo = Number(half?.from) || 0;
@@ -2616,7 +2607,7 @@
       Number.isFinite(now) && now > lo && now < hi
         ? `<line x1="${xAt(now).toFixed(1)}" y1="${barY - 2}" x2="${xAt(now).toFixed(1)}" y2="${barY + barH + 2}" class="tl-now"/>`
         : "";
-    const labels = possessionPctLabels(tl, half, xAt, barY, barH);
+    const labels = possessionPctLabels(half, barY, barH, padL, padR, W);
     const ariaPct = pct ? ` · ${shortName(tl.home || "Home")} ${pct.home}% · ${shortName(tl.away || "Away")} ${pct.away}%` : "";
     return `<svg class="mc-poss-svg" viewBox="0 0 ${W} ${H}" width="100%" height="${H}" role="img" aria-label="${escapeHtml(label)} possession, who had the ball by minute${escapeHtml(ariaPct)}">
       <text x="3" y="${barY + barH - 3}" class="poss-half">${escapeHtml(label)}</text>
