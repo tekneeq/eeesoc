@@ -1561,7 +1561,7 @@
   ];
 
   const LAST5_HELP =
-    "Each of this club's last five archived games: who they faced, then the first-half and second-half score as it stood on the pitch (home–away). Away games keep the home club first, so @ Dortmund 2–0 is a 2–0 loss, not 0–2. Oldest → newest. Hover a game for the full-time score.";
+    "Each of this club's last five archived games: who they faced, the first-half and second-half score as it stood on the pitch (home–away), then clinical / offence / defence (power and league rank) and the archive table rank plus W–D–L as they stood after that night. Away games keep the home club first, so @ Dortmund 2–0 is a 2–0 loss, not 0–2. Oldest → newest.";
 
   function last5OppName(name) {
     const s = String(name || "").trim();
@@ -1621,12 +1621,40 @@
     return `${row.team}: last ${n} game${n === 1 ? "" : "s"} (oldest → newest): ${last5FormWords(row)}.`;
   }
 
+  function last5ThenBits(g) {
+    const rec =
+      g.then_played != null
+        ? `${g.then_wins ?? 0}–${g.then_draws ?? 0}–${g.then_losses ?? 0}`
+        : "";
+    const rank = (n) => (n != null ? `#${n}` : "n/r");
+    const power = (n) => (n != null ? String(n) : "—");
+    return {
+      rec,
+      clin: g.then_clinical != null || g.then_clinical_rank != null ? `${power(g.then_clinical)} ${rank(g.then_clinical_rank)}` : "",
+      off: g.then_offense != null || g.then_offense_rank != null ? `${power(g.then_offense)} ${rank(g.then_offense_rank)}` : "",
+      def: g.then_defense != null || g.then_defense_rank != null ? `${power(g.then_defense)} ${rank(g.then_defense_rank)}` : "",
+      table:
+        g.then_table_rank != null
+          ? `#${g.then_table_rank}${g.then_table_n ? `/${g.then_table_n}` : ""}${rec ? ` ${rec}` : ""}`
+          : rec,
+    };
+  }
+
   function last5GameTitle(g) {
     const vs = `${g.venue === "home" ? "v" : "@"} ${g.opponent}`;
     const { h1, h2, known } = last5GameHalves(g);
     const halves = known ? ` · 1H ${h1} · 2H ${h2}` : " · no half-time score archived";
     const when = g.date ? ` · ${g.date}` : "";
-    return `${g.letter} ${last5PitchScore(g, g.gf, g.ga)} FT${halves} ${vs}${when}`;
+    const then = last5ThenBits(g);
+    const snap = [
+      then.clin ? `clinical ${then.clin}` : "",
+      then.off ? `offence ${then.off}` : "",
+      then.def ? `defence ${then.def}` : "",
+      then.table ? `table ${then.table}` : "",
+    ]
+      .filter(Boolean)
+      .join(" · ");
+    return `${g.letter} ${last5PitchScore(g, g.gf, g.ga)} FT${halves} ${vs}${when}${snap ? ` · as of that night: ${snap}` : ""}`;
   }
 
   function last5GamesSideHtml(m, side) {
@@ -1642,7 +1670,14 @@
         const vs = `${g.venue === "home" ? "v" : "@"} ${last5OppName(g.opponent)}`;
         const letter = String(g.letter || "").toLowerCase();
         const cls = letter === "w" || letter === "d" || letter === "l" ? letter : "";
-        return `<span class="mc-form-g ${cls}${known ? "" : " none"}" title="${escapeHtml(last5GameTitle(g))}"><em>${escapeHtml(vs)}</em><b>1H ${h1}</b><i>2H ${h2}</i></span>`;
+        const then = last5ThenBits(g);
+        const snap = [
+          then.clin ? `<span class="mc-form-then">cl ${escapeHtml(then.clin)}</span>` : "",
+          then.off ? `<span class="mc-form-then">off ${escapeHtml(then.off)}</span>` : "",
+          then.def ? `<span class="mc-form-then">def ${escapeHtml(then.def)}</span>` : "",
+          then.table ? `<span class="mc-form-then tbl">${escapeHtml(then.table)}</span>` : "",
+        ].join("");
+        return `<span class="mc-form-g ${cls}${known ? "" : " none"}" title="${escapeHtml(last5GameTitle(g))}"><em>${escapeHtml(vs)}</em><b>1H ${h1}</b><i>2H ${h2}</i>${snap}</span>`;
       })
       .join("");
     return `<span class="mc-power-side mc-form-side ${side}" title="${title}"><span class="mc-form-games">${chips}</span></span>`;

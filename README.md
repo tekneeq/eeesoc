@@ -56,8 +56,11 @@ shrunk toward the league's points per game; 100 = par form, above is *rising*, b
 W/D/L letters (oldest → newest) alongside.
 **🥅 Last 5** is those same five games as a strip: who they faced, then the **1H** and **2H**
 score as it stood on the pitch (home–away). Away games keep the home club first, so
-`@ Dortmund 2–0` is a 2–0 loss. Hover a game for the full-time score. Games
-without a half-time score show dashes for the halves.
+`@ Dortmund 2–0` is a 2–0 loss. Under the scores: clinical / offence / defence (power and
+league rank) and the archive table rank plus W–D–L **as they stood after that night**
+(recomputed from every archived result up to and including that match — ESPN has no
+historical official table). Hover a game for the full-time score and the same snapshot.
+Games without a half-time score show dashes for the halves.
 **🔮 Potential** is underlying strength with finishing luck stripped out: the geometric mean of the club's
 chance-creation index (xG created vs the league) and its defence power, so 100 = a league-typical side on
 chance quality both ways. The same index on actual goals is shown as *results*; the tag is *upside* when

@@ -254,6 +254,73 @@ def test_league_without_xg_falls_back_to_sot_conversion():
     assert by["Ajax"]["offense_rank"] == 1 and by["Twente"]["offense_rank"] == 2
 
 
+def test_last5_games_carry_then_snapshot_as_of_that_night():
+    recs = [
+        _rec(
+            "a",
+            "Alpha FC",
+            "Beta FC",
+            "1",
+            "2",
+            [_ev(10, "goal", "home", 0.4), _ev(20, "shot_on", "home", 0.2), _ev(70, "shot", "away", 0.3)],
+            start="2026-08-01T15:00Z",
+        ),
+        _rec(
+            "b",
+            "Gamma FC",
+            "Beta FC",
+            "3",
+            "2",
+            [_ev(12, "goal", "home", 0.5), _ev(40, "shot_on", "away", 0.4)],
+            start="2026-08-08T15:00Z",
+        ),
+        _rec(
+            "c",
+            "Alpha FC",
+            "Gamma FC",
+            "1",
+            "3",
+            [_ev(8, "goal", "away", 0.6), _ev(55, "shot_on", "home", 0.3)],
+            start="2026-08-15T15:00Z",
+        ),
+        _rec(
+            "d",
+            "Beta FC",
+            "Alpha FC",
+            "2",
+            "1",
+            [_ev(25, "goal", "away", 0.5), _ev(80, "shot", "home", 0.2)],
+            start="2026-08-22T15:00Z",
+        ),
+    ]
+    board = build_clinical_board(recs)
+    alpha = {t["team"]: t for t in board["leagues"]["eng.1"]["teams"]}["Alpha FC"]
+    assert [g["letter"] for g in alpha["recent"]] == ["W", "L", "W"]
+    first, mid, last = alpha["recent"]
+
+    assert first["then_wins"] == 1 and first["then_draws"] == 0 and first["then_losses"] == 0
+    assert first["then_played"] == 1
+    assert first["then_clinical_rank"] is None  # one game, below MIN_GAMES
+    assert first["then_table_rank"] == 1
+    assert first["then_table_n"] == 2  # only Alpha and Beta had played
+
+    assert mid["then_wins"] == 1 and mid["then_losses"] == 1
+    assert mid["then_played"] == 2
+    assert mid["then_clinical_rank"] is not None  # now ranked
+    assert mid["then_offense"] and mid["then_defense"]
+    assert mid["then_table_n"] == 3
+
+    assert last["then_wins"] == 2 and last["then_losses"] == 1
+    assert last["then_played"] == 3
+    assert last["then_table_rank"] == 2  # Gamma has two wins to Alpha's two-and-a-loss
+    assert last["then_clinical"] == alpha["power"]
+    assert last["then_clinical_rank"] == alpha["rank"]
+    assert last["then_offense"] == alpha["offense_power"]
+    assert last["then_offense_rank"] == alpha["offense_rank"]
+    assert last["then_defense"] == alpha["defense_power"]
+    assert last["then_defense_rank"] == alpha["defense_rank"]
+
+
 def test_momentum_is_recency_weighted_points_vs_league():
     board = build_clinical_board(_records())
     epl = board["leagues"]["eng.1"]
