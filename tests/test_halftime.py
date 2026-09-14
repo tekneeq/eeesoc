@@ -167,6 +167,38 @@ def test_archive_timeline_only_stores_finals_once():
     assert zero_zero_records(rows)[0]["ht_goals"] == 0
 
 
+def test_league_intensity_avg_from_archived_strips():
+    from eeesoc.halftime import league_intensity_avg, stamp_league_intensity
+    from eeesoc.live import INTENSITY_PRIOR_MEAN
+
+    prior = league_intensity_avg("usa.1")
+    assert prior["source"] == "prior"
+    assert prior["mean"] == INTENSITY_PRIOR_MEAN
+    assert prior["games"] == 0
+
+    for i in range(3):
+        tl = _timeline(_quiet_half(), event_id=f"int{i}")
+        tl["league_slug"] = "usa.1"
+        tl["intensity"] = {
+            "mean": 0.40 + i * 0.10,
+            "swings_total": 10 + i,
+            "ball_km_total": 8.0 + i,
+            "series": [0.2 + i * 0.1] * 12,
+        }
+        rec = record_from_timeline(tl, {"start": "2026-09-01T14:00Z"})
+        assert rec["intensity"]["mean"] == tl["intensity"]["mean"]
+        assert rec["intensity"]["swings"] == 10 + i
+        archive_timeline(tl, {"start": "2026-09-01T14:00Z"})
+
+    avg = league_intensity_avg("usa.1")
+    assert avg["source"] == "league"
+    assert avg["games"] == 3
+    assert avg["mean"] == pytest.approx(0.5)
+    assert avg["series"][0] == pytest.approx(0.3)
+    stamped = stamp_league_intensity({"league_slug": "usa.1", "intensity": {"score": 0.7}})
+    assert stamped["intensity"]["league"]["games"] == 3
+
+
 def _seed_archive():
     """Four archived games: three 0-0 at HT (varying tempo/outcomes), one 1-0 at HT."""
     quiet = _timeline(_quiet_half(extra=[_ev(70, "goal", "home", xg=0.3, period=2)]), home_score=1, event_id="a")

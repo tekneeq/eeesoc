@@ -1027,10 +1027,18 @@ def test_chiclet_shows_possession_and_duel_graphs():
     assert ".poss-seg.poss-home" in css and ".poss-seg.poss-away" in css
     assert ".poss-pct" in css
     assert ".poss-chip.poss-home" in css
+    assert "function intensityHtml" in js
+    assert "function intensitySvg" in js
+    assert "intensityHtml(tl)" in js
+    assert "int-line" in js and "int-league" in js
+    assert ".int-line" in css and ".int-league" in css
     assert "possession graph" in html
+    assert "intensity graph" in html
     assert "duel graph" in html
     assert "Possession · 1H / 2H ribbons" in html
+    assert "Intensity · vs league" in html
     assert "Duels · last 15′" in html
+    assert "no player GPS" in html
 
 
 def test_possession_spells_colour_each_half_by_who_has_the_ball():
@@ -1071,6 +1079,66 @@ def test_possession_spells_colour_each_half_by_who_has_the_ball():
 
     done = _build_possession_spells(touches, now_minute=90, final=True)
     assert done["2h"]["spells"][-1]["to"] == 90.0
+
+
+def test_intensity_counts_end_to_end_not_slow_buildup():
+    from eeesoc.live import _build_intensity, _intensity_swings, intensity_score
+
+    ping = [
+        (10.00, 12.0, 50.0),
+        (10.20, 88.0, 50.0),
+        (10.40, 14.0, 50.0),
+        (10.60, 90.0, 50.0),
+    ]
+    assert _intensity_swings(ping) == [10.20, 10.40, 10.60]
+    hot = _build_intensity(ping, now_minute=12)
+    assert hot["swings_total"] == 3
+    assert hot["swings"] == 3
+    assert hot["label"] in {"busy", "end to end"}
+    assert hot["score"] >= 0.45
+    assert hot["series"][10]["swings"] == 3
+    assert hot["ball_km_total"] > 0.2
+    assert hot["league"]["source"] == "prior"
+
+    crawl = [(10.0, 12.0, 50.0), (11.2, 88.0, 50.0)]
+    assert _intensity_swings(crawl) == []
+    cold = _build_intensity(crawl, now_minute=12)
+    assert cold["swings_total"] == 0
+    assert cold["score"] < hot["score"]
+    assert intensity_score(3, 0.25, 4) > intensity_score(0, 0.08, 2)
+
+
+def test_timeline_payload_includes_intensity_from_coordinates():
+    from eeesoc.live import build_event_timeline, clear_timeline_cache
+
+    clear_timeline_cache()
+    items = []
+    for i, x in enumerate((12, 88, 14, 90, 16, 86)):
+        items.append(
+            {
+                "type": {"type": "pass"},
+                "clock": {"displayValue": f"{20 + i}'", "value": (20 + i) * 12},
+                "team": {"$ref": f".../teams/{1 if i % 2 == 0 else 2}"},
+                "fieldPositionX": float(x if i % 2 == 0 else 100 - x),
+                "fieldPositionY": 50.0,
+            }
+        )
+    tl = build_event_timeline(
+        "usa.1",
+        "88",
+        home="Whitecaps",
+        away="Austin",
+        home_id="1",
+        away_id="2",
+        clock="26'",
+        fetcher=lambda url: {"pageCount": 1, "items": items},
+        use_cache=False,
+    )
+    block = tl["intensity"]
+    assert block["swings_total"] >= 3
+    assert block["to_minute"] >= 26
+    assert block["series"][-1]["score"] == block["score"] or block["series"]
+    assert block["ball_km_total"] > 0
 
 
 def test_timeline_payload_includes_pressure():

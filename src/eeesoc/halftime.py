@@ -29,8 +29,10 @@ from eeesoc.live import (
     SITE_SCOREBOARD,
     LiveMatch,
     _fetch_json,
+    INTENSITY_PRIOR_MEAN,
     box_entries_from_plays,
     build_event_timeline,
+    compact_intensity,
     fetch_all_plays,
     parse_scoreboard,
     parse_start,
@@ -236,6 +238,7 @@ def record_from_timeline(tl: dict[str, Any], meta: dict[str, Any] | None = None)
         "second_half_goals": _second_half_goals(events),
         "events": trimmed_events,
         "box_entries": tl.get("box_entries") or None,
+        "intensity": compact_intensity(tl.get("intensity") if isinstance(tl.get("intensity"), dict) else None),
         "xg": {
             "home": list(xg.get("home") or []),
             "away": list(xg.get("away") or []),
@@ -602,6 +605,63 @@ def zero_zero_board(
         "backfill": backfill,
         "fetched_at": time.time(),
     }
+
+
+_INTENSITY_MIN_GAMES = 3
+
+
+def league_intensity_avg(league_slug: str | None = None) -> dict[str, Any]:
+    """
+    Typical intensity for a league's archived full-time games.
+
+    Needs a handful of records that stored an intensity strip (newer archives).
+    Falls back to every league, then to a fixed prior so the chiclet always
+    has a dashed reference line.
+    """
+    slug = str(league_slug or "")
+    pool = load_records({slug} if slug else None)
+    tagged = [r for r in pool if isinstance(r.get("intensity"), dict) and r["intensity"].get("series")]
+    source = "league" if slug else "archive"
+    if len(tagged) < _INTENSITY_MIN_GAMES:
+        tagged = [r for r in load_records() if isinstance(r.get("intensity"), dict) and r["intensity"].get("series")]
+        source = "archive"
+    if len(tagged) < _INTENSITY_MIN_GAMES:
+        return {
+            "mean": INTENSITY_PRIOR_MEAN,
+            "series": None,
+            "games": 0,
+            "source": "prior",
+            "ball_km": None,
+            "swings": None,
+        }
+    means = [float(r["intensity"].get("mean") or 0.0) for r in tagged]
+    kms = [float(r["intensity"]["ball_km"]) for r in tagged if r["intensity"].get("ball_km") is not None]
+    swings = [float(r["intensity"]["swings"]) for r in tagged if r["intensity"].get("swings") is not None]
+    width = max((len(r["intensity"]["series"]) for r in tagged), default=0)
+    series: list[float] = []
+    for i in range(width):
+        vals = []
+        for r in tagged:
+            strip = r["intensity"]["series"]
+            if i < len(strip):
+                vals.append(float(strip[i] or 0.0))
+        series.append(round(mean(vals), 3) if vals else 0.0)
+    return {
+        "mean": round(mean(means), 3) if means else INTENSITY_PRIOR_MEAN,
+        "series": series,
+        "games": len(tagged),
+        "source": source,
+        "ball_km": round(mean(kms), 2) if kms else None,
+        "swings": round(mean(swings), 1) if swings else None,
+    }
+
+
+def stamp_league_intensity(timeline: dict[str, Any]) -> dict[str, Any]:
+    """Attach the league (or prior) intensity line onto a live timeline payload."""
+    block = timeline.get("intensity")
+    if isinstance(block, dict):
+        block["league"] = league_intensity_avg(str(timeline.get("league_slug") or ""))
+    return timeline
 
 
 # ---------------------------------------------------------------------------
