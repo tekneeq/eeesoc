@@ -99,6 +99,47 @@ def team_key(name: str) -> str:
     return re.sub(r"[^a-z0-9]+", " ", str(name or "").lower()).strip()
 
 
+def _game_side_stats(rec: dict[str, Any], side: str, other: str, *, has_xg: bool) -> dict[str, Any]:
+    """One side's attacking / defending counts in a single archived game."""
+    stats = {
+        "shots": 0,
+        "sot": 0,
+        "goals": 0,
+        "xg": 0.0,
+        "corners": 0,
+        "conceded": 0,
+        "shots_against": 0,
+        "sot_against": 0,
+        "xg_against": 0.0,
+        "has_xg": bool(has_xg),
+    }
+    for ev in rec.get("events") or []:
+        kind = ev.get("kind")
+        team = ev.get("team")
+        xg = ev.get("xg")
+        if team == side:
+            if kind in {"shot", "shot_on", "blocked", "goal"}:
+                stats["shots"] += 1
+            if kind in {"shot_on", "goal"}:
+                stats["sot"] += 1
+            if kind == "goal":
+                stats["goals"] += 1
+            if kind == "corner":
+                stats["corners"] += 1
+            if xg and kind != "own_goal" and has_xg:
+                stats["xg"] += float(xg)
+        elif team == other:
+            if kind in {"goal", "own_goal"}:
+                stats["conceded"] += 1
+            if kind in {"shot", "shot_on", "blocked", "goal"}:
+                stats["shots_against"] += 1
+            if kind in {"shot_on", "goal"}:
+                stats["sot_against"] += 1
+            if xg and kind != "own_goal" and has_xg:
+                stats["xg_against"] += float(xg)
+    return stats
+
+
 def _team_totals(records: list[dict[str, Any]]) -> dict[str, dict[str, dict[str, Any]]]:
     """league_slug → team key → raw totals."""
     leagues: dict[str, dict[str, dict[str, Any]]] = {}
@@ -148,6 +189,7 @@ def _team_totals(records: list[dict[str, Any]]) -> dict[str, dict[str, dict[str,
             row["scored"] += gf
             row["points"] += pts
             ht_known = rec.get("ht_home") is not None and rec.get("ht_away") is not None
+            game = _game_side_stats(rec, side, other, has_xg=has_xg)
             row["results"].append(
                 {
                     "start": str(rec.get("start") or rec.get("date") or ""),
@@ -159,33 +201,18 @@ def _team_totals(records: list[dict[str, Any]]) -> dict[str, dict[str, dict[str,
                     "ht_ga": int(rec.get(f"ht_{other}") or 0) if ht_known else None,
                     "points": pts,
                     "letter": "W" if pts == 3 else ("D" if pts == 1 else "L"),
+                    **game,
                 }
             )
-            for ev in rec.get("events") or []:
-                kind = ev.get("kind")
-                team = ev.get("team")
-                if team == side:
-                    if kind in {"shot", "shot_on", "blocked", "goal"}:
-                        row["shots"] += 1
-                    if kind in {"shot_on", "goal"}:
-                        row["sot"] += 1
-                    if kind == "goal":
-                        row["goals"] += 1
-                    if kind == "corner":
-                        row["corners"] += 1
-                    xg = ev.get("xg")
-                    if xg and kind != "own_goal" and has_xg:
-                        row["xg"] += float(xg)
-                elif team == other:
-                    if kind in {"goal", "own_goal"}:
-                        row["conceded"] += 1
-                    if kind in {"shot", "shot_on", "blocked", "goal"}:
-                        row["shots_against"] += 1
-                    if kind in {"shot_on", "goal"}:
-                        row["sot_against"] += 1
-                    xg = ev.get("xg")
-                    if xg and kind != "own_goal" and has_xg:
-                        row["xg_against"] += float(xg)
+            row["shots"] += game["shots"]
+            row["sot"] += game["sot"]
+            row["goals"] += game["goals"]
+            row["xg"] += game["xg"]
+            row["corners"] += game["corners"]
+            row["conceded"] += game["conceded"]
+            row["shots_against"] += game["shots_against"]
+            row["sot_against"] += game["sot_against"]
+            row["xg_against"] += game["xg_against"]
     return leagues
 
 
@@ -323,6 +350,7 @@ def _league_table(slug: str, teams: dict[str, dict[str, Any]], label: str) -> di
             # Only what the chiclet tooltip needs; the full log would triple the payload.
             "recent": [
                 {
+                    "start": g["start"],
                     "date": g["start"][:10],
                     "opponent": g["opponent"],
                     "venue": g["venue"],
@@ -426,14 +454,148 @@ def _league_table(slug: str, teams: dict[str, dict[str, Any]], label: str) -> di
     }
 
 
+def _totals_as_of(teams: dict[str, dict[str, Any]], as_of: str) -> dict[str, dict[str, Any]]:
+    """Rebuild league totals from games that had kicked off by ``as_of`` (inclusive)."""
+    out: dict[str, dict[str, Any]] = {}
+    for key, src in teams.items():
+        games = [g for g in src.get("results") or [] if str(g.get("start") or "") <= as_of]
+        if not games:
+            continue
+        row = {
+            "team": src.get("team") or "",
+            "team_id": src.get("team_id") or "",
+            "key": src.get("key") or "",
+            "league_slug": src.get("league_slug") or "",
+            "league_chiclet": src.get("league_chiclet") or "",
+            "games": 0,
+            "games_xg": 0,
+            "goals": 0,
+            "shots": 0,
+            "sot": 0,
+            "xg": 0.0,
+            "corners": 0,
+            "conceded": 0,
+            "shots_against": 0,
+            "sot_against": 0,
+            "xg_against": 0.0,
+            "scored": 0,
+            "points": 0,
+            "results": games,
+        }
+        for g in games:
+            row["games"] += 1
+            if g.get("has_xg"):
+                row["games_xg"] += 1
+            row["goals"] += int(g.get("goals") or 0)
+            row["shots"] += int(g.get("shots") or 0)
+            row["sot"] += int(g.get("sot") or 0)
+            row["xg"] += float(g.get("xg") or 0.0)
+            row["corners"] += int(g.get("corners") or 0)
+            row["conceded"] += int(g.get("conceded") or 0)
+            row["shots_against"] += int(g.get("shots_against") or 0)
+            row["sot_against"] += int(g.get("sot_against") or 0)
+            row["xg_against"] += float(g.get("xg_against") or 0.0)
+            row["scored"] += int(g.get("gf") or 0)
+            row["points"] += int(g.get("points") or 0)
+        out[key] = row
+    return out
+
+
+def _table_rank_map(totals: dict[str, dict[str, Any]]) -> dict[str, int]:
+    """Archive table: points, then goal difference, then goals scored."""
+    rows = [(k, r) for k, r in totals.items() if r.get("games")]
+    rows.sort(
+        key=lambda kv: (
+            -int(kv[1].get("points") or 0),
+            -sum(int(g.get("gf") or 0) - int(g.get("ga") or 0) for g in kv[1].get("results") or []),
+            -int(kv[1].get("scored") or 0),
+            str(kv[1].get("team") or ""),
+        )
+    )
+    return {k: i for i, (k, _) in enumerate(rows, 1)}
+
+
+def _wdl(games: list[dict[str, Any]]) -> tuple[int, int, int]:
+    w = d = l = 0
+    for g in games:
+        letter = g.get("letter")
+        if letter == "W":
+            w += 1
+        elif letter == "D":
+            d += 1
+        else:
+            l += 1
+    return w, d, l
+
+
+def _find_snapshot_row(league: dict[str, Any], *, team_id: str, name: str) -> dict[str, Any] | None:
+    tid = str(team_id or "")
+    key = team_key(name)
+    for row in league.get("teams") or []:
+        if tid and row.get("team_id") == tid:
+            return row
+    for row in league.get("teams") or []:
+        if key and row.get("key") == key:
+            return row
+    return None
+
+
+def _attach_then_snapshots(
+    slug: str,
+    label: str,
+    raw_teams: dict[str, dict[str, Any]],
+    league: dict[str, Any],
+) -> None:
+    """Stamp each last-5 game with clinical / O / D / table / W-D-L as of that night."""
+    dates = {
+        str(g.get("start") or g.get("date") or "")
+        for row in league.get("teams") or []
+        for g in row.get("recent") or []
+        if g.get("start") or g.get("date")
+    }
+    cache: dict[str, tuple[dict[str, Any], dict[str, int]]] = {}
+    for as_of in dates:
+        totals = _totals_as_of(raw_teams, as_of)
+        cache[as_of] = (_league_table(slug, totals, label), _table_rank_map(totals))
+
+    for row in league.get("teams") or []:
+        tid = str(row.get("team_id") or "")
+        raw_key = tid or row.get("key") or team_key(row.get("team") or "")
+        raw = raw_teams.get(raw_key)
+        if raw is None and tid:
+            raw = next((v for v in raw_teams.values() if v.get("team_id") == tid), None)
+        if raw is None:
+            raw = next((v for v in raw_teams.values() if v.get("key") == team_key(row.get("team") or "")), None)
+        for g in row.get("recent") or []:
+            as_of = str(g.get("start") or g.get("date") or "")
+            snap_league, table_ranks = cache.get(as_of, ({}, {}))
+            snap = _find_snapshot_row(snap_league, team_id=tid, name=row.get("team") or "")
+            games = [r for r in (raw or {}).get("results") or [] if str(r.get("start") or "") <= as_of]
+            w, d, l = _wdl(games)
+            g["then_clinical"] = snap.get("power") if snap else None
+            g["then_clinical_rank"] = snap.get("rank") if snap else None
+            g["then_offense"] = snap.get("offense_power") if snap else None
+            g["then_offense_rank"] = snap.get("offense_rank") if snap else None
+            g["then_defense"] = snap.get("defense_power") if snap else None
+            g["then_defense_rank"] = snap.get("defense_rank") if snap else None
+            g["then_table_rank"] = table_ranks.get(raw_key) or table_ranks.get(tid)
+            g["then_table_n"] = len(table_ranks)
+            g["then_wins"] = w
+            g["then_draws"] = d
+            g["then_losses"] = l
+            g["then_played"] = w + d + l
+
+
 def build_clinical_board(records: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     records = load_records() if records is None else records
     labels = dict(LEAGUES)
     totals = _team_totals(records)
-    leagues = {
-        slug: _league_table(slug, teams, labels.get(slug, next(iter(teams.values()))["league_chiclet"] or slug))
-        for slug, teams in totals.items()
-    }
+    leagues = {}
+    for slug, teams in totals.items():
+        label = labels.get(slug, next(iter(teams.values()))["league_chiclet"] or slug)
+        league = _league_table(slug, teams, label)
+        _attach_then_snapshots(slug, label, teams, league)
+        leagues[slug] = league
     return {
         "archive_total": len(records),
         "min_games": MIN_GAMES,

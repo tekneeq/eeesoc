@@ -3620,8 +3620,8 @@ main {
   display: inline-flex;
   flex-direction: column;
   align-items: center;
-  min-width: 2.55rem;
-  padding: 0.08rem 0.16rem 0.1rem;
+  min-width: 3.4rem;
+  padding: 0.08rem 0.18rem 0.12rem;
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 0.22rem;
   line-height: 1.08;
@@ -3677,6 +3677,19 @@ main {
 .mc-form-g.none {
   border-style: dashed;
   color: var(--muted);
+}
+
+.mc-form-then {
+  font-size: 0.48rem;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.mc-form-then.tbl {
+  color: var(--text);
+  opacity: 0.88;
 }
 
 /* Companion stat beside the rank: goals scored / allowed per game, recent W D L, results index. */
