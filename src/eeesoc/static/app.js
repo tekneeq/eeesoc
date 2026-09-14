@@ -2534,6 +2534,49 @@
     </svg>`;
   }
 
+  function possessionHalfPcts(half) {
+    const sh = half?.share;
+    if (sh?.home != null) {
+      const home = Math.round(Number(sh.home) * 100);
+      return { home, away: Math.max(0, 100 - home) };
+    }
+    const m = half?.minutes || {};
+    const h = Number(m.home) || 0;
+    const a = Number(m.away) || 0;
+    const t = h + a;
+    if (!t) return null;
+    const home = Math.round((h / t) * 100);
+    return { home, away: Math.max(0, 100 - home) };
+  }
+
+  function longestPossessionSpell(spells, side) {
+    let best = null;
+    for (const sp of spells || []) {
+      if (sp.side !== side) continue;
+      const dur = Number(sp.to) - Number(sp.from);
+      if (!best || dur > best.dur) best = { from: Number(sp.from), to: Number(sp.to), dur };
+    }
+    return best;
+  }
+
+  function possessionPctLabels(tl, half, xAt, barY, barH) {
+    const pct = possessionHalfPcts(half);
+    if (!pct) return "";
+    const y = barY + barH / 2 + 3.5;
+    return ["home", "away"]
+      .map((side) => {
+        const n = pct[side];
+        if (!n) return "";
+        const sp = longestPossessionSpell(half.spells, side);
+        if (!sp) return "";
+        const x1 = xAt(sp.from);
+        const x2 = xAt(sp.to);
+        if (x2 - x1 < 26) return "";
+        return `<text class="poss-pct poss-pct-${side}" x="${((x1 + x2) / 2).toFixed(1)}" y="${y.toFixed(1)}" text-anchor="middle">${n}%</text>`;
+      })
+      .join("");
+  }
+
   function possessionRibbonSvg(tl, half, label) {
     const W = 640;
     const H = 34;
@@ -2547,6 +2590,7 @@
     const xAt = (m) => padL + ((Math.max(lo, Math.min(hi, Number(m))) - lo) / span) * (W - padL - padR);
     const homeName = shortName(tl.home || "Home");
     const awayName = shortName(tl.away || "Away");
+    const pct = possessionHalfPcts(half);
     const segs = (half?.spells || [])
       .map((sp) => {
         const x1 = xAt(sp.from);
@@ -2556,7 +2600,8 @@
         const f = Math.round(sp.from);
         const t = Math.round(sp.to);
         const when = f === t ? `${f}'` : `${f}'–${t}'`;
-        return `<rect class="poss-seg poss-${sp.side}" x="${x1.toFixed(1)}" y="${barY}" width="${w.toFixed(1)}" height="${barH}"><title>${escapeHtml(when)} · ${escapeHtml(who)} on the ball</title></rect>`;
+        const share = pct ? ` · ${pct[sp.side]}% this half` : "";
+        return `<rect class="poss-seg poss-${sp.side}" x="${x1.toFixed(1)}" y="${barY}" width="${w.toFixed(1)}" height="${barH}"><title>${escapeHtml(when)} · ${escapeHtml(who)} on the ball${escapeHtml(share)}</title></rect>`;
       })
       .join("");
     const ticks = [15, 30]
@@ -2571,12 +2616,15 @@
       Number.isFinite(now) && now > lo && now < hi
         ? `<line x1="${xAt(now).toFixed(1)}" y1="${barY - 2}" x2="${xAt(now).toFixed(1)}" y2="${barY + barH + 2}" class="tl-now"/>`
         : "";
-    return `<svg class="mc-poss-svg" viewBox="0 0 ${W} ${H}" width="100%" height="${H}" role="img" aria-label="${escapeHtml(label)} possession, who had the ball by minute">
+    const labels = possessionPctLabels(tl, half, xAt, barY, barH);
+    const ariaPct = pct ? ` · ${shortName(tl.home || "Home")} ${pct.home}% · ${shortName(tl.away || "Away")} ${pct.away}%` : "";
+    return `<svg class="mc-poss-svg" viewBox="0 0 ${W} ${H}" width="100%" height="${H}" role="img" aria-label="${escapeHtml(label)} possession, who had the ball by minute${escapeHtml(ariaPct)}">
       <text x="3" y="${barY + barH - 3}" class="poss-half">${escapeHtml(label)}</text>
       <rect class="poss-track" x="${padL}" y="${barY}" width="${W - padL - padR}" height="${barH}" rx="2"/>
       ${segs}
       ${ticks}
       ${nowMark}
+      ${labels}
       <text x="${padL}" y="${H - 3}" class="tl-label">${lo}'</text>
       <text x="${W - padR}" y="${H - 3}" class="tl-label" text-anchor="end">${hi}'</text>
     </svg>`;
@@ -2590,7 +2638,10 @@
     const h = Math.round(Number(m.home) || 0);
     const a = Math.round(Number(m.away) || 0);
     const flips = Number(half.flips) || 0;
-    return `${homeName} ${h}′ · ${awayName} ${a}′ · ${flips} ${flips === 1 ? "change" : "changes"}`;
+    const pct = possessionHalfPcts(half);
+    const hPct = pct ? ` ${pct.home}%` : "";
+    const aPct = pct ? ` ${pct.away}%` : "";
+    return `${homeName} ${h}′${hPct} · ${awayName} ${a}′${aPct} · ${flips} ${flips === 1 ? "change" : "changes"}`;
   }
 
   function possessionRibbonsHtml(tl) {
@@ -2793,8 +2844,10 @@
         spells: [
           tl.possession_spells?.["1h"]?.spells?.length,
           tl.possession_spells?.["1h"]?.now,
+          tl.possession_spells?.["1h"]?.share?.home,
           tl.possession_spells?.["2h"]?.spells?.length,
           tl.possession_spells?.["2h"]?.now,
+          tl.possession_spells?.["2h"]?.share?.home,
           tl.possession_spells?.["2h"]?.spells?.at(-1)?.to,
         ],
         duel: [

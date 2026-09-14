@@ -1112,6 +1112,14 @@ main {
   font-weight: 700;
 }
 
+.poss-pct {
+  fill: #07140e;
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 10px;
+  font-weight: 700;
+  pointer-events: none;
+}
+
 .poss-key {
   display: inline-block;
   width: 0.55rem;
