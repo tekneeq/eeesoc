@@ -20,7 +20,15 @@ the break does not collapse to "even".
 
 Under the pitch graphic sits the **formation board** (`/api/live/lineups`, from the ESPN match summary):
 both teams' formations with everyone currently on the pitch in his slot. Each player carries a **power**
-number — a FIFA-flavoured 40–99 match-performance score computed from ESPN's live per-player stats
+number — a FIFA-flavoured 40–99 match-performance score computed from ESPN's live per-player stats.
+Click any player on the formation board for his **player card** (`/api/live/player-events`): every play
+ESPN logged for him — touches, passes, shots, duels, set pieces — with the match-clock second, a touch
+map (his side attacking right), and a **highlight cut list**. The cut list downloads as text (clip
+start/end on the match clock) or as a ready-to-run **ffmpeg script**: point it at your own recording of
+the broadcast, tell it when each half kicked off in that file, and it cuts and concatenates a per-player
+highlight reel locally. The dashboard never touches the video — DRM'd streams (Peacock, Hulu, …) can't
+be ingested, so the analysis rides on ESPN's play-by-play and the cutting happens on your machine.
+The power score itself uses ESPN's live per-player stats
 (goals +12, assists +8, shots on target +4, other shots +1.5, fouls drawn +1; fouls −1.5, offsides −1,
 yellow −4, red −12; keepers get +3 a save, −3 a goal conceded; 65 = quiet, tidy game) — and a
 **freshness bar** that drains with minutes on the pitch (ESPN publishes no distance-run/GPS data, so
