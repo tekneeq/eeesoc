@@ -1112,6 +1112,14 @@ main {
   font-weight: 700;
 }
 
+.poss-chip.poss-home {
+  fill: var(--accent);
+}
+
+.poss-chip.poss-away {
+  fill: rgba(125, 200, 255, 0.95);
+}
+
 .poss-pct {
   fill: #07140e;
   font-family: "IBM Plex Mono", ui-monospace, monospace;
