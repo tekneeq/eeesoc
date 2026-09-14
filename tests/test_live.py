@@ -1970,3 +1970,108 @@ def test_pitch_lineups_annotate_subbed_in_players():
     assert "SUB ON" in js
     assert ".lu-sub .lu-dot" in css and ".lu-sub-tag" in css
     assert ".lu-sub-badge" in css and ".lu-sub-ring" in css
+
+
+def _pe_play(minute, ptype, player, team="1", *, seconds=None, x=None, y=None, scoring=False):
+    play = {
+        "type": {"type": ptype},
+        "clock": {"displayValue": f"{minute}'"},
+        "team": {"$ref": f".../teams/{team}"},
+        "athletesInvolved": [{"shortName": player}],
+        "scoringPlay": scoring,
+    }
+    if seconds is not None:
+        play["clock"]["value"] = seconds
+    if x is not None:
+        play["fieldPositionX"] = x
+        play["fieldPositionY"] = y if y is not None else 50.0
+    return play
+
+
+def test_player_events_group_touches_passes_shots_by_player():
+    from eeesoc.live import build_player_events, clear_player_events_cache
+
+    clear_player_events_cache()
+    items = [
+        _pe_play(3, "pass", "H. Son", seconds=150, x=40.0),
+        _pe_play(9, "cross", "H. Son", seconds=520, x=80.0),
+        _pe_play(12, "shot-on-target", "H. Son", seconds=700, x=90.0),
+        _pe_play(52, "goal", "H. Son", seconds=3130, x=93.0, scoring=True),
+        _pe_play(20, "tackle", "C. Romero", seconds=1180),
+        _pe_play(21, "pass", "C. Romero", seconds=1260),
+        _pe_play(30, "pass", "Opp Mid", team="2", seconds=1800),
+        # Un-named and un-tagged plays never reach a card.
+        {"type": {"type": "pass"}, "clock": {"displayValue": "5'"}, "team": {"$ref": ".../teams/1"}},
+        _pe_play(6, "offside", "H. Son", seconds=380),
+    ]
+    out = build_player_events(
+        "eng.1",
+        "55",
+        home="Tottenham",
+        away="Everton",
+        home_id="1",
+        away_id="2",
+        clock="60'",
+        fetcher=lambda url: {"pageCount": 1, "items": items},
+        use_cache=False,
+    )
+    assert out["clip"] == {"before_s": 6, "after_s": 7}
+    home = out["players"]["home"]
+    assert [p["name"] for p in home] == ["H. Son", "C. Romero"]
+    son = home[0]
+    assert son["team"] == "Tottenham"
+    assert [e["tag"] for e in son["events"]] == ["pass", "pass", "shot_on", "goal"]
+    assert [e["seconds"] for e in son["events"]] == [150, 520, 700, 3130]
+    assert son["events"][-1]["half"] == "2h"
+    assert son["events"][0]["half"] == "1h"
+    assert son["events"][2]["x"] == 90.0
+    assert son["counts"]["touches"] == 4
+    assert son["counts"]["passes"] == 2
+    assert son["counts"]["shots"] == 2
+    assert son["counts"]["sot"] == 2
+    assert son["counts"]["goals"] == 1
+    romero = home[1]
+    assert romero["counts"]["duels"] == 1
+    assert romero["counts"]["passes"] == 1
+    away = out["players"]["away"]
+    assert [p["name"] for p in away] == ["Opp Mid"]
+    assert out["final"] is False
+
+
+def test_player_events_final_and_cache():
+    from eeesoc.live import build_player_events, clear_player_events_cache
+
+    clear_player_events_cache()
+    calls = []
+
+    def fetcher(url):
+        calls.append(url)
+        return {"pageCount": 1, "items": [_pe_play(10, "pass", "A. Player", seconds=600)]}
+
+    first = build_player_events("eng.1", "77", home="A", away="B", home_id="1", away_id="2", clock="FT", fetcher=fetcher)
+    second = build_player_events("eng.1", "77", home="A", away="B", home_id="1", away_id="2", clock="FT", fetcher=fetcher)
+    assert first is second and len(calls) == 1
+    assert first["final"] is True
+    clear_player_events_cache()
+
+
+def test_player_card_and_highlight_export_in_frontend():
+    js = Path("src/eeesoc/static/app.js").read_text(encoding="utf-8")
+    css = Path("src/eeesoc/static/app.css").read_text(encoding="utf-8")
+    html = Path("src/eeesoc/static/index.html").read_text(encoding="utf-8")
+    py = Path("src/eeesoc/dashboard.py").read_text(encoding="utf-8")
+    assert "/api/live/player-events" in py
+    assert "function openPlayerCard" in js
+    assert "function renderPlayerCard" in js
+    assert "function playerClipWindows" in js
+    assert "function playerCutListText" in js
+    assert "function playerFfmpegScript" in js
+    assert "function playerTouchMapSvg" in js
+    assert "function bindLineupPlayerClicks" in js
+    assert "data-player=" in js
+    assert 'id="playerCard"' in html
+    assert ".player-card" in css
+    assert ".pc-ev" in css and ".pc-chip" in css and ".pc-dot.pc-goal" in css
+    assert "KICKOFF_1H" in js and "KICKOFF_2H" in js
+    assert "ffmpeg" in js
+    assert "highlight cut list" in html.lower()

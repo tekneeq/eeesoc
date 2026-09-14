@@ -18,6 +18,7 @@ from eeesoc.live import (
     build_event_timeline,
     build_lineups,
     build_live_situation,
+    build_player_events,
     build_pitch_track,
     fetch_live_board,
 )
@@ -319,6 +320,24 @@ def make_handler(state: DashboardState):
                         400, _json_bytes({"error": "league and event_id required"}), "application/json"
                     )
                 return self._send(200, _json_bytes(build_lineups(league, event_id)), "application/json")
+
+            if path == "/api/live/player-events":
+                league = (qs.get("league") or [None])[0]
+                event_id = (qs.get("event_id") or [None])[0]
+                if not league or not event_id:
+                    return self._send(
+                        400, _json_bytes({"error": "league and event_id required"}), "application/json"
+                    )
+                events = build_player_events(
+                    league,
+                    event_id,
+                    home=(qs.get("home") or [""])[0],
+                    away=(qs.get("away") or [""])[0],
+                    home_id=(qs.get("home_id") or [""])[0],
+                    away_id=(qs.get("away_id") or [""])[0],
+                    clock=(qs.get("clock") or [""])[0],
+                )
+                return self._send(200, _json_bytes(events), "application/json")
 
             if path == "/api/clinical":
                 board = clinical.clinical_board()

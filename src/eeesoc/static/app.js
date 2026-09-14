@@ -30,6 +30,8 @@
     htLoading: false,
     clinical: null, // /api/clinical board: leagues[slug].teams[]
     standings: null, // /api/live/standings: leagues[slug].teams[id]
+    playerEvents: null, // /api/live/player-events for the open pitch panel
+    playerCard: null, // {side, name} of the open player card
     clinicalTimer: null,
     sigDay: null, // "YYYY-MM-DD" local day selected on the Signals daily bars
     sigSignals: [],
@@ -3123,6 +3125,10 @@
   }
 
   async function selectLiveMatch(m) {
+    if (!state.selectedLive || String(state.selectedLive.event_id) !== String(m.event_id)) {
+      closePlayerCard();
+      state.playerEvents = null;
+    }
     state.selectedLive = m;
     renderLiveTabChiclets({ soft: true, refreshTimelines: false });
     const panel = $("#pitchPanel");
@@ -3593,8 +3599,8 @@
       <rect class="lu-sub-badge" x="-22" y="34" width="44" height="13" rx="3"/>
       <text class="lu-sub-tag" y="44.2" text-anchor="middle">IN ${p.in_minute}′</text>`
       : "";
-    return `<g class="lu-player lu-${side}${cameOn ? " lu-sub" : ""}" transform="translate(${x.toFixed(1)},${y.toFixed(1)})">
-      <title>${escapeHtml(title)}</title>
+    return `<g class="lu-player lu-${side}${cameOn ? " lu-sub" : ""}" data-side="${side}" data-player="${escapeHtml(p.short || p.name || "")}" data-player-full="${escapeHtml(p.name || "")}" data-keeper="${p.keeper ? "1" : ""}" role="button" tabindex="0" transform="translate(${x.toFixed(1)},${y.toFixed(1)})">
+      <title>${escapeHtml(title)} · click for the player card</title>
       <circle class="lu-dot" r="16"/>
       ${subMark}
       <text class="lu-jersey" y="4.5" text-anchor="middle">${escapeHtml(p.jersey || "")}</text>
@@ -3651,7 +3657,33 @@
         ${lineupSideSvg(data.home, "home", now)}
         ${lineupSideSvg(data.away, "away", now)}
       </svg>
-      <p class="lede lu-note">Hover a player for the full line. <b>Power</b> is a match-performance number from ESPN's live stats (goals, assists, shots, saves, fouls, cards) — 65 is a quiet, tidy game. The bar is <b>freshness by minutes played</b> (ESPN has no distance-run data); subs come on full. <b class="lu-sub-legend">IN 74′</b> is a player who was subbed on at that minute — dashed ring, hover to see who came off.</p>`;
+      <p class="lede lu-note">Hover a player for the full line, <b>click him for his player card</b> — every logged touch, pass and shot, a touch map, and a highlight cut list you can run against your own recording. <b>Power</b> is a match-performance number from ESPN's live stats (goals, assists, shots, saves, fouls, cards) — 65 is a quiet, tidy game. The bar is <b>freshness by minutes played</b> (ESPN has no distance-run data); subs come on full. <b class="lu-sub-legend">IN 74′</b> is a player who was subbed on at that minute — dashed ring, hover to see who came off.</p>`;
+    bindLineupPlayerClicks(mount, m);
+  }
+
+  function bindLineupPlayerClicks(mount, m) {
+    const svg = mount.querySelector(".lu-svg");
+    if (!svg) return;
+    const open = (g) => {
+      openPlayerCard(m, {
+        side: g.dataset.side,
+        name: g.dataset.player || "",
+        full: g.dataset.playerFull || "",
+        keeper: g.dataset.keeper === "1",
+      });
+    };
+    svg.addEventListener("click", (ev) => {
+      const g = ev.target.closest(".lu-player");
+      if (g) open(g);
+    });
+    svg.addEventListener("keydown", (ev) => {
+      if (ev.key !== "Enter" && ev.key !== " ") return;
+      const g = ev.target.closest(".lu-player");
+      if (g) {
+        ev.preventDefault();
+        open(g);
+      }
+    });
   }
 
   async function refreshLineups() {
@@ -3665,6 +3697,315 @@
       const mount = $("#pitchLineups");
       if (mount && !mount.querySelector("svg")) mount.innerHTML = "";
     }
+    if (state.playerCard) refreshPlayerEvents(m, { quiet: true });
+  }
+
+  // —— Player card: live event stream + highlight cut list ——
+
+  const PLAYER_EVENTS_FRESH_MS = 25000;
+
+  const PLAYER_TAG_WORDS = {
+    goal: "GOAL",
+    own_goal: "own goal",
+    shot_on: "shot on target",
+    blocked: "shot blocked",
+    shot: "shot",
+    pass: "pass",
+    corner: "corner",
+    free_kick: "free kick",
+    duel: "duel",
+    save: "save",
+    touch: "touch",
+    foul: "foul",
+    yellow: "yellow card",
+    red: "red card",
+  };
+
+  async function refreshPlayerEvents(m, opts = {}) {
+    const cached = state.playerEvents;
+    const fresh =
+      cached &&
+      String(cached.event_id) === String(m.event_id) &&
+      Date.now() - cached._ts < PLAYER_EVENTS_FRESH_MS;
+    if (fresh && !opts.force) {
+      renderPlayerCard();
+      return;
+    }
+    try {
+      const data = await (await fetch(`/api/live/player-events?${liveQuery(m)}`)).json();
+      state.playerEvents = { ...data, _ts: Date.now() };
+      renderPlayerCard();
+    } catch (err) {
+      if (!opts.quiet) {
+        const mount = $("#playerCard");
+        if (mount && !mount.querySelector(".pc-head")) {
+          mount.innerHTML = `<p class="lede">Player events feed error — try again in a moment.</p>`;
+        }
+      }
+    }
+  }
+
+  function playerNameKey(name) {
+    return String(name || "")
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-z ]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  function findPlayerEntry(data, sel) {
+    const rows = data?.players?.[sel.side] || [];
+    const want = playerNameKey(sel.name);
+    const wantFull = playerNameKey(sel.full);
+    let hit = rows.find((p) => playerNameKey(p.name) === want || playerNameKey(p.name) === wantFull);
+    if (hit) return hit;
+    // Plays file "H. Son", lineups "Son Heung-Min" — fall back to a unique surname.
+    const surname = (wantFull || want).split(" ").pop();
+    if (!surname) return null;
+    const bySurname = rows.filter((p) => playerNameKey(p.name).split(" ").includes(surname));
+    return bySurname.length === 1 ? bySurname[0] : null;
+  }
+
+  function openPlayerCard(m, sel) {
+    state.playerCard = sel;
+    const mount = $("#playerCard");
+    if (mount) {
+      mount.hidden = false;
+      if (!mount.querySelector(".pc-head")) {
+        mount.innerHTML = `<p class="lede">Reading ${escapeHtml(sel.name || "player")}’s plays…</p>`;
+      }
+    }
+    refreshPlayerEvents(m, { force: false });
+    mount?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }
+
+  function closePlayerCard() {
+    state.playerCard = null;
+    const mount = $("#playerCard");
+    if (mount) {
+      mount.hidden = true;
+      mount.innerHTML = "";
+    }
+  }
+
+  function playerClipWindows(events, clip) {
+    const before = Number(clip?.before_s) || 6;
+    const after = Number(clip?.after_s) || 7;
+    const rows = events
+      .filter((e) => e.tag !== "foul")
+      .map((e) => {
+        const s = e.seconds != null ? Number(e.seconds) : (Number(e.minute) - 1) * 60 + 30;
+        return { half: e.half, from: Math.max(0, s - before), to: s + after, tags: [e.tag], clock: e.clock };
+      })
+      .sort((a, b) => (a.half === b.half ? a.from - b.from : a.half < b.half ? -1 : 1));
+    const merged = [];
+    for (const w of rows) {
+      const last = merged[merged.length - 1];
+      if (last && last.half === w.half && w.from <= last.to + 2) {
+        last.to = Math.max(last.to, w.to);
+        last.tags.push(...w.tags);
+      } else {
+        merged.push({ ...w });
+      }
+    }
+    return merged;
+  }
+
+  function mmss(totalS) {
+    const s = Math.max(0, Math.round(totalS));
+    return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+  }
+
+  function clipLabel(tags) {
+    const uniq = [...new Set(tags)];
+    return uniq.map((t) => PLAYER_TAG_WORDS[t] || t).join(" + ");
+  }
+
+  function playerCutListText(m, player, windows) {
+    const lines = [
+      `Highlight cut list — ${player.name} (${player.team})`,
+      `${m.home} vs ${m.away} · ${new Date().toISOString().slice(0, 10)}`,
+      "",
+      "Times are MATCH CLOCK. To find them in your own recording, note the",
+      "recording time when the ref started each half, then add the offset:",
+      "  clip time in recording = half kickoff time in recording + 'into half'",
+      "",
+      `${"#".padEnd(4)}${"half".padEnd(6)}${"clock".padEnd(14)}${"into half".padEnd(16)}what`,
+    ];
+    windows.forEach((w, i) => {
+      const base = w.half === "2h" ? 45 * 60 : 0;
+      const intoHalf = `${mmss(Math.max(0, w.from - base))}–${mmss(Math.max(0, w.to - base))}`;
+      const clock = `${mmss(w.from)}–${mmss(w.to)}`;
+      lines.push(
+        `${String(i + 1).padEnd(4)}${w.half.toUpperCase().padEnd(6)}${clock.padEnd(14)}${intoHalf.padEnd(16)}${clipLabel(w.tags)}`
+      );
+    });
+    lines.push("", `${windows.length} clips · source: ESPN play-by-play (logged plays, not broadcast touch data)`);
+    return lines.join("\n");
+  }
+
+  function playerFfmpegScript(m, player, windows) {
+    const safe = playerNameKey(player.name).replace(/ /g, "_") || "player";
+    const cuts = windows
+      .map((w, i) => {
+        const base = w.half === "2h" ? 45 * 60 : 0;
+        const start = Math.max(0, Math.round(w.from - base));
+        const dur = Math.max(4, Math.round(w.to - w.from));
+        const label = clipLabel(w.tags).replace(/[^a-z0-9 +]/gi, "").replace(/[ +]+/g, "-");
+        return `clip ${w.half} ${start} ${dur} "${String(i + 1).padStart(2, "0")}-${w.clock.replace(/[^0-9+]/g, "")}-${label}"`;
+      })
+      .join("\n");
+    return `#!/usr/bin/env bash
+# Highlights: ${player.name} — ${m.home} vs ${m.away}
+# Built from the ESPN play-by-play by eeesoc. Personal use of your own recording.
+#
+# Usage: ./${safe}_highlights.sh RECORDING.mp4 KICKOFF_1H [KICKOFF_2H]
+#   KICKOFF_1H  time in YOUR RECORDING when the 1st half kicked off (h:mm:ss or mm:ss)
+#   KICKOFF_2H  time in your recording when the 2nd half kicked off — 2H clips are
+#               skipped if omitted
+set -euo pipefail
+SRC="\${1:?usage: $0 RECORDING.mp4 KICKOFF_1H [KICKOFF_2H]}"
+K1="\${2:?need the recording time of 1st-half kickoff}"
+K2="\${3:-}"
+secs() { local IFS=:; set -- $1; if [ $# -eq 3 ]; then echo $((10#$1*3600+10#$2*60+10#$3)); else echo $((10#$1*60+10#$2)); fi; }
+K1S=$(secs "$K1"); K2S=""
+if [ -n "$K2" ]; then K2S=$(secs "$K2"); fi
+OUT="${safe}_highlights"; mkdir -p "$OUT"; : > "$OUT/concat.txt"; N=0
+clip() { # half start_into_half_s duration_s name
+  local base=$K1S
+  if [ "$1" = "2h" ]; then
+    if [ -z "$K2S" ]; then echo "skip (no 2H kickoff given): $4"; return 0; fi
+    base=$K2S
+  fi
+  N=$((N+1))
+  local f="$OUT/$4.mp4"
+  # Re-encode so cuts are frame-accurate (stream copy snaps to keyframes) and
+  # every clip matches for the lossless concat below.
+  ffmpeg -hide_banner -loglevel error -ss $((base + $2)) -i "$SRC" -t "$3" \\
+    -c:v libx264 -preset veryfast -crf 20 -c:a aac -b:a 128k "$f" </dev/null
+  echo "file '$4.mp4'" >> "$OUT/concat.txt"
+  echo "cut $f"
+}
+${cuts}
+ffmpeg -hide_banner -loglevel error -f concat -safe 0 -i "$OUT/concat.txt" -c copy "$OUT/${safe}_reel.mp4"
+echo "done → $OUT/${safe}_reel.mp4 ($N clips)"
+`;
+  }
+
+  function downloadText(filename, text) {
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([text], { type: "text/plain" }));
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  }
+
+  function playerTouchMapSvg(player) {
+    const W = 320;
+    const H = 200;
+    const padX = 8;
+    const padT = 8;
+    const padB = 22;
+    const pw = W - padX * 2;
+    const ph = H - padT - padB;
+    const dots = (player.events || [])
+      .filter((e) => e.x != null && e.y != null && e.tag !== "foul")
+      .map((e) => {
+        const cx = padX + (Math.max(0, Math.min(100, Number(e.x))) / 100) * pw;
+        const cy = padT + (Math.max(0, Math.min(100, Number(e.y))) / 100) * ph;
+        const cls = e.tag === "goal" ? "goal" : e.tag === "shot_on" ? "sot" : PLAYER_SHOT_SET.has(e.tag) ? "shot" : e.tag === "pass" ? "pass" : "touch";
+        return `<circle class="pc-dot pc-${cls}" cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="${cls === "goal" ? 5 : 3.2}"><title>${escapeHtml(e.clock)} · ${escapeHtml(PLAYER_TAG_WORDS[e.tag] || e.tag)}</title></circle>`;
+      })
+      .join("");
+    return `<svg class="pc-map" viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="${escapeHtml(player.name)} touch map, attacking right">
+      <rect x="${padX}" y="${padT}" width="${pw}" height="${ph}" class="terr-line" fill="rgba(255,255,255,0.02)"/>
+      <line x1="${W / 2}" y1="${padT}" x2="${W / 2}" y2="${padT + ph}" class="terr-line"/>
+      <circle cx="${W / 2}" cy="${padT + ph / 2}" r="${ph * 0.17}" class="terr-line" fill="none"/>
+      <rect x="${padX}" y="${padT + ph * 0.24}" width="${pw * 0.14}" height="${ph * 0.52}" class="terr-line" fill="none"/>
+      <rect x="${padX + pw * 0.86}" y="${padT + ph * 0.24}" width="${pw * 0.14}" height="${ph * 0.52}" class="terr-line" fill="none"/>
+      ${dots}
+      <text x="${W - padX}" y="${H - 8}" class="tl-label" text-anchor="end">attacks ▶</text>
+    </svg>`;
+  }
+
+  const PLAYER_SHOT_SET = new Set(["goal", "shot_on", "blocked", "shot", "own_goal"]);
+
+  function playerCardCountsHtml(c) {
+    const bits = [
+      ["touches", c.touches],
+      ["passes", c.passes],
+      ["shots", c.shots],
+      ["on target", c.sot],
+      ["goals", c.goals],
+      ["duels", c.duels],
+      ["set pieces", c.set_pieces],
+      ["saves", c.saves],
+      ["fouls", c.fouls],
+      ["cards", c.cards],
+    ].filter(([, v]) => v > 0);
+    if (!bits.length) return `<span class="pc-chip">no logged plays yet</span>`;
+    return bits.map(([k, v]) => `<span class="pc-chip"><b>${v}</b> ${escapeHtml(k)}</span>`).join("");
+  }
+
+  function renderPlayerCard() {
+    const mount = $("#playerCard");
+    const sel = state.playerCard;
+    const m = state.selectedLive;
+    if (!mount || !sel || !m) return;
+    const data = state.playerEvents;
+    if (!data || String(data.event_id) !== String(m.event_id)) return;
+    const player = findPlayerEntry(data, sel);
+    mount.hidden = false;
+    if (!player) {
+      mount.innerHTML = `
+        <div class="pc-head">
+          <b>${escapeHtml(sel.full || sel.name)}</b>
+          <button type="button" class="chiclet-tool" id="pcClose">✕ close</button>
+        </div>
+        <p class="lede">No logged plays for ${escapeHtml(sel.name)} yet — ESPN files player names on passes, shots and duels as the feed catches up. Check back in a minute.</p>`;
+      $("#pcClose")?.addEventListener("click", closePlayerCard);
+      return;
+    }
+    const events = [...player.events].reverse();
+    const rows = events
+      .slice(0, 80)
+      .map((e) => {
+        const word = PLAYER_TAG_WORDS[e.tag] || e.tag;
+        const cls = e.tag === "goal" ? " pc-ev-goal" : PLAYER_SHOT_SET.has(e.tag) ? " pc-ev-shot" : e.tag === "yellow" || e.tag === "red" ? " pc-ev-card" : "";
+        return `<li class="pc-ev${cls}"><span class="pc-ev-min">${escapeHtml(e.clock)}</span><span class="pc-ev-word">${escapeHtml(word)}</span></li>`;
+      })
+      .join("");
+    const windows = playerClipWindows(player.events, data.clip);
+    const keeperNote = sel.keeper
+      ? `<p class="pc-note">Keeper — the reel would mostly be saves and goal kicks, so you probably want an outfield player, but the export works all the same.</p>`
+      : "";
+    mount.innerHTML = `
+      <div class="pc-head">
+        <span><b>${escapeHtml(player.name)}</b> · ${escapeHtml(shortName(player.team || ""))}${sel.keeper ? " · GK" : ""}</span>
+        <span class="pc-tools">
+          <button type="button" class="chiclet-tool" id="pcCutList" title="Download the clip list (match-clock times) as text">⬇ cut list</button>
+          <button type="button" class="chiclet-tool" id="pcScript" title="Download a bash script that cuts these clips out of your own recording with ffmpeg">⬇ ffmpeg script</button>
+          <button type="button" class="chiclet-tool" id="pcClose">✕ close</button>
+        </span>
+      </div>
+      <div class="pc-chips">${playerCardCountsHtml(player.counts)}</div>
+      <div class="pc-body">
+        ${playerTouchMapSvg(player)}
+        <ol class="pc-events" aria-label="Newest plays first">${rows || `<li class="pc-ev"><span class="pc-ev-word">nothing logged yet</span></li>`}</ol>
+      </div>
+      <p class="pc-note">${windows.length} highlight clip${windows.length === 1 ? "" : "s"} (each ±${data.clip?.before_s ?? 6}–${data.clip?.after_s ?? 7}s around a logged play, overlaps merged). The cut list gives match-clock times; the script cuts your own screen recording once you tell it when each half kicked off in that file. Plays and names come from ESPN's play-by-play — logged plays, not broadcast-grade touch data.</p>
+      ${keeperNote}`;
+    $("#pcClose")?.addEventListener("click", closePlayerCard);
+    $("#pcCutList")?.addEventListener("click", () => {
+      downloadText(`${playerNameKey(player.name).replace(/ /g, "_")}_cutlist.txt`, playerCutListText(m, player, windows));
+    });
+    $("#pcScript")?.addEventListener("click", () => {
+      downloadText(`${playerNameKey(player.name).replace(/ /g, "_")}_highlights.sh`, playerFfmpegScript(m, player, windows));
+    });
   }
 
   // —— WinProb tab ——
@@ -4751,6 +5092,7 @@
       const all = flatLiveMatches(null, "all");
       syncSelectedLive(all, "selectedLive", () => {
         $("#pitchPanel").hidden = true;
+        closePlayerCard();
         if (state.trackTimer) clearInterval(state.trackTimer);
         if (state.lineupTimer) clearInterval(state.lineupTimer);
       });

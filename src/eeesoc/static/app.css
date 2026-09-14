@@ -2135,6 +2135,143 @@ main {
   font-size: 0.78rem;
 }
 
+/* Player card — click a lineup player: event stream, touch map, highlight export */
+
+.lu-player {
+  cursor: pointer;
+}
+
+.lu-player:hover .lu-dot,
+.lu-player:focus-visible .lu-dot {
+  stroke: var(--accent);
+  stroke-width: 2.5;
+}
+
+.player-card {
+  margin-top: 0.85rem;
+  border: 1px solid rgba(180, 210, 200, 0.22);
+  border-radius: 10px;
+  padding: 0.7rem 0.85rem;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.pc-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: 0.95rem;
+}
+
+.pc-tools {
+  display: inline-flex;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+}
+
+.pc-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin: 0.5rem 0;
+}
+
+.pc-chip {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  padding: 0.15rem 0.5rem;
+  border: 1px solid rgba(180, 210, 200, 0.25);
+  border-radius: 999px;
+  color: var(--muted);
+}
+
+.pc-chip b {
+  color: var(--ink);
+  margin-right: 0.2rem;
+}
+
+.pc-body {
+  display: grid;
+  grid-template-columns: minmax(220px, 340px) 1fr;
+  gap: 0.85rem;
+  align-items: start;
+}
+
+@media (max-width: 760px) {
+  .pc-body {
+    grid-template-columns: 1fr;
+  }
+}
+
+.pc-map {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.pc-dot.pc-touch {
+  fill: rgba(230, 245, 238, 0.5);
+}
+
+.pc-dot.pc-pass {
+  fill: rgba(125, 255, 179, 0.75);
+}
+
+.pc-dot.pc-shot {
+  fill: rgba(255, 210, 122, 0.9);
+}
+
+.pc-dot.pc-sot {
+  fill: rgba(255, 160, 90, 0.95);
+}
+
+.pc-dot.pc-goal {
+  fill: #ff6b6b;
+  stroke: #fff;
+  stroke-width: 1;
+}
+
+.pc-events {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 240px;
+  overflow: auto;
+  font-family: var(--mono);
+  font-size: 0.76rem;
+}
+
+.pc-ev {
+  display: grid;
+  grid-template-columns: 4.2rem 1fr;
+  gap: 0.5rem;
+  padding: 0.12rem 0.2rem;
+  border-bottom: 1px dashed rgba(180, 210, 200, 0.12);
+}
+
+.pc-ev-min {
+  color: var(--muted);
+}
+
+.pc-ev-goal .pc-ev-word {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.pc-ev-shot .pc-ev-word {
+  color: #ffd27a;
+}
+
+.pc-ev-card .pc-ev-word {
+  color: #ff6b6b;
+}
+
+.pc-note {
+  margin: 0.5rem 0 0;
+  font-size: 0.74rem;
+  color: var(--muted);
+}
+
 .feed-row {
   display: grid;
   grid-template-columns: 3rem 7.5rem 1fr;

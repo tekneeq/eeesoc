@@ -2404,6 +2404,7 @@ def _parse_side_roster(side: dict[str, Any]) -> dict[str, Any]:
                 "out_minute": minute if sub_out else None,
                 "sub_for": _short_athlete(e.get("subbedInFor") or {}) if sub_in else "",
                 "sub_by": _short_athlete(e.get("subbedOutFor") or {}) if sub_out else "",
+                "keeper": is_keeper,
                 "stats": stats,
                 "power": player_power(stats, is_keeper=is_keeper),
             }
@@ -2470,3 +2471,159 @@ def build_lineups(
 
 def clear_lineup_cache() -> None:
     _lineup_cache.clear()
+
+
+# —— Per-player event stream: live analysis + highlight cut lists ——
+
+_PLAYER_EVENTS_TTL_S = 30.0
+_PLAYER_EVENTS_FINAL_TTL_S = 15 * 60.0
+_player_events_cache: dict[str, tuple[float, dict[str, Any]]] = {}
+
+# A highlight clip runs from a few seconds before the logged play to a few after.
+HIGHLIGHT_BEFORE_S = 6
+HIGHLIGHT_AFTER_S = 7
+
+_PLAYER_OFF_BALL = {"yellow", "red", "foul"}
+
+
+def _player_event_tag(ptype: str, play: dict[str, Any]) -> str | None:
+    """One word for what the player did on this play; None = not player-worthy."""
+    if _is_red_card(ptype, play):
+        return "red"
+    if "card" in ptype and "yellow" in ptype:
+        return "yellow"
+    if _is_own_goal(ptype, play):
+        return "own_goal"
+    kind = _event_kind(ptype, scoring=bool(play.get("scoringPlay")))
+    if kind == "own_goal":
+        return "own_goal"
+    if kind in {"goal", "shot_on", "blocked", "shot", "corner"}:
+        return kind
+    if ptype.startswith(("pass", "cross", "through")):
+        return "pass"
+    if ptype.startswith("free-kick"):
+        return "free_kick"
+    if ptype.startswith(("save", "claim", "punch", "smother")):
+        return "save"
+    if _is_duel_play(ptype):
+        return "duel"
+    if "foul" in ptype:
+        return "foul"
+    if ptype in POSSESSION_TYPES or ptype in BALL_TYPES:
+        return "touch"
+    return None
+
+
+_PLAYER_SHOT_TAGS = {"goal", "shot_on", "blocked", "shot"}
+
+
+def _player_counts(events: list[dict[str, Any]]) -> dict[str, int]:
+    tags = [e["tag"] for e in events]
+    return {
+        "touches": sum(1 for t in tags if t not in _PLAYER_OFF_BALL),
+        "passes": tags.count("pass"),
+        "shots": sum(1 for t in tags if t in _PLAYER_SHOT_TAGS),
+        "sot": sum(1 for t in tags if t in {"goal", "shot_on"}),
+        "goals": tags.count("goal"),
+        "duels": tags.count("duel"),
+        "set_pieces": sum(1 for t in tags if t in {"corner", "free_kick"}),
+        "saves": tags.count("save"),
+        "fouls": tags.count("foul"),
+        "cards": sum(1 for t in tags if t in {"yellow", "red"}),
+    }
+
+
+def build_player_events(
+    league_slug: str,
+    event_id: str,
+    *,
+    home: str = "",
+    away: str = "",
+    home_id: str = "",
+    away_id: str = "",
+    clock: str = "",
+    fetcher: Callable[[str], dict[str, Any]] | None = None,
+    use_cache: bool = True,
+) -> dict[str, Any]:
+    """
+    Every logged play, grouped by the player who made it.
+
+    This is what the highlight cut list is built from: each event carries the
+    match-clock second (``seconds``), the half, a one-word ``tag`` (pass, shot,
+    goal, duel, …) and team-relative pitch coordinates (his side attacks x→100).
+    ESPN logs on-ball involvements per play, so "touches" means logged plays,
+    not broadcast-grade touch data.
+    """
+    cache_key = f"pe:{league_slug}:{event_id}"
+    if use_cache and cache_key in _player_events_cache:
+        ts, payload = _player_events_cache[cache_key]
+        ttl = _PLAYER_EVENTS_FINAL_TTL_S if payload.get("final") else _PLAYER_EVENTS_TTL_S
+        if time.time() - ts < ttl:
+            return payload
+
+    plays = fetch_all_plays(league_slug, event_id, fetcher=fetcher)
+    by_player: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    for play in plays:
+        ptype = _normalize_play_type(_play_type(play))
+        tag = _player_event_tag(ptype, play)
+        if tag is None:
+            continue
+        player = _player_from_athletes(play)
+        if not player:
+            continue
+        pmin = _play_minute(play)
+        if pmin is None:
+            continue
+        tid = _team_id_from_play(play)
+        side = _side_for_team(
+            tid, home_id=home_id, away_id=away_id, home=home, away=away, play=play
+        )
+        if side not in {"home", "away"}:
+            continue
+        seconds = _play_elapsed_seconds(play)
+        by_player.setdefault((side, player), []).append(
+            {
+                "minute": pmin,
+                "seconds": seconds,
+                "clock": _clock_label(play) or f"{pmin}'",
+                "half": _play_half(_play_period(play), pmin),
+                "tag": tag,
+                "type": ptype,
+                "x": _coord(play, "fieldPositionX"),
+                "y": _coord(play, "fieldPositionY"),
+            }
+        )
+
+    players: dict[str, list[dict[str, Any]]] = {"home": [], "away": []}
+    for (side, player), events in by_player.items():
+        events.sort(key=lambda e: (e["seconds"] if e["seconds"] is not None else e["minute"] * 60))
+        players[side].append(
+            {
+                "name": player,
+                "team": home if side == "home" else away,
+                "side": side,
+                "events": events,
+                "counts": _player_counts(events),
+            }
+        )
+    for side in players:
+        players[side].sort(key=lambda p: -p["counts"]["touches"])
+
+    final = _is_final_clock(clock)
+    payload = {
+        "event_id": str(event_id),
+        "league_slug": league_slug,
+        "home": home,
+        "away": away,
+        "final": final,
+        "clip": {"before_s": HIGHLIGHT_BEFORE_S, "after_s": HIGHLIGHT_AFTER_S},
+        "players": players,
+        "fetched_at": time.time(),
+    }
+    if use_cache and (players["home"] or players["away"]):
+        _player_events_cache[cache_key] = (time.time(), payload)
+    return payload
+
+
+def clear_player_events_cache() -> None:
+    _player_events_cache.clear()
