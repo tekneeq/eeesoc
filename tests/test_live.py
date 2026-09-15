@@ -1083,8 +1083,12 @@ def test_chiclet_shows_possession_and_duel_graphs():
     assert ".poss-chip.poss-home" in css
     assert "function intensityHtml" in js
     assert "function intensitySvg" in js
+    assert "function intensityYScale" in js
+    assert "function intensityYAt" in js
     assert "intensityHtml(tl)" in js
     assert "int-line" in js and "int-league" in js
+    assert 'class="tl-label">league</text>' in js
+    assert "league average through the middle" in js
     assert ".int-line" in css and ".int-league" in css
     assert "possession graph" in html
     assert "intensity graph" in html
@@ -1093,6 +1097,36 @@ def test_chiclet_shows_possession_and_duel_graphs():
     assert "Intensity · vs league" in html
     assert "Duels · last 15′" in html
     assert "no player GPS" in html
+
+
+def test_intensity_scale_pins_league_average_in_the_middle():
+    import subprocess
+
+    js = Path("src/eeesoc/static/app.js").read_text(encoding="utf-8")
+    start = js.index("  function intensityYScale")
+    end = js.index("  function intensitySvg")
+    src = js[start:end]
+    script = src + """
+const s = intensityYScale({
+  series: [{score: 0.9}, {score: 0.7}, {score: 0.4}],
+  league: { mean: 0.33 },
+});
+if (Math.abs(s.center - 0.33) > 1e-9) process.exit(2);
+if (Math.abs((s.hi + s.lo) / 2 - s.center) > 1e-9) process.exit(3);
+if (s.hi < 0.9 - 1e-9) process.exit(4);
+const padT = 12, innerH = 58;
+const yMid = intensityYAt(s.center, s, padT, innerH);
+const yTop = intensityYAt(s.hi, s, padT, innerH);
+const yBot = intensityYAt(s.lo, s, padT, innerH);
+if (Math.abs(yMid - (padT + innerH / 2)) > 0.05) process.exit(5);
+if (Math.abs(yTop - padT) > 0.05) process.exit(6);
+if (Math.abs(yBot - (padT + innerH)) > 0.05) process.exit(7);
+const quiet = intensityYScale({ series: [{score: 0.34}, {score: 0.32}], league: { mean: 0.33 } });
+if (quiet.span < 0.18) process.exit(8);
+const yQuiet = intensityYAt(0.33, quiet, padT, innerH);
+if (Math.abs(yQuiet - (padT + innerH / 2)) > 0.05) process.exit(9);
+"""
+    subprocess.run(["node", "-e", script], check=True)
 
 
 def test_possession_spells_colour_each_half_by_who_has_the_ball():

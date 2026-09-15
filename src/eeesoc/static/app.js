@@ -2702,6 +2702,36 @@
     return "typical game (no archive yet)";
   }
 
+  function intensityYScale(block) {
+    // Pin the league mean in the vertical middle so a hot half sits above
+    // the dashed line and a quiet one below — the old 0–1 scale parked
+    // typical readings (0.6–1.0) against the top of the plot.
+    const PRIOR = 0.33;
+    const MIN_SPAN = 0.18;
+    const league = (block && block.league) || {};
+    const rawMid = Number(league.mean);
+    const center = Number.isFinite(rawMid) && rawMid > 0 ? rawMid : PRIOR;
+    const scores = [];
+    for (const pt of block?.series || []) {
+      const v = Number(pt.score);
+      if (Number.isFinite(v)) scores.push(v);
+    }
+    if (Array.isArray(league.series)) {
+      for (const v of league.series) {
+        const n = Number(v);
+        if (Number.isFinite(n)) scores.push(n);
+      }
+    }
+    let span = MIN_SPAN;
+    for (const v of scores) span = Math.max(span, Math.abs(v - center));
+    return { center, lo: center - span, hi: center + span, span };
+  }
+
+  function intensityYAt(v, scale, padT, innerH) {
+    const t = (Number(v) - scale.lo) / (scale.hi - scale.lo || 1);
+    return padT + (1 - Math.max(0, Math.min(1, t))) * innerH;
+  }
+
   function intensitySvg(tl) {
     const block = tl.intensity;
     const series = block?.series || [];
@@ -2711,18 +2741,20 @@
     const padR = 10;
     const padT = 12;
     const padB = 18;
+    const innerH = H - padT - padB;
     const { maxM, now } = chartAxis(tl);
     const ticks = maxM <= 45 ? [15, 30] : [15, 30, 45, 60, 75];
+    const scale = intensityYScale(block);
     const xAt = (m) => padL + ((Number(m) / maxM) * (W - padL - padR));
-    const yAt = (v) => padT + ((1 - Math.max(0, Math.min(1, Number(v) || 0))) * (H - padT - padB));
+    const yAt = (v) => intensityYAt(v, scale, padT, innerH);
     const nowX = xAt(now).toFixed(1);
-    const y0 = yAt(0).toFixed(1);
-    const yMid = yAt(0.5).toFixed(1);
-    const yTop = yAt(1).toFixed(1);
+    const yBot = yAt(scale.lo).toFixed(1);
+    const yMid = yAt(scale.center).toFixed(1);
+    const yTop = yAt(scale.hi).toFixed(1);
     const pts = series.filter((pt) => pt.score != null);
     const gamePath = pts.length
       ? `<path class="int-line" d="M ${pts.map((pt) => `${xAt(pt.minute).toFixed(1)} ${yAt(pt.score).toFixed(1)}`).join(" L ")}" fill="none"/>
-      <path class="int-fill" d="M ${xAt(pts[0].minute).toFixed(1)} ${y0} L ${pts.map((pt) => `${xAt(pt.minute).toFixed(1)} ${yAt(pt.score).toFixed(1)}`).join(" L ")} L ${xAt(pts[pts.length - 1].minute).toFixed(1)} ${y0} Z"/>`
+      <path class="int-fill" d="M ${xAt(pts[0].minute).toFixed(1)} ${yMid} L ${pts.map((pt) => `${xAt(pt.minute).toFixed(1)} ${yAt(pt.score).toFixed(1)}`).join(" L ")} L ${xAt(pts[pts.length - 1].minute).toFixed(1)} ${yMid} Z"/>`
       : "";
     const league = block?.league || {};
     const lSeries = Array.isArray(league.series) ? league.series : null;
@@ -2735,14 +2767,13 @@
         leaguePath = `<path class="int-league" d="M ${lpts.map((pt) => `${xAt(pt.minute).toFixed(1)} ${yAt(pt.score).toFixed(1)}`).join(" L ")}" fill="none"/>`;
       }
     } else if (league.mean != null) {
-      const yL = yAt(league.mean).toFixed(1);
-      leaguePath = `<line class="int-league" x1="${padL}" y1="${yL}" x2="${W - padR}" y2="${yL}"/>`;
+      leaguePath = `<line class="int-league" x1="${padL}" y1="${yMid}" x2="${W - padR}" y2="${yMid}"/>`;
     }
     const tickMarks = ticks
       .filter((t) => t < maxM)
       .map((t) => {
         const tx = xAt(t).toFixed(1);
-        return `<line x1="${tx}" y1="${padT}" x2="${tx}" y2="${y0}" class="tl-ht"/>
+        return `<line x1="${tx}" y1="${padT}" x2="${tx}" y2="${yBot}" class="tl-ht"/>
       <text x="${tx}" y="${H - 4}" class="tl-label" text-anchor="middle">${t}'</text>`;
       })
       .join("");
@@ -2757,12 +2788,13 @@
       .join("");
     return `<svg class="mc-int-svg" viewBox="0 0 ${W} ${H}" width="100%" height="${H}" role="img" aria-label="Game intensity versus league average">
       <text x="4" y="${Number(yTop) + 3}" class="tl-label">hot</text>
-      <text x="4" y="${Number(yMid) + 3}" class="tl-label">par</text>
-      <text x="4" y="${Number(y0) + 3}" class="tl-label">calm</text>
+      <text x="4" y="${Number(yMid) + 3}" class="tl-label">league</text>
+      <text x="4" y="${Number(yBot) + 3}" class="tl-label">calm</text>
       <line x1="${padL}" y1="${yTop}" x2="${W - padR}" y2="${yTop}" class="tl-grid"/>
-      <line x1="${padL}" y1="${y0}" x2="${W - padR}" y2="${y0}" class="tl-axis"/>
+      <line x1="${padL}" y1="${yMid}" x2="${W - padR}" y2="${yMid}" class="tl-grid"/>
+      <line x1="${padL}" y1="${yBot}" x2="${W - padR}" y2="${yBot}" class="tl-axis"/>
       ${tickMarks}
-      <line x1="${nowX}" y1="${padT}" x2="${nowX}" y2="${y0}" class="tl-now"/>
+      <line x1="${nowX}" y1="${padT}" x2="${nowX}" y2="${yBot}" class="tl-now"/>
       ${leaguePath}
       ${gamePath}
       ${tips}
@@ -2790,7 +2822,7 @@
     const meta = `${escapeHtml(block.label || "reading")} · last ${win}' · ${swings} end-to-end · ball ${escapeHtml(intensityKmWords(block.ball_km))} · this ${here}${par != null ? ` vs ${par}` : ""}${vs ? ` · ${vs}` : ""}`;
     const foot = `Ball ${escapeHtml(intensityKmWords(block.ball_km_total))} this game · ESPN has no player GPS, so this is the ball's path, not miles run · ${escapeHtml(intensityLeagueWords(league))}`;
     return `<span class="mc-intensity">
-      <span class="mc-pressure-head">Intensity · end-to-end + ball travel · not pressure · <i class="int-key int-game"></i> this game <i class="int-key int-par"></i> ${escapeHtml(intensityLeagueWords(league))}</span>
+      <span class="mc-pressure-head">Intensity · end-to-end + ball travel · league average through the middle · <i class="int-key int-game"></i> this game <i class="int-key int-par"></i> ${escapeHtml(intensityLeagueWords(league))}</span>
       ${intensitySvg(tl)}
       <span class="mc-pressure-meta">${meta}</span>
       <span class="mc-pressure-meta">${foot}</span>
