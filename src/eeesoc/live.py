@@ -22,7 +22,13 @@ SITE_SCOREBOARD = "https://site.api.espn.com/apis/site/v2/sports/soccer/{league}
 # Treat kickoff-passed (and imminent) fixtures as live so chiclets appear at KO.
 _KO_AHEAD_S = 45
 _KO_STALE_PRE_S = 3 * 3600
+# Extra time + pens + a long delay still fit; older `in` rows are leftovers.
+_KO_STALE_IN_S = (4 * 3600) + (15 * 60)
 _DEAD_STATUS = ("postponed", "canceled", "cancelled", "suspended", "abandoned", "forfeit")
+_FT_RE = re.compile(
+    r"(?<![a-z])(ft(?:-pens)?|full[\s-]?time|final|aet|after\s+extra)(?![a-z])",
+    re.I,
+)
 
 # Major leagues shown as chiclets (slug → short label).
 LEAGUES: list[tuple[str, str]] = [
@@ -113,19 +119,31 @@ def _status_blob(match: LiveMatch) -> str:
     return f"{match.detail} {match.clock} {match.state}".lower()
 
 
-def match_is_live(match: LiveMatch, now: datetime | None = None) -> bool:
-    """True when ESPN says in-play, or kickoff has arrived while state is still `pre`."""
-    if match.state == "in":
-        return True
-    if match.state != "pre":
+def _looks_finished(match: LiveMatch) -> bool:
+    blob = _status_blob(match)
+    if any(word in blob for word in _DEAD_STATUS):
         return False
+    return bool(_FT_RE.search(blob))
+
+
+def match_is_live(match: LiveMatch, now: datetime | None = None) -> bool:
+    """True when the game is actually in play — not FT, not a leftover `in` row."""
     if any(word in _status_blob(match) for word in _DEAD_STATUS):
         return False
-    start = parse_start(match.start)
-    if start is None:
+    if match.state == "post" or _looks_finished(match):
         return False
     now = now or datetime.now(timezone.utc)
-    elapsed = (now - start).total_seconds()
+    start = parse_start(match.start)
+    elapsed = (now - start).total_seconds() if start is not None else None
+
+    if match.state == "in":
+        if elapsed is None:
+            return True
+        return -_KO_AHEAD_S <= elapsed <= _KO_STALE_IN_S
+    if match.state != "pre":
+        return False
+    if elapsed is None:
+        return False
     return -_KO_AHEAD_S <= elapsed <= _KO_STALE_PRE_S
 
 
@@ -149,6 +167,15 @@ def promote_started_match(match: LiveMatch, now: datetime | None = None) -> Live
     clock = match.clock if _usable_clock(match.clock) else f"{elapsed // 60}'"
     clock_seconds = match.clock_seconds if match.clock_seconds is not None else elapsed
     return replace(match, state="in", clock=clock, clock_seconds=clock_seconds, detail=clock)
+
+
+def settle_finished_match(match: LiveMatch, now: datetime | None = None) -> LiveMatch:
+    """Flip a leftover ESPN `in` row (FT clock, or kickoff hours ago) to `post`."""
+    if match.state != "in" or match_is_live(match, now):
+        return match
+    clock = match.clock if _looks_finished(match) and _usable_clock(match.clock) else "FT"
+    detail = match.detail if _looks_finished(match) else (match.detail or "FT")
+    return replace(match, state="post", clock=clock, detail=detail)
 
 
 def parse_scoreboard(payload: dict[str, Any], league_slug: str, chiclet: str) -> list[LiveMatch]:
@@ -297,6 +324,7 @@ def fetch_live_board(
 
     now = datetime.now(timezone.utc)
     matches = [promote_started_match(m, now) for m in matches]
+    matches = [settle_finished_match(m, now) for m in matches]
     if live_only:
         matches = [m for m in matches if match_is_live(m, now)]
 
