@@ -1401,7 +1401,7 @@
     const rank = row.offense_rank
       ? `#${row.offense_rank} of ${row._league?.teams_ranked || 0} in ${row._league?.label || row.league_chiclet}`
       : `unranked until ${state.clinical?.min_games || 2} games`;
-    return `${row.team}: offence power ${row.offense_power} — ${parts.join(" · ")} over ${row.games} game${row.games === 1 ? "" : "s"} · ${rank}. Blend of chance creation, shot volume, pressure (corners) and goals vs the league; 100 = a league-typical attack, above 100 is potent, below is blunt.`;
+    return `${row.team}: offence power ${row.offense_power} — ${parts.join(" · ")} over ${row.games} game${row.games === 1 ? "" : "s"} · ${rank}. Blend of chance creation, shot volume, pressure (corners) and goals vs the league; 50 = a league-typical attack, above 50 is potent, below is blunt.`;
   }
 
   const OFFENSE_SPEC = {
@@ -1421,7 +1421,7 @@
     const rank = row.defense_rank
       ? `#${row.defense_rank} of ${row._league?.teams_ranked || 0} in ${row._league?.label || row.league_chiclet}`
       : `unranked until ${state.clinical?.min_games || 2} games`;
-    return `${row.team}: defence power ${row.defense_power} — ${basis} over ${row.games} game${row.games === 1 ? "" : "s"} · ${Number(row.conceded_per_game).toFixed(2)} conceded per game · ${rank}. 100 = allows the league's typical chances; above 100 is solid (fewer / worse chances allowed), below is leaky.`;
+    return `${row.team}: defence power ${row.defense_power} — ${basis} over ${row.games} game${row.games === 1 ? "" : "s"} · ${Number(row.conceded_per_game).toFixed(2)} conceded per game · ${rank}. 50 = allows the league's typical chances; above 50 is solid (fewer / worse chances allowed), below is leaky.`;
   }
 
   const DEFENSE_SPEC = {
@@ -1560,12 +1560,12 @@
     {
       spec: OFFENSE_SPEC,
       label: "🎯 offence",
-      help: "Offence power: chance creation (xG), shot volume, shots on target, pressure (corners) and goals per game vs the league, ranked within the league. 100 = par; higher creates more. Also shows goals scored per game.",
+      help: "Offence power: chance creation (xG), shot volume, shots on target, pressure (corners) and goals per game vs the league, ranked within the league. 50 = league average; higher creates more. Also shows goals scored per game.",
     },
     {
       spec: DEFENSE_SPEC,
       label: "🛡 defence",
-      help: "Defence power: league-average xG allowed per game over this club's, ranked within the league. 100 = par; higher allows fewer / worse chances. Also shows goals allowed per game.",
+      help: "Defence power: league-average xG allowed per game over this club's, ranked within the league. 50 = league average; higher allows fewer / worse chances. Also shows goals allowed per game.",
     },
     {
       spec: MOMENTUM_SPEC,

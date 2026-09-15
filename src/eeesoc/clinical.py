@@ -18,15 +18,15 @@ club took, the xG ESPN attached to it, and the goals that followed.
 Offence power is the superset of clinical: everything that leads to goals.
 Each of the club's per-game rates — xG created, shots, shots on target,
 corners (sustained pressure) and goals — is divided by the league's rate,
-shrunk toward par, and blended with ``OFFENSE_WEIGHTS_*``.  100 = a
-league-typical attack; 130 = creates ~30% more than the league.  ``potent``
-is True above 100, otherwise the attack is blunt.
+shrunk toward par, and blended with ``OFFENSE_WEIGHTS_*``.  The published
+index uses ``PAR_POWER`` (50) as league average — 65 creates ~30% more than
+the league.  ``potent`` is True above 50, otherwise the attack is blunt.
 
 Defence power is the mirror image: how little chance quality the club
 allows.  ``defense_power`` is league-average xG conceded per game over the
-club's own xG conceded per game (shrunk toward par), so 100 = allows exactly
-the league's typical chances, 125 = allows a fifth less.  ``solid`` is True
-above 100, otherwise the defence is leaky.  Leagues without xG use shots on
+club's own xG conceded per game (shrunk toward par), so 50 = allows exactly
+the league's typical chances, 63 = allows a fifth less.  ``solid`` is True
+above 50, otherwise the defence is leaky.  Leagues without xG use shots on
 target conceded per game instead.
 
 Momentum is recent form: points per game over the club's last ``FORM_GAMES``
@@ -84,8 +84,17 @@ OFFENSE_WEIGHTS_XG = {"xg": 0.40, "shots": 0.20, "sot": 0.15, "corners": 0.10, "
 OFFENSE_WEIGHTS_SOT = {"shots": 0.35, "sot": 0.25, "corners": 0.15, "goals": 0.25}
 # Momentum looks at this many most-recent results, newest weighted heaviest.
 FORM_GAMES = 5
+# Published offence / defence index: 50 = a league-typical attack or defence.
+# Internal composites still run on a 100 = par scale so potential (which mixes
+# defence into a geometric mean) keeps its existing 100-based units.
+PAR_POWER = 50
 # Potential vs results must differ by at least this much to be tagged upside / overachieving.
 POTENTIAL_GAP = 5.0
+
+
+def _publish_power(value_100: float) -> int:
+    """Rescale an internal 100 = par offence/defence index so 50 is league average."""
+    return int(round(float(value_100) * PAR_POWER / 100.0))
 # Fewer matching games than this and the chiclet flags the club's half-goal split as a thin sample
 # (the league-wide split rides along for context; the league only replaces it when the club has none).
 HALF_GOALS_MIN_SAMPLE = 3
@@ -390,12 +399,12 @@ def _league_table(slug: str, teams: dict[str, dict[str, Any]], label: str) -> di
             "goals_per_game": round(r["goals"] / r["games"], 2) if r["games"] else 0.0,
             "xg_per_game": round(r["xg"] / r["games_xg"], 2) if r["games_xg"] else 0.0,
             "clinical": power > 100.0,
-            "offense_power": int(round(offense)),
+            "offense_power": _publish_power(offense),
             "potent": offense > 100.0,
             "shots_per_game": round(r["shots"] / r["games"], 2) if r["games"] else 0.0,
             "sot_per_game": round(r["sot"] / r["games"], 2) if r["games"] else 0.0,
             "corners_per_game": round(r["corners"] / r["games"], 2) if r["games"] else 0.0,
-            "defense_power": int(round(defense)),
+            "defense_power": _publish_power(defense),
             "solid": defense > 100.0,
             "conceded_per_game": round(r["conceded"] / r["games"], 2) if r["games"] else 0.0,
             "xga_per_game": round(r["xg_against"] / r["games_xg"], 2) if r["games_xg"] else 0.0,
@@ -450,6 +459,7 @@ def _league_table(slug: str, teams: dict[str, dict[str, Any]], label: str) -> di
         "offense_weights": weights,
         "par_xga_per_game": round(par_xga, 2),
         "par_sot_against_per_game": round(par_sota, 2),
+        "par_power": PAR_POWER,
         "teams": out_rows,
     }
 
