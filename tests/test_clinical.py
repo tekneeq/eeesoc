@@ -10,8 +10,10 @@ from eeesoc.clinical import (
     HALF_GOALS_MIN_SAMPLE,
     OFFENSE_WEIGHTS_SOT,
     OFFENSE_WEIGHTS_XG,
+    PAR_POWER,
     PRIOR_GAMES,
     PRIOR_XG,
+    _publish_power,
     build_clinical_board,
     clinical_board,
     lookup_team,
@@ -133,7 +135,15 @@ def _expected_offense(row, par, weights):
             continue
         rate = (row[key] + PRIOR_GAMES * par[key]) / (games + PRIOR_GAMES)
         score += w * rate / par[key]
-    return round(100 * score)
+    return _publish_power(100 * score)
+
+
+def test_publish_power_maps_internal_100_to_league_average_50():
+    assert PAR_POWER == 50
+    assert _publish_power(100) == 50
+    assert _publish_power(0) == 0
+    assert _publish_power(150) == 75
+    assert _publish_power(80) == 40
 
 
 def test_offense_power_blends_creation_volume_and_goals_vs_league():
@@ -148,19 +158,20 @@ def test_offense_power_blends_creation_volume_and_goals_vs_league():
     sharp = by["Sharp FC"]
     assert sharp["shots_per_game"] == 2.5 and sharp["sot_per_game"] == 2.0 and sharp["corners_per_game"] == 0.0
     # Most clinical club in the league, but creates less than par per game → blunt attack.
-    assert sharp["offense_power"] == _expected_offense(sharp, par, OFFENSE_WEIGHTS_XG) == 93
+    assert sharp["offense_power"] == _expected_offense(sharp, par, OFFENSE_WEIGHTS_XG) == 46
     assert sharp["potent"] is False
     assert sharp["rank"] == 1 and sharp["offense_rank"] == 1  # only ranked club
 
     blunt = by["Blunt Town"]
     # Wasteful in front of goal (0 from 2.0 xG) yet creates well above par → potent.
     assert blunt["clinical"] is False
-    assert blunt["offense_power"] == _expected_offense(blunt, par, OFFENSE_WEIGHTS_XG) == 111
+    assert blunt["offense_power"] == _expected_offense(blunt, par, OFFENSE_WEIGHTS_XG) == 56
     assert blunt["potent"] is True
     assert blunt["offense_rank"] is None  # single game
 
     par_utd = by["Par United"]
-    assert par_utd["offense_power"] == 98 and par_utd["potent"] is False
+    assert par_utd["offense_power"] == 49 and par_utd["potent"] is False
+    assert epl["par_power"] == PAR_POWER == 50
 
 
 def test_offense_rank_counts_corners_as_pressure():
@@ -176,7 +187,7 @@ def test_offense_rank_counts_corners_as_pressure():
     # Identical shooting; only the corner count separates the two attacks.
     assert by["Press Town"]["corners"] == 5 and by["Calm FC"]["corners"] == 0
     assert by["Press Town"]["power"] == by["Calm FC"]["power"]
-    assert by["Press Town"]["offense_power"] > 100 > by["Calm FC"]["offense_power"]
+    assert by["Press Town"]["offense_power"] > PAR_POWER > by["Calm FC"]["offense_power"]
     assert by["Press Town"]["potent"] and not by["Calm FC"]["potent"]
     assert by["Press Town"]["offense_rank"] == 1 and by["Calm FC"]["offense_rank"] == 2
 
@@ -192,19 +203,19 @@ def test_defense_power_rewards_allowing_fewer_chances():
     assert sharp["xg_against"] == pytest.approx(3.0)
     assert sharp["xga_per_game"] == pytest.approx(1.5)
     assert sharp["shots_against"] == 6 and sharp["sot_against"] == 4
-    assert sharp["defense_power"] == 80
+    assert sharp["defense_power"] == 40
     assert sharp["solid"] is False
     assert sharp["conceded_per_game"] == 1.0
     assert sharp["defense_rank"] == 1  # only ranked club
 
     blunt = by["Blunt Town"]
-    # Faced 1.0 xG in one game; shrunk: (1 + 2)/(1 + 2) = 1.0 → par.
-    assert blunt["defense_power"] == 100 and blunt["solid"] is False
+    # Faced 1.0 xG in one game; shrunk: (1 + 2)/(1 + 2) = 1.0 → par (50).
+    assert blunt["defense_power"] == 50 and blunt["solid"] is False
     assert blunt["defense_rank"] is None
 
     par = by["Par United"]
-    # Faced 0.0 xG; shrunk: (0 + 2)/(1 + 2) = 0.67 → 150.
-    assert par["defense_power"] == 150 and par["solid"] is True
+    # Faced 0.0 xG; shrunk: (0 + 2)/(1 + 2) = 0.67 → 150 on the internal scale → 75.
+    assert par["defense_power"] == 75 and par["solid"] is True
 
 
 def test_defense_rank_orders_ranked_clubs_independently_of_attack():
@@ -243,14 +254,14 @@ def test_league_without_xg_falls_back_to_sot_conversion():
     # Defence falls back to SOT allowed per game: league 8 SOT / 4 team-games = 2.0.
     assert ned["par_sot_against_per_game"] == 2.0
     assert by["Ajax"]["sot_against"] == 3 and by["Twente"]["sot_against"] == 5
-    assert by["Ajax"]["defense_power"] > 100 and by["Ajax"]["solid"]
-    assert by["Twente"]["defense_power"] < 100 and not by["Twente"]["solid"]
+    assert by["Ajax"]["defense_power"] > PAR_POWER and by["Ajax"]["solid"]
+    assert by["Twente"]["defense_power"] < PAR_POWER and not by["Twente"]["solid"]
     assert by["Ajax"]["defense_rank"] == 1 and by["Twente"]["defense_rank"] == 2
     # Offence drops the xG term without an xG feed: shots / SOT / corners / goals only.
     assert ned["offense_weights"] == OFFENSE_WEIGHTS_SOT
     assert ned["par_rates"]["xg"] == 0.0
     assert by["Ajax"]["offense_power"] == _expected_offense(by["Ajax"], ned["par_rates"], OFFENSE_WEIGHTS_SOT)
-    assert by["Ajax"]["offense_power"] > 100 > by["Twente"]["offense_power"]
+    assert by["Ajax"]["offense_power"] > PAR_POWER > by["Twente"]["offense_power"]
     assert by["Ajax"]["offense_rank"] == 1 and by["Twente"]["offense_rank"] == 2
 
 
