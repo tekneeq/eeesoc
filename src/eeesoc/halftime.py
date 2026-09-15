@@ -665,6 +665,152 @@ def stamp_league_intensity(timeline: dict[str, Any]) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
+# Quiet start: no shot on target by 15' → how many goals did the game produce?
+# ---------------------------------------------------------------------------
+
+QUIET_START_MINUTE = 15
+# Analysis scope: European leagues plus MLS and Liga MX.
+QUIET_EXCLUDED_LEAGUES = frozenset({"arg.1", "bra.1"})
+QUIET_GOAL_BUCKETS = ("0", "1", "2", "3", "4+")
+# First-half windows for the lone goal; the last one is stoppage time ("45'+2'").
+ONE_GOAL_WINDOWS = ("0-10", "10-20", "20-30", "30-40", "40-45", "45+")
+_ONE_GOAL_EDGES = (10, 20, 30, 40, 45)
+_QUIET_TTL_S = 300.0
+_quiet_lock = threading.Lock()
+_quiet_cache: dict[str, Any] = {"at": 0.0, "board": None}
+
+
+def _is_stoppage(ev: dict[str, Any]) -> bool:
+    return "+" in str(ev.get("clock") or "")
+
+
+def is_quiet_start(rec: dict[str, Any], *, minute: int = QUIET_START_MINUTE) -> bool:
+    """True when neither side had a shot on target (or goal) inside the first ``minute`` minutes."""
+    for ev in rec.get("events") or []:
+        if ev.get("kind") in {"shot_on", "goal", "own_goal"} and _in_first_half(ev, minute):
+            return False
+    return True
+
+
+def one_goal_window(ev: dict[str, Any]) -> str | None:
+    """Which first-half window a goal landed in; None when it is not a first-half goal."""
+    if not _in_first_half(ev, HALF_MINUTE):
+        return None
+    if _is_stoppage(ev):
+        return ONE_GOAL_WINDOWS[-1]
+    m = int(ev.get("minute") or 0)
+    if m > HALF_MINUTE:
+        return ONE_GOAL_WINDOWS[-1]
+    for label, edge in zip(ONE_GOAL_WINDOWS, _ONE_GOAL_EDGES):
+        if m <= edge:
+            return label
+    return ONE_GOAL_WINDOWS[-1]
+
+
+def _bucket_counts(labels: tuple[str, ...], hits: list[str]) -> dict[str, Any]:
+    counts = [sum(1 for h in hits if h == label) for label in labels]
+    n = len(hits)
+    return {
+        "n": n,
+        "labels": list(labels),
+        "counts": counts,
+        "pct": [round(100.0 * c / n, 1) if n else 0.0 for c in counts],
+    }
+
+
+def _goal_bucket(total: int) -> str:
+    return QUIET_GOAL_BUCKETS[min(max(int(total), 0), len(QUIET_GOAL_BUCKETS) - 1)]
+
+
+def quiet_start_stats(records: list[dict[str, Any]], *, minute: int = QUIET_START_MINUTE) -> dict[str, Any]:
+    """Goal-count distribution (by HT and at FT) over games with no SOT by ``minute``."""
+    quiet = [
+        r
+        for r in records
+        if int(r.get("n_events") or 0) >= MIN_EVENTS_FOR_TRUST and is_quiet_start(r, minute=minute)
+    ]
+    ht = _bucket_counts(QUIET_GOAL_BUCKETS, [_goal_bucket(int(r.get("ht_goals") or 0)) for r in quiet])
+    ft = _bucket_counts(
+        QUIET_GOAL_BUCKETS,
+        [_goal_bucket(int(r.get("ft_home") or 0) + int(r.get("ft_away") or 0)) for r in quiet],
+    )
+    return {"n": len(quiet), "archived": len(records), "minute": minute, "ht": ht, "ft": ft}
+
+
+def one_goal_half_windows(records: list[dict[str, Any]]) -> dict[str, Any]:
+    """When the goal came in first halves that produced exactly one goal."""
+    hits: list[str] = []
+    for r in records:
+        if int(r.get("ht_goals") or 0) != 1 or int(r.get("n_events") or 0) < MIN_EVENTS_FOR_TRUST:
+            continue
+        goals = [ev for ev in r.get("events") or [] if ev.get("kind") in {"goal", "own_goal"}]
+        windows = [w for w in (one_goal_window(ev) for ev in goals) if w]
+        if windows:
+            hits.append(windows[0])
+    return _bucket_counts(ONE_GOAL_WINDOWS, hits)
+
+
+def build_quiet_start_board(
+    records: list[dict[str, Any]] | None = None,
+    *,
+    leagues: list[tuple[str, str]] | None = None,
+    minute: int = QUIET_START_MINUTE,
+) -> dict[str, Any]:
+    """Per-league (and pooled) quiet-start goal buckets and lone-goal windows for the Live tab."""
+    league_list = [(s, l) for s, l in (leagues or LEAGUES) if s not in QUIET_EXCLUDED_LEAGUES]
+    allowed = {s for s, _ in league_list}
+    records = load_records() if records is None else records
+    pool = [r for r in records if str(r.get("league_slug") or "") in allowed]
+    by_league: dict[str, list[dict[str, Any]]] = {}
+    for r in pool:
+        by_league.setdefault(str(r.get("league_slug") or ""), []).append(r)
+    rows = []
+    for slug, label in league_list:
+        recs = by_league.get(slug, [])
+        rows.append(
+            {
+                "slug": slug,
+                "label": label,
+                "archived": len(recs),
+                "quiet": quiet_start_stats(recs, minute=minute),
+                "one_goal": one_goal_half_windows(recs),
+            }
+        )
+    return {
+        "minute": minute,
+        "goal_buckets": list(QUIET_GOAL_BUCKETS),
+        "windows": list(ONE_GOAL_WINDOWS),
+        "excluded": sorted(QUIET_EXCLUDED_LEAGUES),
+        "all": {
+            "slug": "",
+            "label": "ALL",
+            "archived": len(pool),
+            "quiet": quiet_start_stats(pool, minute=minute),
+            "one_goal": one_goal_half_windows(pool),
+        },
+        "leagues": rows,
+        "generated_at": time.time(),
+    }
+
+
+def quiet_start_board(*, use_cache: bool = True) -> dict[str, Any]:
+    now = time.time()
+    with _quiet_lock:
+        cached = _quiet_cache["board"]
+        if use_cache and cached is not None and now - float(_quiet_cache["at"]) < _QUIET_TTL_S:
+            return cached
+    board = build_quiet_start_board()
+    with _quiet_lock:
+        _quiet_cache.update({"at": now, "board": board})
+    return board
+
+
+def clear_quiet_start_cache() -> None:
+    with _quiet_lock:
+        _quiet_cache.update({"at": 0.0, "board": None})
+
+
+# ---------------------------------------------------------------------------
 # Live 0-0 half vs archive
 # ---------------------------------------------------------------------------
 
