@@ -5,7 +5,13 @@ Soccer **Matches + Similar** dashboard with a dark Revenant look.
 Freeze an in-play snapshot (cut minute, goal times, shots/SOT) and rank last-season lookalikes. History is cached under `~/.eeesoc/cache` (or `./data/cache` on EC2).
 
 The **Live** tab shows in-play matches as Revenant-style **match chiclets**, grouped by league.
-Tap a chiclet and the live pitch graphic opens at the top of the Live tab: last 15′ of the ball
+The very top of the tab is the **quiet-start board** (`/api/halftime/quiet`), built from the
+finished-match archive and switchable per league (European leagues plus MLS and Liga MX): a bar graph
+of how many goals games with **no shot on target by 15′** went on to produce — 0 / 1 / 2 / 3 / 4+,
+by half-time and at full-time, each bar showing the share and the count — and, underneath, for first
+halves that finished with exactly one goal, which window it came in (0-10, 10-20, 20-30, 30-40,
+40-45, 45+ stoppage).
+Tap a chiclet and the live pitch graphic opens below that board: last 15′ of the ball
 (home attacking right), fading older touches, a heat map of where it has been, pass trails, and
 shot markers (ESPN play coordinates).
 Each chiclet also has a rolling 15′ pressure bar (who is in the other side's final third right now),
