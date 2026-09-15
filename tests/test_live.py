@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from eeesoc.live import (
+    LEAGUES,
     build_pitch_track,
     clear_live_cache,
     clear_track_cache,
@@ -99,6 +100,13 @@ def test_parse_scoreboard_extracts_live_and_pre():
     assert live.away_id == "89"
     assert live.clock_seconds == 4335
     assert matches[1].clock_seconds is None
+
+
+def test_leagues_include_english_carabao_cup():
+    assert ("eng.league_cup", "Carabao") in LEAGUES
+    # After Championship so English domestic cups sit with EPL / Championship.
+    slugs = [slug for slug, _ in LEAGUES]
+    assert slugs.index("eng.2") < slugs.index("eng.league_cup")
 
 
 def test_fetch_live_board_filters_and_groups():
