@@ -2054,6 +2054,7 @@ def test_live_league_chips_count_in_play_rows_not_slate_totals():
     assert "state.live.live_total || 0" not in js
     assert "Number(c.live_count) || 0" not in js
     assert "archived quiet starts — not live games" in js
+    assert 'qs-count-hint">quiet' in js
 
     script = r"""
 function kickoffDate(m) {
@@ -2349,3 +2350,5 @@ def test_live_tab_opens_with_quiet_start_graphs():
     assert "dataset.quietLeague" in js
     assert ".qs-bar.qs-ht rect" in css and ".qs-bar.qs-ft rect" in css and ".qs-bar.qs-win rect" in css
     assert ".qs-svg" in css
+    assert ".qs-count-hint" in css
+    assert "not live games" in html

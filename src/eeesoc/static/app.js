@@ -5290,7 +5290,7 @@ echo "done → $OUT/${safe}_reel.mp4 ($N clips)"
       btn.setAttribute("aria-pressed", active ? "true" : "false");
       btn.dataset.quietLeague = slug || "";
       btn.title = title;
-      btn.innerHTML = `<span class="chiclet-label">${escapeHtml(label)}</span><span class="chiclet-count">${n}</span>`;
+      btn.innerHTML = `<span class="chiclet-label">${escapeHtml(label)}</span><span class="chiclet-count">${n}</span><span class="qs-count-hint">quiet</span>`;
       btn.addEventListener("click", () => {
         state.quietLeague = slug || null;
         renderQuietStart();
