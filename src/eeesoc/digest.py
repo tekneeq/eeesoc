@@ -29,6 +29,7 @@ _DISCORD_SAFE_LEN = 1800
 DIGEST_LEAGUES: list[tuple[str, str]] = [
     ("eng.1", "EPL"),
     ("eng.2", "Championship"),
+    ("eng.league_cup", "Carabao"),
     ("esp.1", "La Liga"),
     ("ita.1", "Serie A"),
     ("ger.1", "Bundesliga"),

@@ -68,6 +68,7 @@ def test_digest_leagues_cover_requested_competitions():
     assert slugs == {
         "eng.1",
         "eng.2",
+        "eng.league_cup",
         "esp.1",
         "ita.1",
         "ger.1",
