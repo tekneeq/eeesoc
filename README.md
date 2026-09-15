@@ -18,7 +18,8 @@ Each chiclet also has a rolling 15′ pressure bar (who is in the other side's f
 a pressure graph of that same window at every minute, a possession graph as two ribbons (1H and
 2H, minutes along the x-axis, green while the home side has the ball and blue when it changes
 hands), an intensity graph under those ribbons (end-to-end swings plus how far the ball
-travels, drawn against the league's typical archived game — ESPN has no player GPS, so this
+travels, scaled so the league's typical archived game sits in the middle of the plot —
+above is hotter, below is quieter — ESPN has no player GPS, so this
 is the ball's path, not miles run), a duel graph with three lines (home, away, and 50%) over
 that same last-15′ window at every minute, and a territory heat of
 where the ball has actually been in those last 15′ — so a first-half siege that flipped after
