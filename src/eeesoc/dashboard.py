@@ -383,6 +383,9 @@ def make_handler(state: DashboardState):
                 board = halftime.zero_zero_board(league_filter=league_filter)
                 return self._send(200, _json_bytes(board), "application/json")
 
+            if path == "/api/halftime/quiet":
+                return self._send(200, _json_bytes(halftime.quiet_start_board()), "application/json")
+
             if path == "/api/halftime/backfill":
                 raw_days = (qs.get("days") or ["3"])[0]
                 try:

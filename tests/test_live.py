@@ -2117,3 +2117,24 @@ def test_player_card_and_highlight_export_in_frontend():
     assert "KICKOFF_1H" in js and "KICKOFF_2H" in js
     assert "ffmpeg" in js
     assert "highlight cut list" in html.lower()
+
+
+def test_live_tab_opens_with_quiet_start_graphs():
+    js = Path("src/eeesoc/static/app.js").read_text(encoding="utf-8")
+    css = Path("src/eeesoc/static/app.css").read_text(encoding="utf-8")
+    html = Path("src/eeesoc/static/index.html").read_text(encoding="utf-8")
+    py = Path("src/eeesoc/dashboard.py").read_text(encoding="utf-8")
+    assert "/api/halftime/quiet" in py
+    assert 'fetch("/api/halftime/quiet")' in js
+    # The graphs sit at the top of the Live tab, above the tap-to-open pitch panel.
+    assert html.index('id="quietStart"') < html.index('id="pitchPanel"')
+    assert 'id="quietLeagues"' in html and 'id="quietCharts"' in html
+    assert "function pctBarChartSvg" in js
+    assert "function quietGoalsChartHtml" in js
+    assert "function oneGoalChartHtml" in js
+    assert "function renderQuietLeagueChips" in js
+    assert "function refreshQuietStart" in js
+    assert "refreshQuietStart();" in js
+    assert "dataset.quietLeague" in js
+    assert ".qs-bar.qs-ht rect" in css and ".qs-bar.qs-ft rect" in css and ".qs-bar.qs-win rect" in css
+    assert ".qs-svg" in css

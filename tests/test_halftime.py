@@ -458,3 +458,79 @@ def test_backfill_archives_finished_games_and_skips_existing():
     board = zero_zero_board(rows, leagues=[("eng.1", "EPL")])
     assert board["zero_total"] == 1
     assert board["leagues"][0]["matches"][0]["event_id"] == "10"
+
+
+def test_quiet_start_and_one_goal_window_helpers():
+    quiet = {"events": _quiet_half(), "n_events": 9}
+    assert halftime.is_quiet_start(quiet)  # first SOT is at 27'
+    early_sot = {"events": _quiet_half(extra=[_ev(14, "shot_on", "home", xg=0.2)])}
+    assert not halftime.is_quiet_start(early_sot)
+    late_sot = {"events": [_ev(16, "shot_on", "home", xg=0.2)]}
+    assert halftime.is_quiet_start(late_sot)
+    early_og = {"events": [_ev(10, "own_goal", "away")]}
+    assert not halftime.is_quiet_start(early_og)
+
+    assert halftime.one_goal_window(_ev(10, "goal", "home", period=1)) == "0-10"
+    assert halftime.one_goal_window(_ev(11, "goal", "home", period=1)) == "10-20"
+    assert halftime.one_goal_window(_ev(30, "goal", "home", period=1)) == "20-30"
+    assert halftime.one_goal_window(_ev(38, "goal", "home", period=1)) == "30-40"
+    assert halftime.one_goal_window(_ev(45, "goal", "home", period=1)) == "40-45"
+    assert halftime.one_goal_window(_ev(45, "goal", "home", period=1, clock="45'+2'")) == "45+"
+    assert halftime.one_goal_window(_ev(50, "goal", "home", period=2)) is None
+
+
+def test_quiet_start_board_buckets_goals_and_windows_by_league():
+    # a: quiet start, 0-0 HT, one 2H goal → HT bucket 0, FT bucket 1.
+    a = _timeline(_quiet_half(extra=[_ev(70, "goal", "home", xg=0.3, period=2)]), home_score=1, event_id="a")
+    # b: quiet start, lone 1H goal at 30', then four more → HT 1, FT 4+.
+    b_events = _quiet_half(
+        extra=[
+            _ev(30, "goal", "home", xg=0.4, period=1),
+            *(_ev(m, "goal", "home", xg=0.3, period=2) for m in (50, 60, 75, 80)),
+        ]
+    )
+    b = _timeline(b_events, home_score=5, event_id="b")
+    # c: NOT a quiet start (SOT at 12'), lone 1H goal in stoppage time → only feeds the window graph.
+    c = _timeline(
+        _quiet_half(extra=[_ev(12, "shot_on", "away", xg=0.2), _ev(45, "goal", "away", xg=0.5, period=1, clock="45'+1'")]),
+        away_score=1,
+        event_id="c",
+    )
+    for tl in (a, b, c):
+        assert archive_timeline(tl, {"league_chiclet": "EPL", "league_name": "Premier League", "start": "2026-09-01T14:00Z"})
+    d = {**_timeline(_quiet_half(), event_id="d"), "league_slug": "esp.1"}
+    assert archive_timeline(d, {"league_chiclet": "La Liga", "start": "2026-09-02T19:00Z"})
+    # e: Liga Argentina is outside the analysis scope and must not appear anywhere.
+    e = {**_timeline(_quiet_half(), event_id="e"), "league_slug": "arg.1"}
+    assert archive_timeline(e, {"league_chiclet": "Liga ARG", "start": "2026-09-02T22:00Z"})
+
+    board = halftime.build_quiet_start_board(
+        load_records(),
+        leagues=[("eng.1", "EPL"), ("esp.1", "La Liga"), ("uefa.europa", "UEL"), ("arg.1", "Liga ARG")],
+    )
+    assert board["minute"] == 15
+    assert board["goal_buckets"] == ["0", "1", "2", "3", "4+"]
+    assert board["windows"] == ["0-10", "10-20", "20-30", "30-40", "40-45", "45+"]
+    assert [l["slug"] for l in board["leagues"]] == ["eng.1", "esp.1", "uefa.europa"]
+
+    pooled = board["all"]
+    assert pooled["archived"] == 4
+    assert pooled["quiet"]["n"] == 3
+    assert pooled["quiet"]["ht"]["counts"] == [2, 1, 0, 0, 0]
+    assert pooled["quiet"]["ft"]["counts"] == [1, 1, 0, 0, 1]
+    assert pooled["quiet"]["ft"]["pct"] == [33.3, 33.3, 0.0, 0.0, 33.3]
+    assert pooled["one_goal"]["n"] == 2
+    assert pooled["one_goal"]["counts"] == [0, 0, 1, 0, 0, 1]
+
+    by_slug = {l["slug"]: l for l in board["leagues"]}
+    assert by_slug["eng.1"]["archived"] == 3 and by_slug["eng.1"]["quiet"]["n"] == 2
+    assert by_slug["eng.1"]["one_goal"]["counts"] == [0, 0, 1, 0, 0, 1]
+    assert by_slug["esp.1"]["quiet"]["n"] == 1 and by_slug["esp.1"]["quiet"]["ft"]["counts"] == [1, 0, 0, 0, 0]
+    assert by_slug["uefa.europa"]["archived"] == 0 and by_slug["uefa.europa"]["quiet"]["n"] == 0
+    assert by_slug["uefa.europa"]["one_goal"]["pct"] == [0.0] * 6
+
+    halftime.clear_quiet_start_cache()
+    first = halftime.quiet_start_board()
+    assert first["all"]["archived"] == 4
+    assert halftime.quiet_start_board() is first  # served from the TTL cache
+    halftime.clear_quiet_start_cache()

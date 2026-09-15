@@ -35,6 +35,9 @@
     clinicalTimer: null,
     sigDay: null, // "YYYY-MM-DD" local day selected on the Signals daily bars
     sigSignals: [],
+    quiet: null, // /api/halftime/quiet board for the Live-tab quiet-start graphs
+    quietLeague: null, // league slug picked on those graphs; null = ALL
+    quietTimer: null,
   };
 
   const HT_POLL_MS = 20000;
@@ -5118,6 +5121,164 @@ echo "done → $OUT/${safe}_reel.mp4 ($N clips)"
     }, 2500);
   }
 
+  // ---------------------------------------------------------------------------
+  // Live tab — quiet-start graphs (no SOT by 15′ → goals; lone 1H goal → window)
+  // ---------------------------------------------------------------------------
+
+  const QUIET_POLL_MS = 5 * 60 * 1000;
+
+  function quietSelectedRow() {
+    const board = state.quiet;
+    if (!board) return null;
+    if (state.quietLeague) {
+      const hit = (board.leagues || []).find((l) => l.slug === state.quietLeague);
+      if (hit) return hit;
+    }
+    return board.all || null;
+  }
+
+  function pctBarChartSvg(cats, series, opts = {}) {
+    // cats: x labels; series: [{label, cls, pct: [], counts: []}] — one bar per series per category.
+    const W = Math.max(360, cats.length * (56 + 34 * Math.max(0, series.length - 1)) + 60);
+    const H = 190;
+    const padL = 38;
+    const padR = 10;
+    const padT = 22;
+    const padB = 30;
+    const innerH = H - padT - padB;
+    const innerW = W - padL - padR;
+    const top = Math.max(10, ...series.flatMap((s) => s.pct));
+    const yMax = Math.min(100, Math.ceil((top * 1.18) / 10) * 10);
+    const slot = innerW / cats.length;
+    const gap = 6;
+    const bw = Math.min(34, (slot - 14 - gap * (series.length - 1)) / series.length);
+    const y = (p) => padT + innerH - (p / yMax) * innerH;
+    const ticks = [];
+    const step = yMax > 60 ? 25 : yMax > 30 ? 10 : 5;
+    for (let t = 0; t <= yMax; t += step) {
+      ticks.push(`<line class="qs-grid" x1="${padL}" x2="${W - padR}" y1="${y(t).toFixed(1)}" y2="${y(t).toFixed(1)}"/>
+        <text class="qs-tick" x="${padL - 6}" y="${(y(t) + 3).toFixed(1)}" text-anchor="end">${t}%</text>`);
+    }
+    const groups = cats
+      .map((cat, i) => {
+        const x0 = padL + i * slot + (slot - (bw * series.length + gap * (series.length - 1))) / 2;
+        const bars = series
+          .map((s, j) => {
+            const p = Number(s.pct[i] || 0);
+            const n = Number(s.counts[i] || 0);
+            const x = x0 + j * (bw + gap);
+            const h = (p / yMax) * innerH;
+            const title = `${s.label} · ${cat}: ${p.toFixed(0)}% (${n} ${n === 1 ? "game" : "games"})`;
+            return `<g class="qs-bar ${s.cls}"><title>${escapeHtml(title)}</title>
+              <rect x="${x.toFixed(1)}" y="${(y(p)).toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.max(h, p > 0 ? 2 : 0).toFixed(1)}" rx="2"/>
+              <text class="qs-val" x="${(x + bw / 2).toFixed(1)}" y="${(y(p) - 4).toFixed(1)}" text-anchor="middle">${p.toFixed(0)}%</text>
+              <text class="qs-n" x="${(x + bw / 2).toFixed(1)}" y="${(y(p) - 4 - 10).toFixed(1)}" text-anchor="middle">${n}</text>
+            </g>`;
+          })
+          .join("");
+        return `${bars}<text class="qs-cat" x="${(padL + i * slot + slot / 2).toFixed(1)}" y="${H - 10}" text-anchor="middle">${escapeHtml(cat)}</text>`;
+      })
+      .join("");
+    return `<svg class="qs-svg" viewBox="0 0 ${W} ${H}" width="100%" height="${H}" role="img" aria-label="${escapeHtml(opts.aria || "")}">
+      ${ticks.join("")}
+      <line class="qs-axis" x1="${padL}" x2="${W - padR}" y1="${y(0).toFixed(1)}" y2="${y(0).toFixed(1)}"/>
+      ${groups}
+    </svg>`;
+  }
+
+  function quietGoalsChartHtml(row, board) {
+    const q = row.quiet || {};
+    const n = q.n || 0;
+    const cats = board.goal_buckets || ["0", "1", "2", "3", "4+"];
+    if (!n) {
+      return `<div class="qs-chart"><div class="qs-chart-title">Goals after a quiet 15′</div><p class="qs-empty">No archived ${escapeHtml(row.label)} game has gone 15′ without a shot on target yet.</p></div>`;
+    }
+    const series = [
+      { label: "goals by half-time", cls: "qs-ht", pct: q.ht?.pct || [], counts: q.ht?.counts || [] },
+      { label: "goals at full-time", cls: "qs-ft", pct: q.ft?.pct || [], counts: q.ft?.counts || [] },
+    ];
+    const htZero = q.ht?.counts?.[0] || 0;
+    const ftZero = q.ft?.counts?.[0] || 0;
+    return `<div class="qs-chart">
+      <div class="qs-chart-title">Goals after a quiet 15′ <span class="qs-chart-n">${n} ${n === 1 ? "game" : "games"} of ${row.archived} archived · ${escapeHtml(row.label)}</span></div>
+      <div class="qs-key"><span><i class="qs-swatch qs-ht"></i> by half-time</span><span><i class="qs-swatch qs-ft"></i> at full-time</span><span class="qs-key-note">x = total goals · y = share of those games (count above)</span></div>
+      ${pctBarChartSvg(cats, series, { aria: `Goal counts after no shot on target by ${board.minute}′ in ${row.label}` })}
+      <div class="qs-foot">Still 0-0 at half-time: <b>${htZero}</b> of ${n} (${Math.round((100 * htZero) / n)}%) · stayed 0-0 to full-time: <b>${ftZero}</b> (${Math.round((100 * ftZero) / n)}%)</div>
+    </div>`;
+  }
+
+  function oneGoalChartHtml(row, board) {
+    const o = row.one_goal || {};
+    const n = o.n || 0;
+    const cats = board.windows || ["0-10", "10-20", "20-30", "30-40", "40-45", "45+"];
+    if (!n) {
+      return `<div class="qs-chart"><div class="qs-chart-title">One-goal first halves · when it came</div><p class="qs-empty">No archived ${escapeHtml(row.label)} first half has finished with exactly one goal yet.</p></div>`;
+    }
+    const series = [{ label: "lone 1H goal", cls: "qs-win", pct: o.pct || [], counts: o.counts || [] }];
+    return `<div class="qs-chart">
+      <div class="qs-chart-title">One-goal first halves · when it came <span class="qs-chart-n">${n} ${n === 1 ? "half" : "halves"} · ${escapeHtml(row.label)}</span></div>
+      <div class="qs-key"><span><i class="qs-swatch qs-win"></i> minute window of the goal</span><span class="qs-key-note">45+ = first-half stoppage time · all games, not only quiet starts</span></div>
+      ${pctBarChartSvg(cats, series, { aria: `Minute window of the only first-half goal in ${row.label}` })}
+    </div>`;
+  }
+
+  function renderQuietLeagueChips() {
+    const row = $("#quietLeagues");
+    if (!row) return;
+    row.innerHTML = "";
+    const board = state.quiet;
+    if (!board) return;
+    const mk = (slug, label, n, title) => {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      const active = (state.quietLeague || null) === (slug || null);
+      btn.className = "chiclet" + (active ? " on" : "") + (!n && !active ? " dim" : "");
+      btn.disabled = !n && !active;
+      btn.setAttribute("aria-pressed", active ? "true" : "false");
+      btn.dataset.quietLeague = slug || "";
+      btn.title = title;
+      btn.innerHTML = `<span class="chiclet-label">${escapeHtml(label)}</span><span class="chiclet-count">${n}</span>`;
+      btn.addEventListener("click", () => {
+        state.quietLeague = slug || null;
+        renderQuietStart();
+      });
+      row.appendChild(btn);
+    };
+    mk("", "ALL", board.all?.quiet?.n || 0, "Every league in scope pooled");
+    for (const l of board.leagues || []) {
+      mk(l.slug, l.label, l.quiet?.n || 0, `${l.label}: ${l.quiet?.n || 0} quiet starts in ${l.archived} archived games`);
+    }
+  }
+
+  function renderQuietStart() {
+    const board = state.quiet;
+    const mount = $("#quietCharts");
+    if (!mount || !board) return;
+    if (state.quietLeague && !(board.leagues || []).some((l) => l.slug === state.quietLeague)) {
+      state.quietLeague = null;
+    }
+    renderQuietLeagueChips();
+    const row = quietSelectedRow();
+    if (!row) return;
+    mount.innerHTML = `${quietGoalsChartHtml(row, board)}${oneGoalChartHtml(row, board)}`;
+  }
+
+  async function refreshQuietStart(opts = {}) {
+    const stamp = $("#quietStamp");
+    try {
+      const board = await (await fetch("/api/halftime/quiet")).json();
+      state.quiet = board;
+      if (stamp) {
+        const a = board.all || {};
+        stamp.textContent = `${a.quiet?.n || 0} quiet starts in ${a.archived || 0} archived games · updated ${new Date().toLocaleTimeString()}`;
+      }
+      renderQuietStart();
+    } catch (err) {
+      if (opts.quiet) return;
+      if (stamp) stamp.textContent = "quiet-start archive unavailable";
+    }
+  }
+
   async function refreshLive() {
     try {
       // One board for both scopes: in-play rows are state "in", full-time rows are "post".
@@ -5219,6 +5380,10 @@ echo "done → $OUT/${safe}_reel.mp4 ($N clips)"
     state.nogoalTimer = setInterval(() => {
       if (!document.hidden) refreshNogoal();
     }, NOGOAL_POLL_MS);
+    refreshQuietStart();
+    state.quietTimer = setInterval(() => {
+      if (!document.hidden) refreshQuietStart({ quiet: true });
+    }, QUIET_POLL_MS);
     await refreshLive();
     state.liveTimer = setInterval(() => {
       if (document.hidden) return;

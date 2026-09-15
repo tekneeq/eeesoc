@@ -4182,3 +4182,166 @@ main {
     display: none;
   }
 }
+
+/* Live tab — quiet-start graphs (no SOT by 15′ → goals; lone 1H goal → window) */
+.quiet-start {
+  margin: 0 0 1rem;
+  padding: 0.35rem 0 1rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.qs-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.5rem 1rem;
+  margin-bottom: 0.5rem;
+}
+
+.qs-title {
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+.qs-sub {
+  color: var(--muted);
+  font-size: 0.82rem;
+  max-width: 68ch;
+  margin-top: 0.15rem;
+}
+
+.qs-stamp {
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+
+.qs-leagues {
+  margin-bottom: 0.6rem;
+}
+
+.qs-charts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+  gap: 0.75rem;
+}
+
+.qs-chart {
+  background: var(--bg1);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 0.6rem 0.7rem 0.5rem;
+  min-width: 0;
+}
+
+.qs-chart-title {
+  font-weight: 600;
+  font-size: 0.9rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.25rem 0.6rem;
+}
+
+.qs-chart-n {
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  font-weight: 400;
+}
+
+.qs-key {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.9rem;
+  color: var(--muted);
+  font-size: 0.75rem;
+  margin: 0.25rem 0 0.15rem;
+}
+
+.qs-key-note {
+  margin-left: auto;
+  font-style: italic;
+}
+
+.qs-swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  vertical-align: -1px;
+  margin-right: 0.3rem;
+}
+
+.qs-swatch.qs-ht,
+.qs-bar.qs-ht rect {
+  fill: var(--accent);
+  background: var(--accent);
+}
+
+.qs-swatch.qs-ft,
+.qs-bar.qs-ft rect {
+  fill: rgba(125, 200, 255, 0.95);
+  background: rgba(125, 200, 255, 0.95);
+}
+
+.qs-swatch.qs-win,
+.qs-bar.qs-win rect {
+  fill: var(--warn);
+  background: var(--warn);
+}
+
+.qs-svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+
+.qs-grid {
+  stroke: rgba(180, 210, 200, 0.1);
+  stroke-width: 1;
+}
+
+.qs-axis {
+  stroke: rgba(180, 210, 200, 0.35);
+  stroke-width: 1;
+}
+
+.qs-tick,
+.qs-cat {
+  fill: rgba(195, 220, 210, 0.85);
+  font-family: var(--mono);
+  font-size: 10px;
+}
+
+.qs-cat {
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.qs-val {
+  fill: rgba(230, 245, 238, 0.95);
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.qs-n {
+  fill: rgba(195, 220, 210, 0.7);
+  font-family: var(--mono);
+  font-size: 9px;
+}
+
+.qs-foot,
+.qs-empty {
+  color: var(--muted);
+  font-size: 0.78rem;
+  margin: 0.2rem 0 0;
+}
+
+.qs-foot b {
+  color: var(--text);
+}
