@@ -75,10 +75,31 @@
   }
 
   const DEAD_STATUS = ["postponed", "canceled", "cancelled", "suspended", "abandoned", "forfeit"];
+  const FT_RE = /(?<![a-z])(ft(?:-pens)?|full[\s-]?time|final|aet|after\s+extra)(?![a-z])/i;
+  const KO_AHEAD_S = 45;
+  const KO_STALE_IN_S = 4 * 3600 + 15 * 60;
+
+  function matchStatusBlob(m) {
+    return `${m?.detail || ""} ${m?.clock || ""} ${m?.state || ""}`.toLowerCase();
+  }
 
   function isDeadMatch(m) {
-    const blob = `${m?.detail || ""} ${m?.clock || ""} ${m?.state || ""}`.toLowerCase();
+    const blob = matchStatusBlob(m);
     return DEAD_STATUS.some((w) => blob.includes(w));
+  }
+
+  function looksFinished(m) {
+    if (isDeadMatch(m)) return false;
+    return FT_RE.test(matchStatusBlob(m));
+  }
+
+  function isLiveMatch(m) {
+    if (!m || isDeadMatch(m) || isFinishedMatch(m) || looksFinished(m)) return false;
+    if (m.state !== "in") return false;
+    const d = kickoffDate(m);
+    if (!d) return true;
+    const elapsed = (Date.now() - d.getTime()) / 1000;
+    return elapsed >= -KO_AHEAD_S && elapsed <= KO_STALE_IN_S;
   }
 
   function kickoffDate(m) {
@@ -123,7 +144,7 @@
   function matchInScope(m, scope) {
     if (scope === "finished") return isFinishedMatch(m);
     if (scope === "upcoming") return isUpcomingMatch(m);
-    if (scope === "live") return m?.state === "in";
+    if (scope === "live") return isLiveMatch(m);
     return true;
   }
 
@@ -1003,12 +1024,15 @@
   }
 
   function scopeCount(c, scope) {
-    if (scope === "finished") return Number(c.post_count) || 0;
-    if (scope === "upcoming") {
-      // "Today" is local — don't trust the server's UTC pre_count.
-      return flatLiveMatches(new Set([c.slug]), "upcoming").length;
-    }
-    return Number(c.live_count) || 0;
+    // Same rows the grid shows — never the server slate totals (those mix in
+    // yesterday's leftovers and ESPN `in` games that have already finished).
+    return flatLiveMatches(new Set([c.slug]), scope).length;
+  }
+
+  function scopeNoun(scope, n) {
+    if (scope === "finished") return n === 1 ? "finished game" : "finished games";
+    if (scope === "upcoming") return n === 1 ? "upcoming kickoff" : "upcoming kickoffs";
+    return n === 1 ? "live game" : "live games";
   }
 
   function toggleLeagueFilter(filter, slug) {
@@ -1033,17 +1057,12 @@
     if (!state.live) return;
 
     const filter = state[filterKey];
-    const total =
-      scope === "finished"
-        ? state.live.post_total || 0
-        : scope === "upcoming"
-          ? flatLiveMatches(null, "upcoming").length
-          : state.live.live_total || 0;
+    const total = flatLiveMatches(null, scope).length;
     const allBtn = document.createElement("button");
     allBtn.type = "button";
     allBtn.className = "chiclet" + (filter == null ? " on" : "");
     allBtn.setAttribute("aria-pressed", filter == null ? "true" : "false");
-    allBtn.title = "Show every league";
+    allBtn.title = `Show every league · ${total} ${scopeNoun(scope, total)}`;
     allBtn.innerHTML = `<span class="chiclet-label">ALL</span><span class="chiclet-count">${total}</span>`;
     allBtn.addEventListener("click", () => {
       state[filterKey] = null;
@@ -1059,7 +1078,9 @@
       btn.className = "chiclet" + (active ? " on" : "") + (!n ? " dim" : "");
       btn.disabled = !n && !active;
       btn.setAttribute("aria-pressed", active ? "true" : "false");
-      btn.title = active ? `Remove ${c.label} from the filter` : `Add ${c.label} to the filter`;
+      btn.title = active
+        ? `Remove ${c.label} from the filter · ${n} ${scopeNoun(scope, n)}`
+        : `Add ${c.label} to the filter · ${n} ${scopeNoun(scope, n)}`;
       btn.innerHTML = `<span class="chiclet-label">${c.label}</span><span class="chiclet-count">${n}</span>`;
       btn.addEventListener("click", () => {
         if (!n && !active) return;
@@ -5069,7 +5090,7 @@ echo "done → $OUT/${safe}_reel.mp4 ($N clips)"
     const rows = htLiveZeroRows();
     if (!rows.length) {
       wrap.innerHTML = `<p class="lede empty-live">No live 0-0 first halves right now — ${
-        state.live?.live_total || 0
+        flatLiveMatches(null, "live").length
       } games in play. Cards appear here at kickoff while a game is still 0-0 in the first half, and drop off at the first goal or the restart.</p>`;
       return;
     }
@@ -5276,9 +5297,19 @@ echo "done → $OUT/${safe}_reel.mp4 ($N clips)"
       });
       row.appendChild(btn);
     };
-    mk("", "ALL", board.all?.quiet?.n || 0, "Every league in scope pooled");
+    mk(
+      "",
+      "ALL",
+      board.all?.quiet?.n || 0,
+      `${board.all?.quiet?.n || 0} archived quiet starts — not live games`
+    );
     for (const l of board.leagues || []) {
-      mk(l.slug, l.label, l.quiet?.n || 0, `${l.label}: ${l.quiet?.n || 0} quiet starts in ${l.archived} archived games`);
+      mk(
+        l.slug,
+        l.label,
+        l.quiet?.n || 0,
+        `${l.label}: ${l.quiet?.n || 0} archived quiet starts in ${l.archived} games — not live`
+      );
     }
   }
 
@@ -5317,10 +5348,12 @@ echo "done → $OUT/${safe}_reel.mp4 ($N clips)"
       const data = await (await fetch(`/api/live?live_only=0&days_back=${FINISHED_DAYS_BACK}`)).json();
       state.live = data;
       const when = new Date().toLocaleTimeString();
+      const liveN = flatLiveMatches(null, "live").length;
       const upcomingN = flatLiveMatches(null, "upcoming").length;
+      const finishedN = flatLiveMatches(null, "finished").length;
       $("#liveStamp").textContent =
-        `${data.live_total || 0} live · ${upcomingN} upcoming · ${data.post_total || 0} finished · updated ${when}`;
-      $("#similarLiveStamp").textContent = `${data.live_total || 0} live · updated ${when}`;
+        `${liveN} live · ${upcomingN} upcoming · ${finishedN} finished · updated ${when}`;
+      $("#similarLiveStamp").textContent = `${liveN} live · updated ${when}`;
 
       const scopeFor = { liveFilter: state.liveScope || "live", similarFilter: "live" };
       for (const filterKey of ["liveFilter", "similarFilter"]) {
