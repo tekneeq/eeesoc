@@ -69,6 +69,7 @@ def test_digest_leagues_cover_requested_competitions():
         "eng.1",
         "eng.2",
         "eng.league_cup",
+        "eng.fa",
         "esp.1",
         "ita.1",
         "ger.1",
