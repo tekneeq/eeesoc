@@ -35,6 +35,7 @@ LEAGUES: list[tuple[str, str]] = [
     ("uefa.europa", "UEL"),
     ("eng.2", "Championship"),
     ("eng.league_cup", "Carabao"),
+    ("eng.fa", "FA Cup"),
     ("usa.1", "MLS"),
     ("mex.1", "Liga MX"),
     ("ned.1", "Eredivisie"),

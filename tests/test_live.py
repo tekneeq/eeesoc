@@ -102,11 +102,12 @@ def test_parse_scoreboard_extracts_live_and_pre():
     assert matches[1].clock_seconds is None
 
 
-def test_leagues_include_english_carabao_cup():
+def test_leagues_include_english_carabao_and_fa_cup():
     assert ("eng.league_cup", "Carabao") in LEAGUES
+    assert ("eng.fa", "FA Cup") in LEAGUES
     # After Championship so English domestic cups sit with EPL / Championship.
     slugs = [slug for slug, _ in LEAGUES]
-    assert slugs.index("eng.2") < slugs.index("eng.league_cup")
+    assert slugs.index("eng.2") < slugs.index("eng.league_cup") < slugs.index("eng.fa")
 
 
 def test_fetch_live_board_filters_and_groups():

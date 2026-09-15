@@ -55,7 +55,7 @@ HELP_TEXT = """**eeesoc · `!soc` commands**
 !soc winprob                  EPL picks + 30-day record
 !soc fixture HOME AWAY        WinProb detail for a pair
 !soc similar TEAM [minute]    historical lookalikes
-!soc today                    today's slate (EPL / Championship / Carabao / …)
+!soc today                    today's slate (EPL / Championship / Carabao / FA Cup / …)
 ```
 Examples:
 `!soc live`
