@@ -692,12 +692,20 @@ def test_bets_tab_lists_todays_alarms_by_league():
     assert "function betsByLeague" in js
     assert "function tallyBets" in js
     assert "function betsInWindow" in js
+    assert "function betsDayKeys" in js
+    assert "function betsDailyBuckets" in js
+    assert "function selectBetsDay" in js
+    assert "function renderBetsDayGames" in js
+    assert "function renderDayGameChiclets" in js
     assert "function betCardHtml" in js
     assert "No more goals this half" in js
     assert "Won" in js and "Lost" in js and "Live" in js
     assert "Last ${BET_WINDOW_DAYS} days" in js
     assert "Season" in js
+    assert "bindDailyBars(mount, selectBetsDay)" in js
     assert "if (name === \"bets\") refreshBets()" in js
     assert ".bets-hero" in css and ".bets-league" in css and ".bets-card.won" in css
     assert ".bets-records" in css and ".bets-record-main" in css
-    assert "last 30 days and season record" in html
+    assert ".bets-day-row" in css and ".bets-day-games" in css
+    assert "daily bar chart" in html
+    assert "game chiclets" in html
