@@ -7,6 +7,7 @@ from pathlib import Path
 
 from eeesoc.live import (
     LEAGUES,
+    LiveMatch,
     build_pitch_track,
     clear_live_cache,
     clear_track_cache,
@@ -14,6 +15,7 @@ from eeesoc.live import (
     match_is_live,
     parse_scoreboard,
     promote_started_match,
+    settle_finished_match,
 )
 
 
@@ -110,12 +112,27 @@ def test_leagues_include_english_carabao_and_fa_cup():
     assert slugs.index("eng.2") < slugs.index("eng.league_cup") < slugs.index("eng.fa")
 
 
+def _stamp_event_dates(payload: dict, *starts: str) -> dict:
+    """Copy a scoreboard payload and rewrite event kickoff times."""
+    import copy
+
+    out = copy.deepcopy(payload)
+    events = out["content"]["sbData"]["events"]
+    for event, start in zip(events, starts, strict=False):
+        event["date"] = start
+    return out
+
+
 def test_fetch_live_board_filters_and_groups():
     clear_live_cache()
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    live_start = (now - timedelta(minutes=72)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    later = (now + timedelta(hours=2)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    payload = _stamp_event_dates(SAMPLE_SB, live_start, later)
 
     def fake_fetch(url: str):
         if "esp.1" in url:
-            return SAMPLE_SB
+            return payload
         return {"content": {"sbData": {"leagues": [{"name": "X"}], "events": []}}}
 
     board = fetch_live_board(
@@ -190,8 +207,101 @@ def test_kickoff_passed_pre_match_counts_as_live():
     assert promote_started_match(by_id["later"], now).state == "pre"
 
 
+def _lm(**kwargs) -> LiveMatch:
+    now = kwargs.pop("now", datetime(2026, 9, 15, 19, 0, tzinfo=timezone.utc))
+    start = kwargs.pop("start", (now - timedelta(minutes=70)).strftime("%Y-%m-%dT%H:%M:%SZ"))
+    fields = dict(
+        event_id="1",
+        league_slug="eng.1",
+        league_name="EPL",
+        league_chiclet="EPL",
+        home="A",
+        away="B",
+        home_score=0,
+        away_score=0,
+        state="in",
+        clock="70'",
+        detail="70'",
+        start=start,
+    )
+    fields.update(kwargs)
+    return LiveMatch(**fields)
+
+
+def test_stale_or_ft_in_rows_are_not_live():
+    now = datetime(2026, 9, 15, 19, 0, tzinfo=timezone.utc)
+    live = _lm(now=now)
+    assert match_is_live(live, now) is True
+    assert settle_finished_match(live, now).state == "in"
+
+    stale = _lm(now=now, start=(now - timedelta(hours=6)).strftime("%Y-%m-%dT%H:%M:%SZ"), clock="90'")
+    assert match_is_live(stale, now) is False
+    settled = settle_finished_match(stale, now)
+    assert settled.state == "post"
+    assert settled.clock == "FT"
+
+    ft = _lm(now=now, clock="FT", detail="FT")
+    assert match_is_live(ft, now) is False
+    assert settle_finished_match(ft, now).state == "post"
+
+
+def test_fetch_live_board_does_not_count_stale_in_as_live():
+    """Yesterday's leftover ESPN `in` rows must not inflate ALL / live_total."""
+    clear_live_cache()
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    payload = {
+        "content": {
+            "sbData": {
+                "leagues": [{"name": "English Premier League"}],
+                "events": [
+                    _event(
+                        "stale",
+                        "in",
+                        (now - timedelta(hours=8)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                        clock="90'",
+                        detail="90'",
+                    ),
+                    _event(
+                        "ft-in",
+                        "in",
+                        (now - timedelta(hours=2)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                        clock="FT",
+                        detail="FT",
+                    ),
+                    _event(
+                        "live",
+                        "in",
+                        (now - timedelta(minutes=40)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                        clock="40'",
+                        detail="40'",
+                    ),
+                ],
+            }
+        }
+    }
+
+    def fake_fetch(url: str):
+        return payload
+
+    board = fetch_live_board(
+        live_only=False, days_back=1, leagues=[("eng.1", "EPL")], fetcher=fake_fetch, use_cache=False
+    )
+    assert board["live_total"] == 1
+    assert board["post_total"] == 2
+    assert board["chiclets"][0]["live_count"] == 1
+    states = {m["event_id"]: m["state"] for m in board["leagues"][0]["matches"]}
+    assert states == {"stale": "post", "ft-in": "post", "live": "in"}
+
+    live_only = fetch_live_board(
+        live_only=True, leagues=[("eng.1", "EPL")], fetcher=fake_fetch, use_cache=False
+    )
+    assert live_only["live_total"] == 1
+    assert live_only["leagues"][0]["matches"][0]["event_id"] == "live"
+
+
 def test_fetch_live_board_keeps_finished_games_when_not_live_only():
     clear_live_cache()
+    now = datetime.now(timezone.utc).replace(microsecond=0)
     payload = {
         "content": {
             "sbData": {
@@ -199,7 +309,7 @@ def test_fetch_live_board_keeps_finished_games_when_not_live_only():
                 "events": [
                     {
                         "id": "1",
-                        "date": "2026-09-07T18:45Z",
+                        "date": (now - timedelta(hours=3)).strftime("%Y-%m-%dT%H:%M:%SZ"),
                         "competitions": [
                             {
                                 "status": {"type": {"state": "post", "detail": "FT", "shortDetail": "FT"}},
@@ -212,7 +322,7 @@ def test_fetch_live_board_keeps_finished_games_when_not_live_only():
                     },
                     {
                         "id": "2",
-                        "date": "2026-09-07T20:45Z",
+                        "date": (now - timedelta(minutes=60)).strftime("%Y-%m-%dT%H:%M:%SZ"),
                         "competitions": [
                             {
                                 "status": {"type": {"state": "in", "detail": "60'"}, "displayClock": "60'"},
@@ -225,7 +335,7 @@ def test_fetch_live_board_keeps_finished_games_when_not_live_only():
                     },
                     {
                         "id": "3",
-                        "date": "2026-09-07T22:00Z",
+                        "date": (now + timedelta(hours=2)).strftime("%Y-%m-%dT%H:%M:%SZ"),
                         "competitions": [
                             {
                                 "status": {
@@ -1934,6 +2044,62 @@ if (f !== null) process.exit(5);
     subprocess.run(["node", "-e", script], check=True)
 
 
+def test_live_league_chips_count_in_play_rows_not_slate_totals():
+    """ALL / per-league numbers must match the grid, not live_total from the 3-day slate."""
+    js = Path("src/eeesoc/static/app.js").read_text(encoding="utf-8")
+    assert "function isLiveMatch" in js
+    assert "function scopeNoun" in js
+    assert "return flatLiveMatches(new Set([c.slug]), scope).length;" in js
+    assert "const total = flatLiveMatches(null, scope).length;" in js
+    assert "state.live.live_total || 0" not in js
+    assert "Number(c.live_count) || 0" not in js
+    assert "archived quiet starts — not live games" in js
+    assert 'qs-count-hint">quiet' in js
+
+    script = r"""
+function kickoffDate(m) {
+  if (!m || !m.start) return null;
+  const d = new Date(m.start);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+const DEAD_STATUS = ["postponed", "canceled", "cancelled", "suspended", "abandoned", "forfeit"];
+const FT_RE = /(?<![a-z])(ft(?:-pens)?|full[\s-]?time|final|aet|after\s+extra)(?![a-z])/i;
+const KO_AHEAD_S = 45;
+const KO_STALE_IN_S = 4 * 3600 + 15 * 60;
+function matchStatusBlob(m) {
+  return `${m?.detail || ""} ${m?.clock || ""} ${m?.state || ""}`.toLowerCase();
+}
+function isDeadMatch(m) {
+  const blob = matchStatusBlob(m);
+  return DEAD_STATUS.some((w) => blob.includes(w));
+}
+function isFinishedMatch(m) { return m?.state === "post"; }
+function looksFinished(m) {
+  if (isDeadMatch(m)) return false;
+  return FT_RE.test(matchStatusBlob(m));
+}
+function isLiveMatch(m) {
+  if (!m || isDeadMatch(m) || isFinishedMatch(m) || looksFinished(m)) return false;
+  if (m.state !== "in") return false;
+  const d = kickoffDate(m);
+  if (!d) return true;
+  const elapsed = (Date.now() - d.getTime()) / 1000;
+  return elapsed >= -KO_AHEAD_S && elapsed <= KO_STALE_IN_S;
+}
+const now = Date.now();
+const iso = (ms) => new Date(ms).toISOString();
+const live = { state: "in", clock: "40'", detail: "40'", start: iso(now - 40 * 60 * 1000) };
+const stale = { state: "in", clock: "90'", detail: "90'", start: iso(now - 8 * 3600 * 1000) };
+const ft = { state: "in", clock: "FT", detail: "FT", start: iso(now - 2 * 3600 * 1000) };
+const post = { state: "post", clock: "FT", detail: "FT", start: iso(now - 3 * 3600 * 1000) };
+if (!isLiveMatch(live)) process.exit(2);
+if (isLiveMatch(stale) || isLiveMatch(ft) || isLiveMatch(post)) process.exit(3);
+"""
+    import subprocess
+
+    subprocess.run(["node", "-e", script], check=True)
+
+
 # —— Lineups: formation, subs, power ——
 
 
@@ -2184,3 +2350,5 @@ def test_live_tab_opens_with_quiet_start_graphs():
     assert "dataset.quietLeague" in js
     assert ".qs-bar.qs-ht rect" in css and ".qs-bar.qs-ft rect" in css and ".qs-bar.qs-win rect" in css
     assert ".qs-svg" in css
+    assert ".qs-count-hint" in css
+    assert "not live games" in html

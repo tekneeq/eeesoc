@@ -4222,6 +4222,13 @@ main {
   margin-bottom: 0.6rem;
 }
 
+.qs-count-hint {
+  font-size: 0.62rem;
+  letter-spacing: 0.06em;
+  opacity: 0.55;
+  text-transform: lowercase;
+}
+
 .qs-charts {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
