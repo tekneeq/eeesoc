@@ -973,6 +973,11 @@
 
   const TEAM_DROP = /^(fc|cf|afc|sc|ac|as|ss|ud|cd|rc|the|&|and)$/i;
   const TEAM_GENERIC = /^(united|city|town|athletic|rovers|wanderers|albion|hotspur|county)$/i;
+  // Shared city names that cannot stand alone once United/City is dropped.
+  const TEAM_NICK = {
+    "manchester united": ["Man United", "Man Utd"],
+    "manchester city": ["Man City"],
+  };
 
   function teamNameParts(name) {
     return String(name || "")
@@ -981,12 +986,20 @@
       .filter((p) => p && !TEAM_DROP.test(p.replace(/\./g, "")));
   }
 
+  function teamNick(parts, maxLen) {
+    const names = TEAM_NICK[parts.map((p) => p.toLowerCase()).join(" ")];
+    if (!names) return "";
+    return names.find((n) => n.length <= maxLen) || "";
+  }
+
   function shortTeamName(name, maxLen) {
     const s = String(name || "").trim();
     if (!s) return "";
     if (s.length <= maxLen) return s;
     const parts = teamNameParts(s);
     if (!parts.length) return `${s.slice(0, Math.max(1, maxLen - 1))}…`;
+    const nick = teamNick(parts, maxLen);
+    if (nick) return nick;
     // Drop trailing "United" / "City" / … so the first name can stand alone.
     while (parts.length > 1 && TEAM_GENERIC.test(parts[parts.length - 1])) parts.pop();
     const core = parts.join(" ");
