@@ -1359,6 +1359,49 @@ def _event_kind(ptype: str, *, scoring: bool) -> str | None:
     return None
 
 
+def count_play_goals(
+    plays: list[dict[str, Any]],
+    *,
+    home: str = "",
+    away: str = "",
+    home_id: str = "",
+    away_id: str = "",
+) -> tuple[int, int, str]:
+    """Home/away goals from the play feed, plus the latest scoring play's clock.
+
+    ESPN's play-by-play often lands a goal a minute or more before the
+    scoreboard ``displayClock`` and competitor scores tick.
+    """
+    home_goals = away_goals = 0
+    last_clock = ""
+    for play in plays:
+        ptype = _normalize_play_type(_play_type(play))
+        own = _is_own_goal(ptype, play)
+        if own:
+            ptype = "own-goal"
+        kind = _event_kind(ptype, scoring=bool(play.get("scoringPlay")))
+        if kind not in {"goal", "own_goal"}:
+            continue
+        tid = _team_id_from_play(play)
+        side = (
+            _side_for_own_goal(
+                tid, home_id=home_id, away_id=away_id, home=home, away=away, play=play
+            )
+            if own
+            else _side_for_team(
+                tid, home_id=home_id, away_id=away_id, home=home, away=away, play=play
+            )
+        )
+        if side == "home":
+            home_goals += 1
+        elif side == "away":
+            away_goals += 1
+        else:
+            continue
+        last_clock = _clock_label(play) or last_clock
+    return home_goals, away_goals, last_clock
+
+
 def _safe_float(value: Any) -> float | None:
     if value is None or value == "":
         return None

@@ -4,18 +4,23 @@ The bot polls the live board, remembers the last score per event, and posts
 when a match goes ``pre → in`` or the score increases. Each post includes
 the live path (0-0 → …) and each club's historical “from here” branches —
 the same trees as the Similar tab.
+
+Goal detection prefers ESPN play-by-play over the scoreboard tick: plays
+often land a goal a minute or more before competitor scores / displayClock
+catch up (the same lag the Live chiclets already paper over).
 """
 from __future__ import annotations
 
 import json
 import os
 import traceback
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
 from eeesoc.cache import cache_root
-from eeesoc.live import fetch_live_board, parse_clock_minute
+from eeesoc.live import count_play_goals, fetch_all_plays, fetch_live_board, parse_clock_minute
 from eeesoc.scorelines import build_live_scoreline_eval
 
 _DEAD = ("postponed", "canceled", "cancelled", "suspended", "abandoned", "forfeit")
@@ -84,6 +89,48 @@ def flatten_board(board: dict[str, Any]) -> dict[str, dict[str, Any]]:
                 "league_chiclet": group.get("chiclet") or match.get("league_chiclet") or "",
                 "league_name": group.get("name") or match.get("league_name") or "",
             }
+    return rows
+
+
+def overlay_play_scores(
+    rows: dict[str, dict[str, Any]],
+    *,
+    fetch_plays: Callable[..., list[dict[str, Any]]] = fetch_all_plays,
+) -> dict[str, dict[str, Any]]:
+    """Lift in-play scores (and the goal clock) when plays lead the scoreboard."""
+    live = [
+        (event_id, row)
+        for event_id, row in rows.items()
+        if (row.get("state") or "") == "in" and (row.get("league_slug") or "") and event_id
+    ]
+    if not live:
+        return rows
+
+    def _one(event_id: str, row: dict[str, Any]) -> tuple[str, int, int, str]:
+        plays = fetch_plays(str(row.get("league_slug") or ""), event_id)
+        home, away, clock = count_play_goals(
+            plays,
+            home=str(row.get("home") or ""),
+            away=str(row.get("away") or ""),
+            home_id=str(row.get("home_id") or ""),
+            away_id=str(row.get("away_id") or ""),
+        )
+        return event_id, home, away, clock
+
+    with ThreadPoolExecutor(max_workers=min(8, len(live) or 1)) as pool:
+        futures = [pool.submit(_one, event_id, row) for event_id, row in live]
+        for fut in as_completed(futures):
+            try:
+                event_id, play_h, play_a, goal_clock = fut.result()
+            except Exception:  # noqa: BLE001 — keep the scoreboard row
+                traceback.print_exc()
+                continue
+            row = rows[event_id]
+            board_h, board_a = _score_key(row)
+            if play_h + play_a > board_h + board_a and goal_clock:
+                row["clock"] = goal_clock
+            row["home_score"] = max(board_h, play_h)
+            row["away_score"] = max(board_a, play_a)
     return rows
 
 
@@ -299,10 +346,15 @@ def poll_alerts(
     corpus: Iterable[Any] | None = None,
     fetch_board: Callable[..., dict[str, Any]] = fetch_live_board,
     eval_fn: Callable[..., dict[str, Any]] = build_live_scoreline_eval,
+    fetch_plays: Callable[..., list[dict[str, Any]]] | None = None,
+    overlay_plays: bool | None = None,
 ) -> tuple[list[str], dict[str, Any]]:
     """One poll: return Discord messages and the updated persisted state."""
     payload = board if board is not None else fetch_board(live_only=False, days_back=1)
     current = flatten_board(payload)
+    should_overlay = overlay_plays if overlay_plays is not None else board is None
+    if should_overlay:
+        current = overlay_play_scores(current, fetch_plays=fetch_plays or fetch_all_plays)
     store = state if state is not None else load_state()
     previous = store.get("matches") if isinstance(store.get("matches"), dict) else {}
     seeded = bool(store.get("seeded"))

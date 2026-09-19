@@ -708,6 +708,28 @@ def test_build_event_timeline_kinds():
     assert tl["counts_by_half"]["2h"]["home_xg"] == 0.0
 
 
+def test_count_play_goals_leads_scoreboard_clock():
+    from eeesoc.live import count_play_goals
+
+    home, away, clock = count_play_goals(
+        [
+            {
+                "type": {"type": "goal"},
+                "scoringPlay": True,
+                "shortText": "J. Moylan Goal",
+                "text": "J. Moylan (Cardiff City) Goal at 8'",
+                "clock": {"displayValue": "8'"},
+                "team": {"$ref": ".../teams/349"},
+            }
+        ],
+        home="Cardiff City",
+        away="Charlton Athletic",
+        home_id="349",
+        away_id="372",
+    )
+    assert (home, away, clock) == (1, 0, "8'")
+
+
 def test_timeline_counts_split_by_half():
     """1H / 2H buckets follow ESPN period; stoppage in period 1 stays first-half."""
     from eeesoc.live import build_event_timeline, clear_timeline_cache
