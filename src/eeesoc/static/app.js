@@ -1385,6 +1385,30 @@
     return `${row.team}: clinical power ${row.power} — ${basis} over ${row.games} game${row.games === 1 ? "" : "s"} · ${row.conversion_pct}% of shots on target scored · ${rank}. 100 = scores exactly what the chances were worth; above 100 is clinical, below is wasteful.`;
   }
 
+  function parBandGap(row) {
+    return Number(row?._league?.power_tag_gap ?? state.clinical?.power_tag_gap ?? 3);
+  }
+
+  function parBandPar(row) {
+    return Number(row?._league?.par_power ?? state.clinical?.par_power ?? 50);
+  }
+
+  function parBandCopy(row) {
+    const par = parBandPar(row);
+    const gap = parBandGap(row);
+    return `${par - gap + 1}–${par + gap - 1}`;
+  }
+
+  function parBandLabel(tag, value, high, low, row) {
+    if (tag) return { cls: tag, text: tag };
+    const n = Number(value);
+    const par = parBandPar(row);
+    const gap = parBandGap(row);
+    if (Number.isFinite(n) && n >= par + gap) return { cls: high, text: high };
+    if (Number.isFinite(n) && n <= par - gap) return { cls: low, text: low };
+    return { cls: "typical", text: "typical" };
+  }
+
   // One side (home or away) of a power row: number · rank · optional stat · tag.
   // spec: { title(row, name), num(row), rank(row), tag(row) → {cls, text}, stat(row) → text|"" }
   function powerSideHtml(m, side, spec) {
@@ -1422,7 +1446,7 @@
     const rank = row.offense_rank
       ? `#${row.offense_rank} of ${row._league?.teams_ranked || 0} in ${row._league?.label || row.league_chiclet}`
       : `unranked until ${state.clinical?.min_games || 2} games`;
-    return `${row.team}: offence power ${row.offense_power} — ${parts.join(" · ")} over ${row.games} game${row.games === 1 ? "" : "s"} · ${rank}. Blend of chance creation, shot volume, pressure (corners) and goals vs the league; 50 = a league-typical attack, above 50 is potent, below is blunt.`;
+    return `${row.team}: offence power ${row.offense_power} — ${parts.join(" · ")} over ${row.games} game${row.games === 1 ? "" : "s"} · ${rank}. Blend of chance creation, shot volume, pressure (corners) and goals vs the league; 50 = a league-typical attack; ${parBandCopy(row)} is typical, clearly above is potent, clearly below is blunt.`;
   }
 
   const OFFENSE_SPEC = {
@@ -1430,7 +1454,7 @@
     num: (r) => r.offense_power,
     rank: (r) => r.offense_rank,
     stat: (r) => `${Number(r.scored_per_game ?? r.goals_per_game ?? 0).toFixed(1)} scored/g`,
-    tag: (r) => (r.potent ? { cls: "potent", text: "potent" } : { cls: "blunt", text: "blunt" }),
+    tag: (r) => parBandLabel(r.offense_tag, r.offense_power, "potent", "blunt", r),
   };
 
   function defenseTitle(row, name) {
@@ -1442,7 +1466,7 @@
     const rank = row.defense_rank
       ? `#${row.defense_rank} of ${row._league?.teams_ranked || 0} in ${row._league?.label || row.league_chiclet}`
       : `unranked until ${state.clinical?.min_games || 2} games`;
-    return `${row.team}: defence power ${row.defense_power} — ${basis} over ${row.games} game${row.games === 1 ? "" : "s"} · ${Number(row.conceded_per_game).toFixed(2)} conceded per game · ${rank}. 50 = allows the league's typical chances; above 50 is solid (fewer / worse chances allowed), below is leaky.`;
+    return `${row.team}: defence power ${row.defense_power} — ${basis} over ${row.games} game${row.games === 1 ? "" : "s"} · ${Number(row.conceded_per_game).toFixed(2)} conceded per game · ${rank}. 50 = allows the league's typical chances; ${parBandCopy(row)} is typical, clearly above is solid (fewer / worse chances allowed), clearly below is leaky.`;
   }
 
   const DEFENSE_SPEC = {
@@ -1450,7 +1474,7 @@
     num: (r) => r.defense_power,
     rank: (r) => r.defense_rank,
     stat: (r) => `${Number(r.conceded_per_game || 0).toFixed(1)} allowed/g`,
-    tag: (r) => (r.solid ? { cls: "solid", text: "solid" } : { cls: "leaky", text: "leaky" }),
+    tag: (r) => parBandLabel(r.defense_tag, r.defense_power, "solid", "leaky", r),
   };
 
   function formWords(row) {
@@ -1581,12 +1605,12 @@
     {
       spec: OFFENSE_SPEC,
       label: "🎯 offence",
-      help: "Offence power: chance creation (xG), shot volume, shots on target, pressure (corners) and goals per game vs the league, ranked within the league. 50 = league average; higher creates more. Also shows goals scored per game.",
+      help: "Offence power: chance creation (xG), shot volume, shots on target, pressure (corners) and goals per game vs the league, ranked within the league. 50 = league average; higher creates more. Near 50 is typical, not potent or blunt. Also shows goals scored per game.",
     },
     {
       spec: DEFENSE_SPEC,
       label: "🛡 defence",
-      help: "Defence power: league-average xG allowed per game over this club's, ranked within the league. 50 = league average; higher allows fewer / worse chances. Also shows goals allowed per game.",
+      help: "Defence power: league-average xG allowed per game over this club's, ranked within the league. 50 = league average; higher allows fewer / worse chances. Near 50 is typical, not solid or leaky. Also shows goals allowed per game.",
     },
     {
       spec: MOMENTUM_SPEC,

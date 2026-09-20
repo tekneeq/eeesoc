@@ -11,8 +11,10 @@ from eeesoc.clinical import (
     OFFENSE_WEIGHTS_SOT,
     OFFENSE_WEIGHTS_XG,
     PAR_POWER,
+    POWER_TAG_GAP,
     PRIOR_GAMES,
     PRIOR_XG,
+    _par_band_tag,
     _publish_power,
     build_clinical_board,
     clinical_board,
@@ -146,6 +148,20 @@ def test_publish_power_maps_internal_100_to_league_average_50():
     assert _publish_power(80) == 40
 
 
+def test_par_band_tag_keeps_near_par_typical():
+    # Dallas 49 / Austin 51 must not read as leaky vs solid.
+    assert POWER_TAG_GAP == 3
+    assert _par_band_tag(49, "solid", "leaky") == "typical"
+    assert _par_band_tag(51, "solid", "leaky") == "typical"
+    assert _par_band_tag(50, "solid", "leaky") == "typical"
+    assert _par_band_tag(48, "solid", "leaky") == "typical"
+    assert _par_band_tag(52, "solid", "leaky") == "typical"
+    assert _par_band_tag(47, "solid", "leaky") == "leaky"
+    assert _par_band_tag(53, "solid", "leaky") == "solid"
+    assert _par_band_tag(46, "potent", "blunt") == "blunt"
+    assert _par_band_tag(56, "potent", "blunt") == "potent"
+
+
 def test_offense_power_blends_creation_volume_and_goals_vs_league():
     board = build_clinical_board(_records())
     epl = board["leagues"]["eng.1"]
@@ -160,6 +176,7 @@ def test_offense_power_blends_creation_volume_and_goals_vs_league():
     # Most clinical club in the league, but creates less than par per game → blunt attack.
     assert sharp["offense_power"] == _expected_offense(sharp, par, OFFENSE_WEIGHTS_XG) == 46
     assert sharp["potent"] is False
+    assert sharp["offense_tag"] == "blunt"
     assert sharp["rank"] == 1 and sharp["offense_rank"] == 1  # only ranked club
 
     blunt = by["Blunt Town"]
@@ -167,11 +184,14 @@ def test_offense_power_blends_creation_volume_and_goals_vs_league():
     assert blunt["clinical"] is False
     assert blunt["offense_power"] == _expected_offense(blunt, par, OFFENSE_WEIGHTS_XG) == 56
     assert blunt["potent"] is True
+    assert blunt["offense_tag"] == "potent"
     assert blunt["offense_rank"] is None  # single game
 
     par_utd = by["Par United"]
     assert par_utd["offense_power"] == 49 and par_utd["potent"] is False
+    assert par_utd["offense_tag"] == "typical"
     assert epl["par_power"] == PAR_POWER == 50
+    assert epl["power_tag_gap"] == POWER_TAG_GAP == 3
 
 
 def test_offense_rank_counts_corners_as_pressure():
@@ -205,17 +225,20 @@ def test_defense_power_rewards_allowing_fewer_chances():
     assert sharp["shots_against"] == 6 and sharp["sot_against"] == 4
     assert sharp["defense_power"] == 40
     assert sharp["solid"] is False
+    assert sharp["defense_tag"] == "leaky"
     assert sharp["conceded_per_game"] == 1.0
     assert sharp["defense_rank"] == 1  # only ranked club
 
     blunt = by["Blunt Town"]
     # Faced 1.0 xG in one game; shrunk: (1 + 2)/(1 + 2) = 1.0 → par (50).
     assert blunt["defense_power"] == 50 and blunt["solid"] is False
+    assert blunt["defense_tag"] == "typical"
     assert blunt["defense_rank"] is None
 
     par = by["Par United"]
     # Faced 0.0 xG; shrunk: (0 + 2)/(1 + 2) = 0.67 → 150 on the internal scale → 75.
     assert par["defense_power"] == 75 and par["solid"] is True
+    assert par["defense_tag"] == "solid"
 
 
 def test_defense_rank_orders_ranked_clubs_independently_of_attack():
@@ -560,6 +583,8 @@ def test_lookup_by_id_then_name_and_cache_tracks_archive():
         halftime.write_json(halftime.record_path(r["league_slug"], r["event_id"]), {**r, "ht_goals": 0, "n_events": 9, "ft_home": 0, "ft_away": 0, "first_half": {}})
     board = clinical_board()
     assert board["archive_total"] == 2
+    assert board["par_power"] == PAR_POWER
+    assert board["power_tag_gap"] == POWER_TAG_GAP
     assert lookup_team(board, "eng.1", team_id="10")["team"] == "Sharp FC"
     assert lookup_team(board, "eng.1", name="sharp fc")["team"] == "Sharp FC"
     assert lookup_team(board, "eng.1", team_id="999", name="Nobody") is None

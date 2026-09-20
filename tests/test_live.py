@@ -838,7 +838,11 @@ def test_live_chiclets_show_last5_games_with_halves():
     assert "first-half score" in html and "second-half score" in html
     assert "50 = a league-typical attack" in js
     assert "50 = allows the league's typical chances" in js
+    assert "function parBandLabel" in js
+    assert "clearly above is solid" in js
+    assert "clearly below is leaky" in js
     assert "50 = league average" in html
+    assert "near 50 typical" in html
 
 
 def test_short_team_name_prefers_first_word():

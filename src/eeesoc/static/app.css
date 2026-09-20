@@ -2894,6 +2894,11 @@ main {
   color: var(--danger);
 }
 
+.mc-power-side.typical .mc-power-num,
+.mc-power-side.typical .mc-power-tag {
+  color: var(--text);
+}
+
 .mc-power-side.rising .mc-power-num,
 .mc-power-side.rising .mc-power-tag {
   color: var(--accent);

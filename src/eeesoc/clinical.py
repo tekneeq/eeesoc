@@ -21,13 +21,17 @@ corners (sustained pressure) and goals — is divided by the league's rate,
 shrunk toward par, and blended with ``OFFENSE_WEIGHTS_*``.  The published
 index uses ``PAR_POWER`` (50) as league average — 65 creates ~30% more than
 the league.  ``potent`` is True above 50, otherwise the attack is blunt.
+The published tag (``offense_tag``) only says potent or blunt when the
+index is at least ``POWER_TAG_GAP`` off 50; near par it is typical.
 
 Defence power is the mirror image: how little chance quality the club
 allows.  ``defense_power`` is league-average xG conceded per game over the
 club's own xG conceded per game (shrunk toward par), so 50 = allows exactly
 the league's typical chances, 63 = allows a fifth less.  ``solid`` is True
-above 50, otherwise the defence is leaky.  Leagues without xG use shots on
-target conceded per game instead.
+above 50, otherwise the defence is leaky.  ``defense_tag`` keeps leaky /
+solid for clubs clearly off par and says typical within ``POWER_TAG_GAP``
+of 50, so 49 and 51 are not opposite adjectives.  Leagues without xG use
+shots on target conceded per game instead.
 
 Momentum is recent form: points per game over the club's last ``FORM_GAMES``
 results, weighted toward the most recent, shrunk toward the league's points
@@ -88,6 +92,9 @@ FORM_GAMES = 5
 # Internal composites still run on a 100 = par scale so potential (which mixes
 # defence into a geometric mean) keeps its existing 100-based units.
 PAR_POWER = 50
+# Published offence / defence tags stay "typical" this close to par so a 49
+# and a 51 are not leaky vs solid (or blunt vs potent).
+POWER_TAG_GAP = 3
 # Potential vs results must differ by at least this much to be tagged upside / overachieving.
 POTENTIAL_GAP = 5.0
 
@@ -95,6 +102,15 @@ POTENTIAL_GAP = 5.0
 def _publish_power(value_100: float) -> int:
     """Rescale an internal 100 = par offence/defence index so 50 is league average."""
     return int(round(float(value_100) * PAR_POWER / 100.0))
+
+
+def _par_band_tag(published: int, high: str, low: str, mid: str = "typical") -> str:
+    """Polar adjective only when the published 50-scale index is clearly off par."""
+    if published >= PAR_POWER + POWER_TAG_GAP:
+        return high
+    if published <= PAR_POWER - POWER_TAG_GAP:
+        return low
+    return mid
 # Fewer matching games than this and the chiclet flags the club's half-goal split as a thin sample
 # (the league-wide split rides along for context; the league only replaces it when the club has none).
 HALF_GOALS_MIN_SAMPLE = 3
@@ -354,6 +370,8 @@ def _league_table(slug: str, teams: dict[str, dict[str, Any]], label: str) -> di
         clean_sheets = sum(1 for g in r["results"] if g["ga"] == 0)
         cs_pct = 100.0 * clean_sheets / r["games"] if r["games"] else 0.0
         ht_recent = [g for g in recent if g.get("ht_gf") is not None and g.get("ht_ga") is not None]
+        offense_power = _publish_power(offense)
+        defense_power = _publish_power(defense)
         row = {
             **{k: v for k, v in r.items() if k != "results"},
             # Only what the chiclet tooltip needs; the full log would triple the payload.
@@ -399,13 +417,15 @@ def _league_table(slug: str, teams: dict[str, dict[str, Any]], label: str) -> di
             "goals_per_game": round(r["goals"] / r["games"], 2) if r["games"] else 0.0,
             "xg_per_game": round(r["xg"] / r["games_xg"], 2) if r["games_xg"] else 0.0,
             "clinical": power > 100.0,
-            "offense_power": _publish_power(offense),
+            "offense_power": offense_power,
             "potent": offense > 100.0,
+            "offense_tag": _par_band_tag(offense_power, "potent", "blunt"),
             "shots_per_game": round(r["shots"] / r["games"], 2) if r["games"] else 0.0,
             "sot_per_game": round(r["sot"] / r["games"], 2) if r["games"] else 0.0,
             "corners_per_game": round(r["corners"] / r["games"], 2) if r["games"] else 0.0,
-            "defense_power": _publish_power(defense),
+            "defense_power": defense_power,
             "solid": defense > 100.0,
+            "defense_tag": _par_band_tag(defense_power, "solid", "leaky"),
             "conceded_per_game": round(r["conceded"] / r["games"], 2) if r["games"] else 0.0,
             "xga_per_game": round(r["xg_against"] / r["games_xg"], 2) if r["games_xg"] else 0.0,
             "sot_against_per_game": round(r["sot_against"] / r["games"], 2) if r["games"] else 0.0,
@@ -460,6 +480,7 @@ def _league_table(slug: str, teams: dict[str, dict[str, Any]], label: str) -> di
         "par_xga_per_game": round(par_xga, 2),
         "par_sot_against_per_game": round(par_sota, 2),
         "par_power": PAR_POWER,
+        "power_tag_gap": POWER_TAG_GAP,
         "teams": out_rows,
     }
 
@@ -609,6 +630,8 @@ def build_clinical_board(records: list[dict[str, Any]] | None = None) -> dict[st
     return {
         "archive_total": len(records),
         "min_games": MIN_GAMES,
+        "par_power": PAR_POWER,
+        "power_tag_gap": POWER_TAG_GAP,
         "leagues": leagues,
         "fetched_at": time.time(),
     }
