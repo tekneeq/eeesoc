@@ -1999,6 +1999,7 @@
     return (
       pair("Shots", (counts.home_shot || 0) + (counts.home_shot_on || 0) + (counts.home_blocked || 0) + (counts.home_goal || 0), (counts.away_shot || 0) + (counts.away_shot_on || 0) + (counts.away_blocked || 0) + (counts.away_goal || 0)) +
       pair("On target", (counts.home_shot_on || 0) + (counts.home_goal || 0), (counts.away_shot_on || 0) + (counts.away_goal || 0)) +
+      pair("Blocked", counts.home_blocked || 0, counts.away_blocked || 0) +
       pair("Corners", counts.home_corner || 0, counts.away_corner || 0) +
       pair("Fouls", counts.home_foul || 0, counts.away_foul || 0) +
       pair("xG", Number(xgHome || 0).toFixed(2), Number(xgAway || 0).toFixed(2))
@@ -2007,7 +2008,7 @@
 
   function chicletStatsHtml(tl) {
     if (!tl) {
-      return `<span class="mc-stat mc-stat-empty">shots · on target · corners · xG</span>`;
+      return `<span class="mc-stat mc-stat-empty">shots · on target · blocked · corners · xG</span>`;
     }
     const xg = tl.xg || {};
     const halves = tl.counts_by_half || {};
@@ -4772,6 +4773,7 @@ echo "done → $OUT/${safe}_reel.mp4 ($N clips)"
     return (
       htStatPair("Shots", h.shots || 0, a.shots || 0) +
       htStatPair("On target", h.sot || 0, a.sot || 0) +
+      htStatPair("Blocked", h.blocked || 0, a.blocked || 0) +
       htStatPair("Corners", h.corners || 0, a.corners || 0) +
       xg
     );
