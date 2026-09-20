@@ -703,9 +703,12 @@ def test_build_event_timeline_kinds():
     # No period on these plays and every clock is ≤45′ — the 1H bucket matches the full row.
     assert tl["counts_by_half"]["1h"]["away_goal"] == 1
     assert tl["counts_by_half"]["1h"]["home_shot_on"] == 1
+    assert tl["counts_by_half"]["1h"]["away_blocked"] == 1
+    assert tl["counts"]["away_blocked"] == 1
     assert tl["counts_by_half"]["1h"]["away_xg"] == 0.55
     assert tl["counts_by_half"]["2h"]["away_goal"] == 0
     assert tl["counts_by_half"]["2h"]["home_xg"] == 0.0
+    assert tl["counts_by_half"]["2h"]["away_blocked"] == 0
 
 
 def test_timeline_counts_split_by_half():
@@ -736,11 +739,25 @@ def test_timeline_counts_split_by_half():
                 "team": {"$ref": ".../teams/1"},
             },
             {
+                "type": {"type": "shot-blocked"},
+                "clock": {"displayValue": "33'"},
+                "period": {"number": 1},
+                "expectedGoals": 0.05,
+                "team": {"$ref": ".../teams/2"},
+            },
+            {
                 "type": {"type": "shot-on-target"},
                 "clock": {"displayValue": "52'"},
                 "period": {"number": 2},
                 "expectedGoals": 0.25,
                 "team": {"$ref": ".../teams/2"},
+            },
+            {
+                "type": {"type": "shot-blocked"},
+                "clock": {"displayValue": "61'"},
+                "period": {"number": 2},
+                "expectedGoals": 0.07,
+                "team": {"$ref": ".../teams/1"},
             },
             {
                 "type": {"type": "goal"},
@@ -771,10 +788,12 @@ def test_timeline_counts_split_by_half():
     )
     h1, h2 = tl["counts_by_half"]["1h"], tl["counts_by_half"]["2h"]
     assert h1["home_shot"] == 1 and h1["away_corner"] == 1 and h1["home_foul"] == 1
-    assert h1["home_xg"] == 0.1 and h1["away_xg"] == 0.0
+    assert h1["away_blocked"] == 1 and h1["home_blocked"] == 0
+    assert h1["home_xg"] == 0.1 and h1["away_xg"] == 0.05
     assert h1["home_goal"] == 0 and h2["home_goal"] == 1
     assert h2["away_shot_on"] == 1 and h2["away_foul"] == 1
-    assert h2["home_xg"] == 0.4 and h2["away_xg"] == 0.25
+    assert h2["home_blocked"] == 1 and h2["away_blocked"] == 0
+    assert h2["home_xg"] == 0.47 and h2["away_xg"] == 0.25
     assert tl["counts"]["home_goal"] == 1
     assert tl["counts"]["home_foul"] == 1
     assert tl["counts"]["away_foul"] == 1
@@ -809,6 +828,8 @@ def test_chiclet_stats_keep_full_row_and_add_halves():
     assert "function chicletStatChips" in js
     assert 'row("1H"' in js and 'row("2H"' in js
     assert "counts_by_half" in js
+    assert 'pair("Blocked"' in js
+    assert "htStatPair(\"Blocked\"" in js
     assert ".mc-stats-half" in css
     assert ".mc-stat-period" in css
 
