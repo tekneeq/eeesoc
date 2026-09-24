@@ -112,6 +112,12 @@ def test_leagues_include_english_carabao_and_fa_cup():
     assert slugs.index("eng.2") < slugs.index("eng.league_cup") < slugs.index("eng.fa")
 
 
+def test_leagues_include_uefa_nations_league():
+    assert ("uefa.nations", "Nations") in LEAGUES
+    slugs = [slug for slug, _ in LEAGUES]
+    assert slugs.index("uefa.europa") < slugs.index("uefa.nations") < slugs.index("eng.2")
+
+
 def _stamp_event_dates(payload: dict, *starts: str) -> dict:
     """Copy a scoreboard payload and rewrite event kickoff times."""
     import copy

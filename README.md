@@ -263,7 +263,7 @@ DISCORD_CHANNEL_ID=...         # required for the ready greeting, live alerts, a
 
 With `DISCORD_CHANNEL_ID` set, the bot also **posts on its own**:
 
-- **9:30 AM ET** every day — today's scheduled matches in MLS, Premier League, Championship, Carabao Cup, FA Cup, Ligue 1, La Liga, Bundesliga, Serie A, Champions League, Europa League, and Conference League (kickoff times in ET). If the bot starts later the same morning, it still posts once. `!soc today` reprints that slate.
+- **9:30 AM ET** every day — today's scheduled matches in MLS, Premier League, Championship, Carabao Cup, FA Cup, Ligue 1, La Liga, Bundesliga, Serie A, Champions League, Europa League, Conference League, and Nations League (kickoff times in ET). If the bot starts later the same morning, it still posts once. `!soc today` reprints that slate.
 - Kickoff (`pre` → `in`) and every goal, with the live score path (`0-0 → 1-0 → …`) and each club’s Similar “from here” branches (what usually happens next from that scoreline at that minute).
 
 The bot **also** responds to `!soc …` (or `!eee …`) messages:
