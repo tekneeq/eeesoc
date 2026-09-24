@@ -873,7 +873,11 @@ def test_short_team_name_prefers_first_word():
 const cases = [
   ["Newcastle United", 14, "Newcastle"],
   ["Newcastle United", 10, "Newcastle"],
-  ["Manchester United", 14, "Manchester"],
+  ["Manchester United", 14, "Man United"],
+  ["Manchester United", 10, "Man United"],
+  ["Manchester City", 14, "Man City"],
+  ["Manchester City", 10, "Man City"],
+  ["Manchester United FC", 14, "Man United"],
   ["West Ham United", 14, "West Ham"],
   ["Tottenham Hotspur", 14, "Tottenham"],
   ["Brighton & Hove Albion", 14, "Brighton Hove"],
@@ -889,7 +893,11 @@ for (const [name, max, want] of cases) {
   if (got !== want) { console.error(JSON.stringify({name, max, want, got})); bad++; }
 }
 if (shortName("Newcastle United") !== "Newcastle") { console.error("shortName"); bad++; }
+if (shortName("Manchester United") !== "Man United") { console.error("shortName MU"); bad++; }
+if (shortName("Manchester City") !== "Man City") { console.error("shortName MC"); bad++; }
 if (last5OppName("Newcastle United") !== "Newcastle") { console.error("last5"); bad++; }
+if (last5OppName("Manchester United") !== "Man United") { console.error("last5 MU"); bad++; }
+if (last5OppName("Manchester City") !== "Man City") { console.error("last5 MC"); bad++; }
 if (last5OppName("Newcastle United") === "N. United") { console.error("old last5"); bad++; }
 process.exit(bad ? 1 : 0);
 """
