@@ -1224,10 +1224,22 @@ def test_chiclet_shows_possession_and_duel_graphs():
     assert "possession graph" in html
     assert "intensity graph" in html
     assert "duel graph" in html
+    assert "end-to-end graph" in html
     assert "Possession · 1H / 2H ribbons" in html
     assert "Intensity · vs league" in html
     assert "Duels · last 15′" in html
+    assert "End-to-end · opposite box" in html
     assert "no player GPS" in html
+    assert "function endToEndHtml" in js
+    assert "function endToEndSvg" in js
+    assert "function endToEndSeriesPath" in js
+    assert "function formatE2ESeconds" in js
+    assert "endToEndHtml(cached)" in js
+    assert 'data-e2e-for="' in js
+    assert "e2e-home" in js and "e2e-away" in js
+    assert ".mc-e2e" in css
+    assert ".e2e-home" in css and ".e2e-away" in css
+    assert "mc-e2e svg" in js
 
 
 def test_intensity_scale_pins_league_average_in_the_middle():
@@ -1358,6 +1370,116 @@ def test_timeline_payload_includes_intensity_from_coordinates():
     assert block["to_minute"] >= 26
     assert block["series"][-1]["score"] == block["score"] or block["series"]
     assert block["ball_km_total"] > 0
+
+
+def test_end_to_end_times_first_opposite_box_touch():
+    from eeesoc.live import _build_end_to_end, _clock_from_minute
+
+    assert _clock_from_minute(10.0) == "10'"
+    assert _clock_from_minute(10.15) == "10'09"
+
+    pts = [
+        (10.00, 10.0, 50.0, "home", "1h"),  # home own box
+        (10.15, 90.0, 50.0, "home", "1h"),  # home opposite box — 9s
+        (10.20, 92.0, 50.0, "home", "1h"),  # still in the box
+        (11.00, 50.0, 50.0, "home", "1h"),  # leave
+        (11.10, 88.0, 50.0, "home", "1h"),  # recycle — no new own-end visit
+        (12.00, 12.0, 50.0, "home", "1h"),  # own box again
+        (12.20, 91.0, 50.0, "home", "1h"),  # 12s
+        (20.00, 90.0, 50.0, "away", "1h"),  # away own box (right)
+        (20.25, 10.0, 50.0, "away", "1h"),  # away opposite box — 15s
+        (20.50, 40.0, 50.0, "away", "1h"),  # midfield, not a box
+        (44.00, 10.0, 50.0, "home", "1h"),
+        (46.00, 90.0, 50.0, "home", "2h"),  # new half, no 2H start
+    ]
+    block = _build_end_to_end(pts, now_minute=46)
+    assert block["home_total"] == 2
+    assert block["away_total"] == 1
+    home = [p for p in block["home"] if p["minute"]]
+    away = [p for p in block["away"] if p["minute"]]
+    assert home[0]["seconds"] == 9.0
+    assert home[0]["from"] == "box"
+    assert home[0]["cumulative"] == 1
+    assert home[1]["seconds"] == 12.0
+    assert home[1]["cumulative"] == 2
+    assert away[0]["seconds"] == 15.0
+    assert away[0]["from"] == "box"
+    assert block["home_avg"] == 10.5
+    assert block["away_avg"] == 15.0
+    assert block["home_last"] == 12.0
+    assert block["to_minute"] == 46
+
+
+def test_end_to_end_uses_defensive_third_when_box_was_skipped():
+    from eeesoc.live import _build_end_to_end
+
+    pts = [
+        (8.00, 25.0, 50.0, "home", "1h"),  # home defensive third, outside the box
+        (8.40, 90.0, 50.0, "home", "1h"),
+    ]
+    block = _build_end_to_end(pts, now_minute=12)
+    home = [p for p in block["home"] if p["minute"]]
+    assert block["home_total"] == 1
+    assert home[0]["seconds"] == 24.0
+    assert home[0]["from"] == "third"
+
+
+def test_timeline_payload_includes_end_to_end_from_coordinates():
+    from eeesoc.live import build_event_timeline, clear_timeline_cache
+
+    clear_timeline_cache()
+    items = [
+        {
+            "type": {"type": "pass"},
+            "clock": {"displayValue": "10'", "value": 10 * 60},
+            "period": {"number": 1},
+            "team": {"$ref": ".../teams/1"},
+            "fieldPositionX": 10.0,
+            "fieldPositionY": 50.0,
+        },
+        {
+            "type": {"type": "pass"},
+            "clock": {"displayValue": "10'", "value": 10 * 60 + 9},
+            "period": {"number": 1},
+            "team": {"$ref": ".../teams/1"},
+            "fieldPositionX": 90.0,
+            "fieldPositionY": 50.0,
+        },
+        {
+            "type": {"type": "shot-on-target"},
+            "clock": {"displayValue": "20'", "value": 20 * 60},
+            "period": {"number": 1},
+            "team": {"$ref": ".../teams/2"},
+            "fieldPositionX": 12.0,
+            "fieldPositionY": 50.0,
+        },
+        {
+            "type": {"type": "pass"},
+            "clock": {"displayValue": "20'", "value": 20 * 60 + 18},
+            "period": {"number": 1},
+            "team": {"$ref": ".../teams/2"},
+            "fieldPositionX": 88.0,
+            "fieldPositionY": 50.0,
+        },
+    ]
+    tl = build_event_timeline(
+        "eng.1",
+        "e2e-1",
+        home="Arsenal",
+        away="Chelsea",
+        home_id="1",
+        away_id="2",
+        clock="21'",
+        fetcher=lambda url: {"pageCount": 1, "items": items},
+        use_cache=False,
+    )
+    block = tl["end_to_end"]
+    assert block["home_total"] == 1
+    assert block["away_total"] == 1
+    assert block["home"][-1]["seconds"] == 9.0
+    assert block["away"][-1]["seconds"] == 18.0
+    assert block["home_avg"] == 9.0
+    assert block["away_avg"] == 18.0
 
 
 def test_timeline_payload_includes_pressure():

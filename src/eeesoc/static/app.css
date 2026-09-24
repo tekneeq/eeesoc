@@ -869,6 +869,42 @@ main {
   width: 100%;
 }
 
+.mc-e2e,
+.mc-e2e-block {
+  display: block;
+  width: 100%;
+  grid-column: 1 / -1;
+}
+
+.mc-e2e-svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+
+.e2e-home {
+  stroke: var(--accent);
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.e2e-away {
+  stroke: rgba(125, 200, 255, 0.95);
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.e2e-mark.e2e-h circle {
+  fill: var(--accent);
+}
+
+.e2e-mark.e2e-a circle {
+  fill: rgba(125, 200, 255, 0.95);
+}
+
 .mc-territory {
   display: block;
   width: 100%;
@@ -1382,6 +1418,12 @@ main {
   width: 0.7rem;
   height: 0.15rem;
   background: rgba(125, 200, 255, 0.95);
+}
+
+.tl-mark.tl-e2e {
+  width: 0.7rem;
+  height: 0.15rem;
+  background: linear-gradient(90deg, var(--accent) 0 50%, rgba(125, 200, 255, 0.95) 50% 100%);
 }
 
 .tl-mark.tl-terr {
