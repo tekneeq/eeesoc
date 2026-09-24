@@ -55,10 +55,11 @@ shots-on-target conversion against the league's own rate on the same 100 = par s
 **🎯 Offence power** is the superset of clinical — everything that leads to goals: the club's per-game xG
 created, shots, shots on target, corners (a proxy for sustained pressure) and goals are each divided by the
 league's rate, shrunk toward par, and blended (xG 40%, shots 20%, SOT 15%, corners 10%, goals 15%; without
-an xG feed: shots 35%, SOT 25%, corners 15%, goals 25%). 50 = a league-typical attack, above 50 is
-*potent*, below *blunt*, ranked within the league, shown with goals scored per game.
+an xG feed: shots 35%, SOT 25%, corners 15%, goals 25%). 50 = a league-typical attack; 53+ is
+*potent*, 47− is *blunt*, and 48–52 is *typical*, ranked within the league, shown with goals scored per game.
 **🛡 Defence power** is the mirror: league-average xG allowed per game over the club's own (shrunk toward
-par), so 50 = allows the league's typical chances, above 50 is *solid*, below *leaky*, ranked the same way
+par), so 50 = allows the league's typical chances; 53+ is *solid*, 47− is *leaky*, and 48–52 is *typical*
+(a 49 and a 51 are not opposite adjectives), ranked the same way
 (shots on target allowed where there is no xG feed), shown with goals allowed per game.
 **📈 Momentum** is recent form: points per game over the last five results, weighted toward the newest and
 shrunk toward the league's points per game; 100 = par form, above is *rising*, below *fading*, with the
