@@ -2443,7 +2443,7 @@
     const H = 110;
     const padL = 28;
     const padR = 10;
-    const padT = 12;
+    const padT = 16;
     const padB = 18;
     const { maxM, ticks, now } = chartAxis(tl);
     const block = tl.end_to_end || { home: [], away: [], home_total: 0, away_total: 0 };
@@ -2487,7 +2487,6 @@
         );
       }
     }
-    const avgBit = ` · avg ${endToEndAvgLabel(block.home_avg)}–${endToEndAvgLabel(block.away_avg)}`;
     return `<svg class="mc-e2e-svg" viewBox="0 0 ${W} ${H}" width="100%" height="${H}" role="img" aria-label="Seconds from one end to an opposite-box touch versus game time" data-pad-l="${padL}" data-pad-r="${padR}" data-width="${W}" data-max="${maxM}">
       <text x="4" y="${Number(yTop) + 3}" class="tl-label">${formatE2ESeconds(yTicks[0])}</text>
       <text x="4" y="${Number(yMid) + 3}" class="tl-label">${formatE2ESeconds(yTicks[1])}</text>
@@ -2502,14 +2501,15 @@
       ${dots.join("")}
       <text x="${padL}" y="${H - 4}" class="tl-label">0'</text>
       <text x="${W - padR}" y="${H - 4}" class="tl-label" text-anchor="end">${maxM}'</text>
-      <text x="${W - padR}" y="11" class="tl-xg-total" text-anchor="end">box <tspan class="tl-xg-h">${Number(block.home_total || 0)}</tspan>–<tspan class="tl-xg-a">${Number(block.away_total || 0)}</tspan>${avgBit}</text>
     </svg>`;
   }
 
   function endToEndHtml(tl) {
     if (!tl) return "";
+    const block = tl.end_to_end || {};
+    const avg = `avg ${endToEndAvgLabel(block.home_avg)}–${endToEndAvgLabel(block.away_avg)}`;
     return `<span class="mc-e2e-block">
-      <span class="mc-pressure-head">End-to-end · seconds from the other end to a first touch in the opposite box · lower is faster</span>
+      <span class="mc-pressure-head">End-to-end · seconds from the other end to a first touch in the opposite box · lower is faster · box <tspan class="tl-xg-h">${Number(block.home_total || 0)}</tspan>–<tspan class="tl-xg-a">${Number(block.away_total || 0)}</tspan> · ${avg}</span>
       ${endToEndSvg(tl)}
     </span>`;
   }
