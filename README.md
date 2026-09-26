@@ -20,9 +20,11 @@ a pressure graph of that same window at every minute, a possession graph as two 
 hands), an intensity graph under those ribbons (end-to-end swings plus how far the ball
 travels, scaled so the league's typical archived game sits in the middle of the plot —
 above is hotter, below is quieter — ESPN has no player GPS, so this
-is the ball's path, not miles run), a separate end-to-end line graph of how many seconds
-the ball took from one end of the pitch to a team's first touch in the opposite box
-(home green, away blue; each point is that arrival, lower is faster), a duel graph with three lines (home, away, and 50%) over
+is the ball's path, not miles run), a separate box-touch line graph in the same
+shape as xG (home green, away blue): the line steps up at the minute a team
+touches the ball in either penalty box, so the x-axis is when and the y-axis is
+how many so far. A box counts once; it does not count again until the ball has
+been on the other half, then it counts on the way back or in the other box. A duel graph with three lines (home, away, and 50%) over
 that same last-15′ window at every minute, and a territory heat of
 where the ball has actually been in those last 15′ — so a first-half siege that flipped after
 the break does not collapse to "even".

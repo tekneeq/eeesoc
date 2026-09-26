@@ -2017,23 +2017,15 @@ def _clock_from_minute(t: float) -> str:
     return f"{mins}'{secs:02d}" if secs else f"{mins}'"
 
 
-def _mean_seconds(arrivals: list[dict[str, Any]]) -> float | None:
-    vals = [float(a["seconds"]) for a in arrivals if a.get("seconds") is not None]
-    if not vals:
-        return None
-    return round(sum(vals) / len(vals), 1)
-
-
 def _cumulative_box_series(arrivals: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Step series of opposite-box arrivals, starting at 0' — same shape as xG."""
-    series: list[dict[str, Any]] = [{"minute": 0, "seconds": None, "cumulative": 0}]
+    """Step series of box touches, starting at 0' — same shape as the xG chart."""
+    series: list[dict[str, Any]] = [{"minute": 0, "cumulative": 0}]
     for i, a in enumerate(arrivals, 1):
         series.append(
             {
                 "minute": a["minute"],
-                "seconds": a.get("seconds"),
                 "cumulative": i,
-                "from": a.get("from"),
+                "box": a.get("box"),
                 "clock": a.get("clock"),
             }
         )
@@ -2046,14 +2038,17 @@ def _build_end_to_end(
     now_minute: int,
 ) -> dict[str, Any]:
     """
-    Time from one end of the pitch to a team's first touch in the opposite box.
+    When a team touches the ball in either penalty box.
 
     ``points`` is ``(minute_float, abs_x, abs_y, side)`` or the same plus a
-    ``"1h"`` / ``"2h"`` half tag. Home attacks right. A sample is the first
-    opposite-box touch after the ball was seen at the other end; later touches
-    in the same box do not start a new clock. The start is consumed on arrival
-    so a recycled attack does not count again until the ball goes back. The
-    clock resets at half-time.
+    ``"1h"`` / ``"2h"`` half tag. Home attacks right. A touch in a box counts
+    once for the team that has it. More touches in that same box do not count
+    until the ball has been on the other half of the pitch. After that, the
+    next touch back in the box counts again, and a touch in the other box
+    counts on its own. The latches reset at half-time.
+
+    The chart is a running count against the minute, like xG: the step is
+    *when* the touch happened, and the height is how many so far.
     """
     now_minute = max(1, min(90, int(now_minute)))
     pts = sorted(
@@ -2070,65 +2065,39 @@ def _build_end_to_end(
         ),
         key=lambda p: (p[4], p[0]),
     )
-    last_box: dict[str, float | None] = {"L": None, "R": None}
-    last_third: dict[str, float | None] = {"L": None, "R": None}
-    in_opp = {"home": False, "away": False}
+    open_box = {"L": True, "R": True}
     arrivals: dict[str, list[dict[str, Any]]] = {"home": [], "away": []}
     last_half: str | None = None
 
-    def _reset() -> None:
-        last_box["L"] = last_box["R"] = None
-        last_third["L"] = last_third["R"] = None
-        in_opp["home"] = in_opp["away"] = False
-
     for t, x, y, side, half in pts:
         if last_half and half != last_half:
-            _reset()
+            open_box["L"] = open_box["R"] = True
         last_half = half
+        # The other half rearms the box we have left. Inside a box we are
+        # still on that box's own half, so only the far box opens.
+        if x > 50.0:
+            open_box["L"] = True
+        elif x < 50.0:
+            open_box["R"] = True
         box = _abs_box_end(x, y)
-        third = _intensity_end(x)
-        if box:
-            last_box[box] = t
-        if third:
-            last_third[third] = t
-        own = "L" if side == "home" else "R"
-        opp = "R" if side == "home" else "L"
-        if box == opp:
-            if not in_opp[side]:
-                source = "box"
-                start = last_box[own]
-                if start is None:
-                    source = "third"
-                    start = last_third[own]
-                if start is not None and t > start:
-                    arrivals[side].append(
-                        {
-                            "minute": round(float(t), 2),
-                            "seconds": round((t - start) * 60.0, 1),
-                            "from": source,
-                            "clock": _clock_from_minute(t),
-                        }
-                    )
-                    last_box[own] = None
-                    last_third[own] = None
-                in_opp[side] = True
-        else:
-            in_opp[side] = False
+        if box and open_box[box]:
+            arrivals[side].append(
+                {
+                    "minute": round(float(t), 2),
+                    "box": box,
+                    "clock": _clock_from_minute(t),
+                }
+            )
+            open_box[box] = False
 
     home = arrivals["home"]
     away = arrivals["away"]
-    home_series = _cumulative_box_series(home)
-    away_series = _cumulative_box_series(away)
     return {
         "to_minute": now_minute,
-        "home": home_series,
-        "away": away_series,
+        "home": _cumulative_box_series(home),
+        "away": _cumulative_box_series(away),
         "home_total": len(home),
         "away_total": len(away),
-        "home_avg": _mean_seconds(home),
-        "away_avg": _mean_seconds(away),
-        "home_last": home[-1]["seconds"] if home else None,
-        "away_last": away[-1]["seconds"] if away else None,
     }
 
 
@@ -2168,8 +2137,9 @@ def build_event_timeline(
     of on-ball events and 1v1 contests, same window as pressure.
     ``intensity`` is end-to-end swings + ball travel over a rolling 5′ — how
     frantic the game is, not who is pinning whom.
-    ``end_to_end`` is a separate step chart: each first touch in the opposite
-    box, with how many seconds the ball took from the other end.
+    ``end_to_end`` is a separate step chart, like xG: the line steps up at the
+    minute a team touches the ball in either box. The same box does not count
+    again until the ball has been on the other half.
     ``elapsed_seconds`` is the best live clock for a client-side 1s cursor tick;
     ``frozen`` flags HT/FT-style clocks where the tick should pause.
     """
