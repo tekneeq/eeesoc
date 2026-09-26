@@ -2407,37 +2407,6 @@
     </svg>`;
   }
 
-  function formatE2ESeconds(sec) {
-    if (sec == null || !Number.isFinite(Number(sec))) return "—";
-    const s = Math.max(0, Number(sec));
-    if (s >= 60) {
-      const m = Math.floor(s / 60);
-      const r = Math.round(s % 60);
-      return `${m}:${String(r).padStart(2, "0")}`;
-    }
-    return `${Math.round(s)}s`;
-  }
-
-  function endToEndAvgLabel(avg) {
-    return avg == null || !Number.isFinite(Number(avg)) ? "—" : formatE2ESeconds(avg);
-  }
-
-  function endToEndSeriesPath(series, xAt, yAt, nowM, yCap) {
-    const pts = (series || []).filter((p) => p.minute && p.seconds != null);
-    if (!pts.length) return "";
-    const parts = [];
-    for (let i = 0; i < pts.length; i++) {
-      const x = xAt(Math.min(nowM, pts[i].minute));
-      const y = yAt(Math.min(yCap, Number(pts[i].seconds)));
-      parts.push(`${i === 0 ? "M" : "L"} ${x.toFixed(1)} ${y.toFixed(1)}`);
-    }
-    const last = pts[pts.length - 1];
-    if (last.minute < nowM) {
-      parts.push(`L ${xAt(nowM).toFixed(1)} ${yAt(Math.min(yCap, Number(last.seconds))).toFixed(1)}`);
-    }
-    return parts.join(" ");
-  }
-
   function endToEndSvg(tl) {
     const W = 640;
     const H = 110;
@@ -2447,20 +2416,15 @@
     const padB = 18;
     const { maxM, ticks, now } = chartAxis(tl);
     const block = tl.end_to_end || { home: [], away: [], home_total: 0, away_total: 0 };
-    const times = [...(block.home || []), ...(block.away || [])]
-      .map((p) => Number(p.seconds))
-      .filter((s) => Number.isFinite(s) && s >= 0);
-    const yCap = 60;
-    const yMax = Math.max(20, Math.min(yCap, Math.max(0, ...times) * 1.15 || 0));
+    const yMax = Math.max(2, Number(block.home_total) || 0, Number(block.away_total) || 0);
     const xAt = (m) => padL + ((Number(m) / maxM) * (W - padL - padR));
     const yAt = (v) => padT + ((yMax - Number(v)) / yMax) * (H - padT - padB);
-    const homePath = endToEndSeriesPath(block.home, xAt, yAt, now, yMax);
-    const awayPath = endToEndSeriesPath(block.away, xAt, yAt, now, yMax);
+    const homePath = xgSeriesPath(block.home, xAt, yAt, now);
+    const awayPath = xgSeriesPath(block.away, xAt, yAt, now);
     const nowX = xAt(now).toFixed(1);
     const y0 = yAt(0).toFixed(1);
     const yMid = yAt(yMax / 2).toFixed(1);
     const yTop = yAt(yMax).toFixed(1);
-    const yTicks = [yMax, yMax / 2, 0];
     const tickMarks = ticks
       .map((t) => {
         const tx = xAt(t).toFixed(1);
@@ -2468,6 +2432,7 @@
       <text x="${tx}" y="${H - 4}" class="tl-label" text-anchor="middle">${t}'</text>`;
       })
       .join("");
+    const boxName = (box) => (box === "R" ? "right box" : box === "L" ? "left box" : "box");
     const dots = [];
     for (const [series, cls] of [
       [block.home, "e2e-h"],
@@ -2475,22 +2440,18 @@
     ]) {
       for (const p of series || []) {
         if (!p.minute) continue;
-        const plotted = p.seconds == null ? 0 : Math.min(yMax, Number(p.seconds));
         const x = xAt(Math.min(now, p.minute)).toFixed(1);
-        const y = yAt(plotted).toFixed(1);
-        const from =
-          p.from === "box" ? "from the other box" : p.from === "third" ? "from the other end" : "no start seen";
-        const sec = formatE2ESeconds(p.seconds);
-        const title = `${p.clock || p.minute + "'"} · ${sec} ${from}`;
+        const y = yAt(p.cumulative).toFixed(1);
+        const title = `${p.clock || p.minute + "'"} · ${boxName(p.box)} · ${p.cumulative} so far`;
         dots.push(
           `<g class="e2e-mark ${cls}"><title>${escapeHtml(title)}</title><circle cx="${x}" cy="${y}" r="3.2"/></g>`
         );
       }
     }
-    return `<svg class="mc-e2e-svg" viewBox="0 0 ${W} ${H}" width="100%" height="${H}" role="img" aria-label="Seconds from one end to an opposite-box touch versus game time" data-pad-l="${padL}" data-pad-r="${padR}" data-width="${W}" data-max="${maxM}">
-      <text x="4" y="${Number(yTop) + 3}" class="tl-label">${formatE2ESeconds(yTicks[0])}</text>
-      <text x="4" y="${Number(yMid) + 3}" class="tl-label">${formatE2ESeconds(yTicks[1])}</text>
-      <text x="4" y="${Number(y0) + 3}" class="tl-label">0s</text>
+    return `<svg class="mc-e2e-svg" viewBox="0 0 ${W} ${H}" width="100%" height="${H}" role="img" aria-label="Box touches versus game time. The line steps up when that team touches the ball in a box." data-pad-l="${padL}" data-pad-r="${padR}" data-width="${W}" data-max="${maxM}">
+      <text x="4" y="${Number(yTop) + 3}" class="tl-label">${yMax}</text>
+      <text x="4" y="${Number(yMid) + 3}" class="tl-label">${Math.round(yMax / 2)}</text>
+      <text x="4" y="${Number(y0) + 3}" class="tl-label">0</text>
       <line x1="${padL}" y1="${yTop}" x2="${W - padR}" y2="${yTop}" class="tl-grid"/>
       <line x1="${padL}" y1="${yMid}" x2="${W - padR}" y2="${yMid}" class="tl-grid"/>
       <line x1="${padL}" y1="${y0}" x2="${W - padR}" y2="${y0}" class="tl-axis"/>
@@ -2507,9 +2468,8 @@
   function endToEndHtml(tl) {
     if (!tl) return "";
     const block = tl.end_to_end || {};
-    const avg = `avg ${endToEndAvgLabel(block.home_avg)}–${endToEndAvgLabel(block.away_avg)}`;
     return `<span class="mc-e2e-block">
-      <span class="mc-pressure-head">End-to-end · seconds from the other end to a first touch in the opposite box · lower is faster · box <tspan class="tl-xg-h">${Number(block.home_total || 0)}</tspan>–<tspan class="tl-xg-a">${Number(block.away_total || 0)}</tspan> · ${avg}</span>
+      <span class="mc-pressure-head">Box touches · Y is how many so far, X is when · a touch in a box counts once, then not again until the ball is on the other half · it counts again coming back, or in the other box · home attacks right · <tspan class="tl-xg-h">${Number(block.home_total || 0)}</tspan>–<tspan class="tl-xg-a">${Number(block.away_total || 0)}</tspan></span>
       ${endToEndSvg(tl)}
     </span>`;
   }
@@ -3142,10 +3102,10 @@
         e2e: [
           tl.end_to_end?.home_total,
           tl.end_to_end?.away_total,
-          tl.end_to_end?.home_avg,
-          tl.end_to_end?.away_avg,
           tl.end_to_end?.home?.at(-1)?.minute,
-          tl.end_to_end?.away?.at(-1)?.seconds,
+          tl.end_to_end?.away?.at(-1)?.minute,
+          tl.end_to_end?.home?.at(-1)?.box,
+          tl.end_to_end?.away?.at(-1)?.box,
         ],
         fouls: [tl.counts?.home_foul, tl.counts?.away_foul],
         halves: [
