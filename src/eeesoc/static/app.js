@@ -2407,59 +2407,74 @@
     </svg>`;
   }
 
+  function endToEndGap(minutes) {
+    const s = Math.max(0, Math.round(Number(minutes) * 60));
+    const m = Math.floor(s / 60);
+    const r = s % 60;
+    if (!m) return `${r}s`;
+    return r ? `${m}'${String(r).padStart(2, "0")}` : `${m}'`;
+  }
+
+  function endToEndEvents(block) {
+    const rows = [];
+    for (const p of block?.home || []) {
+      if (p.minute) rows.push({ ...p, team: "home" });
+    }
+    for (const p of block?.away || []) {
+      if (p.minute) rows.push({ ...p, team: "away" });
+    }
+    rows.sort((a, b) => a.minute - b.minute);
+    return rows;
+  }
+
   function endToEndSvg(tl) {
     const W = 640;
-    const H = 110;
-    const padL = 28;
+    const H = 96;
+    const padL = 62;
     const padR = 10;
-    const padT = 16;
+    const padT = 14;
     const padB = 18;
     const { maxM, ticks, now } = chartAxis(tl);
-    const block = tl.end_to_end || { home: [], away: [], home_total: 0, away_total: 0 };
-    const yMax = Math.max(2, Number(block.home_total) || 0, Number(block.away_total) || 0);
+    const homeName = shortName(tl.home || "Home");
+    const awayName = shortName(tl.away || "Away");
+    const rail = (name) => (name.length > 8 ? `${name.slice(0, 7)}…` : name);
     const xAt = (m) => padL + ((Number(m) / maxM) * (W - padL - padR));
-    const yAt = (v) => padT + ((yMax - Number(v)) / yMax) * (H - padT - padB);
-    const homePath = xgSeriesPath(block.home, xAt, yAt, now);
-    const awayPath = xgSeriesPath(block.away, xAt, yAt, now);
+    const yHome = padT + 8;
+    const yAway = H - padB - 8;
+    const yFor = (box) => (box === "R" ? yAway : yHome);
     const nowX = xAt(now).toFixed(1);
-    const y0 = yAt(0).toFixed(1);
-    const yMid = yAt(yMax / 2).toFixed(1);
-    const yTop = yAt(yMax).toFixed(1);
+    const events = endToEndEvents(tl.end_to_end).filter((p) => p.minute <= now + 0.02);
+    const pts = events.map((p) => `${xAt(p.minute).toFixed(1)} ${yFor(p.box).toFixed(1)}`);
     const tickMarks = ticks
       .map((t) => {
         const tx = xAt(t).toFixed(1);
-        return `<line x1="${tx}" y1="${padT}" x2="${tx}" y2="${y0}" class="tl-ht"/>
+        return `<line x1="${tx}" y1="${yHome}" x2="${tx}" y2="${yAway}" class="tl-ht"/>
       <text x="${tx}" y="${H - 4}" class="tl-label" text-anchor="middle">${t}'</text>`;
       })
       .join("");
-    const boxName = (box) => (box === "R" ? "right box" : box === "L" ? "left box" : "box");
-    const dots = [];
-    for (const [series, cls] of [
-      [block.home, "e2e-h"],
-      [block.away, "e2e-a"],
-    ]) {
-      for (const p of series || []) {
-        if (!p.minute) continue;
-        const x = xAt(Math.min(now, p.minute)).toFixed(1);
-        const y = yAt(p.cumulative).toFixed(1);
-        const title = `${p.clock || p.minute + "'"} · ${boxName(p.box)} · ${p.cumulative} so far`;
-        dots.push(
-          `<g class="e2e-mark ${cls}"><title>${escapeHtml(title)}</title><circle cx="${x}" cy="${y}" r="3.2"/></g>`
-        );
-      }
-    }
-    return `<svg class="mc-e2e-svg" viewBox="0 0 ${W} ${H}" width="100%" height="${H}" role="img" aria-label="Box touches versus game time. The line steps up when that team touches the ball in a box." data-pad-l="${padL}" data-pad-r="${padR}" data-width="${W}" data-max="${maxM}">
-      <text x="4" y="${Number(yTop) + 3}" class="tl-label">${yMax}</text>
-      <text x="4" y="${Number(yMid) + 3}" class="tl-label">${Math.round(yMax / 2)}</text>
-      <text x="4" y="${Number(y0) + 3}" class="tl-label">0</text>
-      <line x1="${padL}" y1="${yTop}" x2="${W - padR}" y2="${yTop}" class="tl-grid"/>
-      <line x1="${padL}" y1="${yMid}" x2="${W - padR}" y2="${yMid}" class="tl-grid"/>
-      <line x1="${padL}" y1="${y0}" x2="${W - padR}" y2="${y0}" class="tl-axis"/>
+    const dots = events
+      .map((p, i) => {
+        const x = xAt(p.minute).toFixed(1);
+        const y = yFor(p.box).toFixed(1);
+        const where = p.box === "R" ? `${awayName} box` : `${homeName} box`;
+        const who = p.team === "away" ? awayName : homeName;
+        const prev = i > 0 ? events[i - 1] : null;
+        const gap = prev ? ` · ${endToEndGap(p.minute - prev.minute)} since the last box` : "";
+        const same = prev && prev.box === p.box ? " · same end" : prev ? " · other box" : "";
+        const title = `${p.clock || p.minute + "'"} · ${where} · ${who} touch${gap}${same}`;
+        const cls = p.team === "away" ? "e2e-a" : "e2e-h";
+        return `<g class="e2e-mark ${cls}"><title>${escapeHtml(title)}</title><circle cx="${x}" cy="${y}" r="3.4"/></g>`;
+      })
+      .join("");
+    return `<svg class="mc-e2e-svg" viewBox="0 0 ${W} ${H}" width="100%" height="${H}" role="img" aria-label="Penalty boxes versus time. Top is the home box, bottom is the away box. Across is the minute." data-pad-l="${padL}" data-pad-r="${padR}" data-width="${W}" data-max="${maxM}">
+      <text x="${padL - 6}" y="${yHome + 3}" class="tl-label tl-xg-h" text-anchor="end">${escapeHtml(rail(homeName))}</text>
+      <text x="${padL - 6}" y="${yAway + 3}" class="tl-label tl-xg-a" text-anchor="end">${escapeHtml(rail(awayName))}</text>
+      <line x1="${padL}" y1="${yHome}" x2="${W - padR}" y2="${yHome}" class="e2e-rail"/>
+      <line x1="${padL}" y1="${yAway}" x2="${W - padR}" y2="${yAway}" class="e2e-rail"/>
       ${tickMarks}
-      <line x1="${nowX}" y1="${padT}" x2="${nowX}" y2="${y0}" class="tl-now"/>
-      ${homePath ? `<path d="${homePath}" class="e2e-home" fill="none"/>` : ""}
-      ${awayPath ? `<path d="${awayPath}" class="e2e-away" fill="none"/>` : ""}
-      ${dots.join("")}
+      <line x1="${nowX}" y1="${yHome - 6}" x2="${nowX}" y2="${yAway + 6}" class="tl-now"/>
+      ${pts.length > 1 ? `<path d="M ${pts.join(" L ")}" class="e2e-link" fill="none"/>` : ""}
+      ${dots}
       <text x="${padL}" y="${H - 4}" class="tl-label">0'</text>
       <text x="${W - padR}" y="${H - 4}" class="tl-label" text-anchor="end">${maxM}'</text>
     </svg>`;
@@ -2467,9 +2482,8 @@
 
   function endToEndHtml(tl) {
     if (!tl) return "";
-    const block = tl.end_to_end || {};
     return `<span class="mc-e2e-block">
-      <span class="mc-pressure-head">Box touches · Y is how many so far, X is when · a touch in a box counts once, then not again until the ball is on the other half · it counts again coming back, or in the other box · home attacks right · <tspan class="tl-xg-h">${Number(block.home_total || 0)}</tspan>–<tspan class="tl-xg-a">${Number(block.away_total || 0)}</tspan></span>
+      <span class="mc-pressure-head">Box to box · top is the home penalty box, bottom is the away box · across is time · a flat line is the same end, a slope is the other box and how wide it is is how long it took · a touch counts again after the ball has been on the other half</span>
       ${endToEndSvg(tl)}
     </span>`;
   }

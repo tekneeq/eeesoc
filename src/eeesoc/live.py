@@ -2047,8 +2047,9 @@ def _build_end_to_end(
     next touch back in the box counts again, and a touch in the other box
     counts on its own. The latches reset at half-time.
 
-    The chart is a running count against the minute, like xG: the step is
-    *when* the touch happened, and the height is how many so far.
+    The chart puts the home box on the top rail and the away box on the bottom
+    rail, with time across, so a flat run is the same end and a slope is the
+    trip to the other box.
     """
     now_minute = max(1, min(90, int(now_minute)))
     pts = sorted(
@@ -2137,9 +2138,9 @@ def build_event_timeline(
     of on-ball events and 1v1 contests, same window as pressure.
     ``intensity`` is end-to-end swings + ball travel over a rolling 5′ — how
     frantic the game is, not who is pinning whom.
-    ``end_to_end`` is a separate step chart, like xG: the line steps up at the
-    minute a team touches the ball in either box. The same box does not count
-    again until the ball has been on the other half.
+    ``end_to_end`` is a separate chart: home box on top, away box on the bottom,
+    time across. The same box does not count again until the ball has been on
+    the other half.
     ``elapsed_seconds`` is the best live clock for a client-side 1s cursor tick;
     ``frozen`` flags HT/FT-style clocks where the tick should pause.
     """

@@ -1230,20 +1230,23 @@ def test_chiclet_shows_possession_and_duel_graphs():
     assert "possession graph" in html
     assert "intensity graph" in html
     assert "duel graph" in html
-    assert "box-touch graph" in html
+    assert "box-to-box graph" in html
     assert "Possession · 1H / 2H ribbons" in html
     assert "Intensity · vs league" in html
     assert "Duels · last 15′" in html
-    assert "Box touches · when" in html
+    assert "Box to box · home box on top" in html
     assert "no player GPS" in html
     assert "function endToEndHtml" in js
     assert "function endToEndSvg" in js
-    assert "Y is how many so far" in js
+    assert "function endToEndEvents" in js
+    assert "top is the home penalty box" in js
+    assert "e2e-link" in js
+    assert "Y is how many so far" not in js
     assert "endToEndHtml(cached)" in js
     assert 'data-e2e-for="' in js
-    assert "e2e-home" in js and "e2e-away" in js
+    assert "e2e-rail" in js and "e2e-link" in js
     assert ".mc-e2e" in css
-    assert ".e2e-home" in css and ".e2e-away" in css
+    assert ".e2e-link" in css and ".e2e-rail" in css
     assert "mc-e2e svg" in js
 
 
