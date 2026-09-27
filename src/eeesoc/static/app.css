@@ -883,6 +883,18 @@ main {
   overflow: visible;
 }
 
+.e2e-link {
+  stroke: rgba(230, 245, 238, 0.72);
+  stroke-width: 1.6;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.e2e-rail {
+  stroke: rgba(180, 210, 200, 0.28);
+  stroke-width: 1;
+}
+
 .e2e-home {
   stroke: var(--accent);
   stroke-width: 2;
