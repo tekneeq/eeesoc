@@ -2038,14 +2038,14 @@ def _build_end_to_end(
     now_minute: int,
 ) -> dict[str, Any]:
     """
-    When a team touches the ball in either penalty box.
+    When a team touches the ball in the opponent's penalty box.
 
     ``points`` is ``(minute_float, abs_x, abs_y, side)`` or the same plus a
-    ``"1h"`` / ``"2h"`` half tag. Home attacks right. A touch in a box counts
-    once for the team that has it. More touches in that same box do not count
-    until the ball has been on the other half of the pitch. After that, the
-    next touch back in the box counts again, and a touch in the other box
-    counts on its own. The latches reset at half-time.
+    ``"1h"`` / ``"2h"`` half tag. Home attacks right, so the left box is
+    home's and the right box is away's. A touch in a team's own box is
+    ignored. A touch in the other box counts once; more touches in that same
+    box do not count until the ball has been on the other half of the pitch.
+    The latches reset at half-time.
 
     The chart puts the home box on the top rail and the away box on the bottom
     rail, with time across, so a flat run is the same end and a slope is the
@@ -2081,7 +2081,8 @@ def _build_end_to_end(
         elif x < 50.0:
             open_box["R"] = True
         box = _abs_box_end(x, y)
-        if box and open_box[box]:
+        opp = "R" if side == "home" else "L"
+        if box == opp and open_box[box]:
             arrivals[side].append(
                 {
                     "minute": round(float(t), 2),

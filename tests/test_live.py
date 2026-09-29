@@ -1240,6 +1240,8 @@ def test_chiclet_shows_possession_and_duel_graphs():
     assert "function endToEndSvg" in js
     assert "function endToEndEvents" in js
     assert "top is the home penalty box" in js
+    assert "only the other team" in js
+    assert "own box is left off" in js
     assert "e2e-link" in js
     assert "Y is how many so far" not in js
     assert "endToEndHtml(cached)" in js
@@ -1416,6 +1418,23 @@ def test_box_touch_counts_once_until_the_other_half():
     assert block["to_minute"] == 46
 
 
+def test_box_touch_ignores_a_team_in_its_own_box():
+    from eeesoc.live import _build_end_to_end
+
+    pts = [
+        (5.0, 90.0, 50.0, "away", "1h"),  # away in their own box
+        (5.5, 88.0, 50.0, "home", "1h"),  # home in the away box — still counts
+        (9.0, 10.0, 50.0, "home", "1h"),  # home in their own box
+        (9.2, 12.0, 50.0, "away", "1h"),  # away in the home box
+        (9.4, 11.0, 50.0, "home", "1h"),  # home still in their own box
+    ]
+    block = _build_end_to_end(pts, now_minute=12)
+    home = [p for p in block["home"] if p["minute"]]
+    away = [p for p in block["away"] if p["minute"]]
+    assert [(p["minute"], p["box"]) for p in home] == [(5.5, "R")]
+    assert [(p["minute"], p["box"]) for p in away] == [(9.2, "L")]
+
+
 def test_box_touch_ignores_play_outside_the_box():
     from eeesoc.live import _build_end_to_end
 
@@ -1482,12 +1501,12 @@ def test_timeline_payload_includes_end_to_end_from_coordinates():
     block = tl["end_to_end"]
     home = [p for p in block["home"] if p["minute"]]
     away = [p for p in block["away"] if p["minute"]]
-    # Home own box, then home in the other box. Away's touch in that same
-    # box does not count until the ball is on the other half; the next away
-    # touch is in the left box, so it does.
-    assert [(p["minute"], p["box"]) for p in home] == [(10.0, "L"), (10.15, "R")]
+    # Home's first touch is in their own box, so it is left off. The next
+    # home touch is in the away box. Away's touch in their own box is left
+    # off; the following away touch is in the home box.
+    assert [(p["minute"], p["box"]) for p in home] == [(10.15, "R")]
     assert [(p["minute"], p["box"]) for p in away] == [(20.3, "L")]
-    assert block["home_total"] == 2
+    assert block["home_total"] == 1
     assert block["away_total"] == 1
 
 
