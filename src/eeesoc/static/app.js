@@ -2483,7 +2483,7 @@
   function endToEndHtml(tl) {
     if (!tl) return "";
     return `<span class="mc-e2e-block">
-      <span class="mc-pressure-head">Box to box · top is the home penalty box, bottom is the away box · across is time · a flat line is the same end, a slope is the other box and how wide it is is how long it took · a touch counts again after the ball has been on the other half</span>
+      <span class="mc-pressure-head">Box to box · top is the home penalty box, bottom is the away box · only the other team’s touch in that box · a team in its own box is left off · across is time · a flat line is the same end, a slope is the other box and how wide it is is how long it took</span>
       ${endToEndSvg(tl)}
     </span>`;
   }

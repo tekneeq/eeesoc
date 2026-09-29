@@ -22,7 +22,7 @@ travels, scaled so the league's typical archived game sits in the middle of the 
 above is hotter, below is quieter — ESPN has no player GPS, so this
 is the ball's path, not miles run), a separate box-to-box graph with the home
 penalty box on the top line and the away penalty box on the bottom line, time
-across. A dot is a touch in that box. A flat stretch means the ball is back at
+across. A dot is the other team touching the ball in that box; a team in its own box is left off. A flat stretch means the ball is back at
 the same end; a slope is the trip to the other box, and how wide it is is how
 long that took. A duel graph with three lines (home, away, and 50%) over
 that same last-15′ window at every minute, and a territory heat of
