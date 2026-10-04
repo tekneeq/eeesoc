@@ -3689,18 +3689,26 @@ main {
   font-style: normal;
   letter-spacing: 0.01em;
   white-space: nowrap;
+  color: var(--muted);
 }
 
 .mc-form-g i {
   font-weight: 500;
-  opacity: 0.86;
+}
+
+.mc-form-mine {
+  color: var(--text);
+  font-weight: 800;
+  background: rgba(125, 255, 179, 0.22);
+  border-radius: 0.12rem;
+  padding: 0 0.08rem;
 }
 
 .mc-form-g.w {
   border-color: rgba(125, 255, 179, 0.38);
 }
 
-.mc-form-g.w b {
+.mc-form-g.w .mc-form-mine {
   color: var(--accent);
 }
 
@@ -3712,8 +3720,13 @@ main {
   border-color: rgba(255, 200, 87, 0.4);
 }
 
-.mc-form-g.l b {
+.mc-form-g.l .mc-form-mine {
   color: var(--warn);
+  background: rgba(255, 200, 87, 0.2);
+}
+
+.mc-form-g.d .mc-form-mine {
+  background: rgba(180, 210, 200, 0.22);
 }
 
 .mc-form-g.none {

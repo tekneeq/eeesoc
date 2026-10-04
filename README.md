@@ -64,8 +64,9 @@ par), so 50 = allows the league's typical chances, above 50 is *solid*, below *l
 shrunk toward the league's points per game; 100 = par form, above is *rising*, below *fading*, with the
 W/D/L letters (oldest → newest) alongside.
 **🥅 Last 5** is those same five games as a strip: who they faced, then the **1H** and **2H**
-score as it stood on the pitch (home–away). Away games keep the home club first, so
-`@ Dortmund 2–0` is a 2–0 loss. Under the scores: clinical / offence / defence (power and
+score as it stood on the pitch (home–away). Only this club’s figure is highlighted: the
+left number at home, the right number away. Away games keep the home club first, so
+`@ Dortmund 2–0` highlights the 0 (a 2–0 loss). Under the scores: clinical / offence / defence (power and
 league rank) and the archive table rank plus W–D–L **as they stood after that night**
 (recomputed from every archived result up to and including that match — ESPN has no
 historical official table). Hover a game for the full-time score and the same snapshot.
