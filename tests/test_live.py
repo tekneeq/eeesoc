@@ -852,10 +852,13 @@ def test_live_chiclets_show_last5_games_with_halves():
     assert '${parts[parts.length - 2][0]}. ${last}' not in js
     assert "function last5GameHalves" in js
     assert "function last5PitchScore" in js
+    assert "function last5MarkedScore" in js
     assert "function last5ThenBits" in js
     assert 'g.venue === "away" ? last5HalfScore(ga, gf)' in js
     assert '">🥅 last 5</span>' in js
     assert "1H ${h1}" in js and "2H ${h2}" in js
+    assert "last5GameHalves(g, last5MarkedScore)" in js
+    assert ".mc-form-mine" in css
     assert "then.clin" in js and "then.table" in js
     assert "as of that night" in js
     assert "rows.splice(afterMomentum + 1, 0, last5)" in js
@@ -866,6 +869,54 @@ def test_live_chiclets_show_last5_games_with_halves():
     assert "50 = a league-typical attack" in js
     assert "50 = allows the league's typical chances" in js
     assert "50 = league average" in html
+    assert "highlighted figure is this club" in html
+
+
+def test_last5_highlights_only_this_clubs_figure():
+    import subprocess
+
+    js = Path("src/eeesoc/static/app.js").read_text(encoding="utf-8")
+    esc = js.index("  function escapeHtml")
+    esc_end = js.index("  const TEAM_DROP")
+    start = js.index("  function last5HalfScore")
+    end = js.index("  function last5FormWords")
+    src = js[esc:esc_end] + js[start:end]
+    script = src + """
+const mine = (n) => `<span class="mc-form-mine">${n}</span>`;
+const cases = [
+  // Kosovo v Republic: home, so the left figure is theirs.
+  [{ venue: "home" }, 0, 0, `${mine(0)}–0`],
+  [{ venue: "home" }, 1, 0, `${mine(1)}–0`],
+  // Kosovo @ Austria: away, so the right figure is theirs (2–0 and 1–1).
+  [{ venue: "away" }, 0, 2, `2–${mine(0)}`],
+  [{ venue: "away" }, 1, 1, `1–${mine(1)}`],
+];
+let bad = 0;
+for (const [g, gf, ga, want] of cases) {
+  const got = last5MarkedScore(g, gf, ga);
+  const plain = last5PitchScore(g, gf, ga);
+  if (got !== want) { console.error(JSON.stringify({ g, gf, ga, want, got })); bad++; }
+  if (g.venue === "home" && plain !== `${gf}–${ga}`) { console.error("home pitch " + plain); bad++; }
+  if (g.venue === "away" && plain !== `${ga}–${gf}`) { console.error("away pitch " + plain); bad++; }
+}
+const halves = last5GameHalves({
+  venue: "away", ht_gf: 0, ht_ga: 2, h2_gf: 1, h2_ga: 1, gf: 1, ga: 3,
+}, last5MarkedScore);
+if (halves.h1 !== `2–${mine(0)}` || halves.h2 !== `1–${mine(1)}`) {
+  console.error(JSON.stringify(halves));
+  bad++;
+}
+const titled = last5GameHalves({
+  venue: "home", ht_gf: 0, ht_ga: 0, gf: 1, ga: 0,
+});
+if (titled.h1 !== "0–0" || titled.h2 !== "1–0") {
+  console.error("title halves " + JSON.stringify(titled));
+  bad++;
+}
+process.exit(bad ? 1 : 0);
+"""
+    r = subprocess.run(["node", "-e", script], capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr or r.stdout
 
 
 def test_short_team_name_prefers_first_word():

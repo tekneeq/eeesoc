@@ -1606,7 +1606,7 @@
   ];
 
   const LAST5_HELP =
-    "Each of this club's last five archived games: who they faced, the first-half and second-half score as it stood on the pitch (home–away), then clinical / offence / defence (power and league rank) and the archive table rank plus W–D–L as they stood after that night. Away games keep the home club first, so @ Dortmund 2–0 is a 2–0 loss, not 0–2. Oldest → newest.";
+    "Each of this club's last five archived games: who they faced, the first-half and second-half score as it stood on the pitch (home–away, with this club's figure highlighted), then clinical / offence / defence (power and league rank) and the archive table rank plus W–D–L as they stood after that night. Away games keep the home club first, so @ Dortmund 2–0 highlights the 0, not the 2. Oldest → newest.";
 
   function last5OppName(name) {
     return shortTeamName(name, 10) || "—";
@@ -1623,11 +1623,24 @@
     return g.venue === "away" ? last5HalfScore(ga, gf) : last5HalfScore(gf, ga);
   }
 
-  function last5GameHalves(g) {
+  // Home–away, with only this club's figure marked. Home games mark the left
+  // number; away games mark the right number (the home club stays first).
+  function last5MarkedScore(g, gf, ga) {
+    if (gf == null || ga == null) return "—";
+    const home = g.venue === "away" ? ga : gf;
+    const away = g.venue === "away" ? gf : ga;
+    const mine = (n) => `<span class="mc-form-mine">${escapeHtml(String(n))}</span>`;
+    const plain = (n) => escapeHtml(String(n));
+    if (g.venue === "away") return `${plain(home)}–${mine(away)}`;
+    return `${mine(home)}–${plain(away)}`;
+  }
+
+  function last5GameHalves(g, format) {
+    const fmt = format || last5PitchScore;
     const known = g.ht_gf != null && g.ht_ga != null;
-    const h1 = known ? last5PitchScore(g, g.ht_gf, g.ht_ga) : "—";
+    const h1 = known ? fmt(g, g.ht_gf, g.ht_ga) : "—";
     const h2 = known
-      ? last5PitchScore(
+      ? fmt(
           g,
           g.h2_gf != null ? g.h2_gf : Math.max(0, Number(g.gf) - Number(g.ht_gf)),
           g.h2_ga != null ? g.h2_ga : Math.max(0, Number(g.ga) - Number(g.ht_ga)),
@@ -1700,7 +1713,7 @@
     }
     const chips = row.recent
       .map((g) => {
-        const { h1, h2, known } = last5GameHalves(g);
+        const { h1, h2, known } = last5GameHalves(g, last5MarkedScore);
         const vs = `${g.venue === "home" ? "v" : "@"} ${last5OppName(g.opponent)}`;
         const letter = String(g.letter || "").toLowerCase();
         const cls = letter === "w" || letter === "d" || letter === "l" ? letter : "";
