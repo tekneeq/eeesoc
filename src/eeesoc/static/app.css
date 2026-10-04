@@ -883,6 +883,50 @@ main {
   overflow: visible;
 }
 
+.mc-box-rate {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: baseline;
+  gap: 0.4rem;
+  margin: 0.08rem 0 0.12rem;
+  font-size: 0.62rem;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+}
+
+.mc-box-rate-side b {
+  font-weight: 700;
+}
+
+.mc-box-rate-side.home {
+  color: var(--accent);
+}
+
+.mc-box-rate-side.away {
+  color: rgba(125, 200, 255, 0.95);
+  text-align: right;
+}
+
+.mc-box-win {
+  margin: 0 0.38rem 0 0.16rem;
+  color: var(--muted);
+  font-size: 0.54rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.mc-box-rate-side .mc-box-win:last-child {
+  margin-right: 0;
+}
+
+.mc-box-rate-label {
+  color: var(--muted);
+  font-size: 0.54rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
 .e2e-home {
   stroke: var(--accent);
   stroke-width: 2;

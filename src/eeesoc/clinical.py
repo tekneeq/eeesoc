@@ -39,6 +39,12 @@ half-time score is archived), plus raw aggregates ``recent_scored`` /
 ``recent_allowed`` and the matching ``_1h`` totals (``recent_1h_games`` is
 how many of the last five have a half-time score).
 
+``box_per_goal`` is completed passes received in the opponent's penalty area
+divided by goals scored, over every archived game that recorded box entries.
+``recent_box_per_goal`` is the same ratio on the last ``FORM_GAMES`` results.
+Games without box data are left out of both the touches and the goals.
+A window with touches but no goals is undefined (``None``).
+
 Potential is the club's underlying strength once finishing luck is stripped
 out: the geometric mean of its chance-creation index (xG created vs the
 league) and its defence power, so 100 = a league-typical side on chance
@@ -106,6 +112,31 @@ _cache: tuple[float, int, dict[str, Any]] | None = None
 
 def team_key(name: str) -> str:
     return re.sub(r"[^a-z0-9]+", " ", str(name or "").lower()).strip()
+
+
+def box_touches_for(rec: dict[str, Any], side: str) -> int | None:
+    """Completed passes this side received in the opponent's penalty area, or None if unmeasured."""
+    box = rec.get("box_entries")
+    if not isinstance(box, dict):
+        return None
+    total = 0
+    seen = False
+    for half in ("1", "2"):
+        side_map = box.get(half)
+        if not isinstance(side_map, dict):
+            continue
+        minutes = side_map.get(side)
+        if isinstance(minutes, list):
+            seen = True
+            total += len(minutes)
+    return total if seen else None
+
+
+def _per_goal(touches: int, goals: int) -> float | None:
+    """Touches in the box per goal. Undefined when the window has no goals."""
+    if goals <= 0:
+        return None
+    return round(touches / goals, 1)
 
 
 def _game_side_stats(rec: dict[str, Any], side: str, other: str, *, has_xg: bool) -> dict[str, Any]:
@@ -210,6 +241,7 @@ def _team_totals(records: list[dict[str, Any]]) -> dict[str, dict[str, dict[str,
                     "ht_ga": int(rec.get(f"ht_{other}") or 0) if ht_known else None,
                     "points": pts,
                     "letter": "W" if pts == 3 else ("D" if pts == 1 else "L"),
+                    "box_touches": box_touches_for(rec, side),
                     **game,
                 }
             )
@@ -354,6 +386,12 @@ def _league_table(slug: str, teams: dict[str, dict[str, Any]], label: str) -> di
         clean_sheets = sum(1 for g in r["results"] if g["ga"] == 0)
         cs_pct = 100.0 * clean_sheets / r["games"] if r["games"] else 0.0
         ht_recent = [g for g in recent if g.get("ht_gf") is not None and g.get("ht_ga") is not None]
+        measured = [g for g in r["results"] if g.get("box_touches") is not None]
+        box_touches = sum(int(g["box_touches"]) for g in measured)
+        box_goals = sum(int(g["gf"]) for g in measured)
+        recent_measured = [g for g in recent if g.get("box_touches") is not None]
+        recent_box_touches = sum(int(g["box_touches"]) for g in recent_measured)
+        recent_box_goals = sum(int(g["gf"]) for g in recent_measured)
         row = {
             **{k: v for k, v in r.items() if k != "results"},
             # Only what the chiclet tooltip needs; the full log would triple the payload.
@@ -370,6 +408,7 @@ def _league_table(slug: str, teams: dict[str, dict[str, Any]], label: str) -> di
                     "h2_gf": (max(0, int(g["gf"]) - int(g["ht_gf"])) if g.get("ht_gf") is not None else None),
                     "h2_ga": (max(0, int(g["ga"]) - int(g["ht_ga"])) if g.get("ht_ga") is not None else None),
                     "letter": g["letter"],
+                    "box_touches": g.get("box_touches"),
                 }
                 for g in recent
             ],
@@ -380,6 +419,14 @@ def _league_table(slug: str, teams: dict[str, dict[str, Any]], label: str) -> di
             "recent_scored_1h": sum(int(g["ht_gf"]) for g in ht_recent),
             "recent_allowed_1h": sum(int(g["ht_ga"]) for g in ht_recent),
             "recent_1h_games": len(ht_recent),
+            "box_touches": box_touches,
+            "box_goals": box_goals,
+            "box_games": len(measured),
+            "box_per_goal": _per_goal(box_touches, box_goals),
+            "recent_box_touches": recent_box_touches,
+            "recent_box_goals": recent_box_goals,
+            "recent_box_games": len(recent_measured),
+            "recent_box_per_goal": _per_goal(recent_box_touches, recent_box_goals),
             "points_per_game": round(r["points"] / r["games"], 2) if r["games"] else 0.0,
             "scored_per_game": round(r["scored"] / r["games"], 2) if r["games"] else 0.0,
             "momentum": int(round(momentum)),
