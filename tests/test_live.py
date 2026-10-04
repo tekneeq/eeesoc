@@ -1291,7 +1291,12 @@ def test_chiclet_shows_possession_and_duel_graphs():
     assert "function endToEndSvg" in js
     assert "function endToEndSeriesPath" in js
     assert "function formatE2ESeconds" in js
-    assert "endToEndHtml(cached)" in js
+    assert "endToEndHtml(cached, m)" in js
+    assert "function boxRateRowHtml" in js
+    assert "box_per_goal" in js and "recent_box_per_goal" in js
+    assert "box / goal" in js
+    assert ".mc-box-rate" in css
+    assert "box touches per goal" in html
     assert 'data-e2e-for="' in js
     assert "e2e-home" in js and "e2e-away" in js
     assert ".mc-e2e" in css

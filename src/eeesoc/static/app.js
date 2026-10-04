@@ -1983,6 +1983,58 @@
 
   function paintClinicalRows() {
     document.querySelectorAll(".mc-power[data-power-for]").forEach((el) => paintPowerRow(el.closest(".match-chiclet")));
+    paintBoxRates();
+  }
+
+  function boxRateText(value) {
+    if (value == null || value === "") return "—";
+    const n = Number(value);
+    return Number.isFinite(n) ? n.toFixed(1) : "—";
+  }
+
+  function boxRateTitle(row, name) {
+    if (!row) return `${name}: no finished games archived yet for box touches per goal`;
+    const line = (label, touches, goals, games, rate, ofGames) => {
+      if (!games) return `${label}: no box touches archived`;
+      if (rate == null) return `${label}: ${touches} box touches and 0 goals over ${games} game${games === 1 ? "" : "s"}`;
+      const span = ofGames && games < ofGames ? `${games} of ${ofGames}` : String(games);
+      return `${label}: ${boxRateText(rate)} (${touches} box touches ÷ ${goals} goal${goals === 1 ? "" : "s"}, ${span} game${span === "1" ? "" : "s"})`;
+    };
+    const season = line("season", row.box_touches, row.box_goals, row.box_games, row.box_per_goal);
+    const lastN = (row.recent || []).length;
+    const last = line("last 5", row.recent_box_touches, row.recent_box_goals, row.recent_box_games, row.recent_box_per_goal, lastN);
+    return `${row.team}: touches in the box per goal — completed passes into the opponent’s penalty area, divided by goals scored. ${season}. ${last}.`;
+  }
+
+  function boxRateSideHtml(m, side) {
+    const name = side === "home" ? m.home : m.away;
+    const row = clinicalFor(m.league_slug, side === "home" ? m.home_id : m.away_id, name);
+    const title = escapeHtml(boxRateTitle(row, name));
+    const season = boxRateText(row?.box_per_goal);
+    const last = boxRateText(row?.recent_box_per_goal);
+    return `<span class="mc-box-rate-side ${side}" title="${title}"><b>${season}</b><span class="mc-box-win">season</span><b>${last}</b><span class="mc-box-win">last 5</span></span>`;
+  }
+
+  function boxRateRowInner(m) {
+    const help =
+      "Touches in the box per goal: completed passes into the opponent’s penalty area, divided by goals scored. Season uses every archived game with box data; last 5 uses that club’s last five results. A window with no goals shows —.";
+    return `${boxRateSideHtml(m, "home")}<span class="mc-box-rate-label" title="${escapeHtml(help)}">box / goal</span>${boxRateSideHtml(m, "away")}`;
+  }
+
+  function boxRateRowHtml(m) {
+    if (!m) return "";
+    return `<span class="mc-box-rate" data-box-rate-for="${escapeHtml(m.event_id)}">${boxRateRowInner(m)}</span>`;
+  }
+
+  function paintBoxRates() {
+    document.querySelectorAll(".mc-box-rate[data-box-rate-for]").forEach((el) => {
+      const m = el.closest(".match-chiclet")?.__match;
+      if (!m) return;
+      const html = boxRateRowInner(m);
+      if (el.__html === html) return;
+      el.__html = html;
+      el.innerHTML = html;
+    });
   }
 
   async function refreshClinical() {
@@ -2073,7 +2125,7 @@
                 cached ? xgSvg(cached) : `<span class="mc-timeline-loading">xG…</span>`
               }</span>
               <span class="mc-e2e" data-e2e-for="${escapeHtml(m.event_id)}" aria-label="End-to-end opposite-box times">${
-                cached ? endToEndHtml(cached) : `<span class="mc-timeline-loading">end-to-end…</span>`
+                cached ? endToEndHtml(cached, m) : `<span class="mc-timeline-loading">end-to-end…</span>`
               }</span>
               <span class="mc-territory" data-terr-for="${escapeHtml(m.event_id)}" aria-label="Territory map">${
                 cached ? territorySvg(cached) : `<span class="mc-timeline-loading">territory…</span>`
@@ -2517,12 +2569,13 @@
     </svg>`;
   }
 
-  function endToEndHtml(tl) {
+  function endToEndHtml(tl, m) {
     if (!tl) return "";
     const block = tl.end_to_end || {};
     const avg = `avg ${endToEndAvgLabel(block.home_avg)}–${endToEndAvgLabel(block.away_avg)}`;
     return `<span class="mc-e2e-block">
       <span class="mc-pressure-head">End-to-end · seconds from the other end to a first touch in the opposite box · lower is faster · box <tspan class="tl-xg-h">${Number(block.home_total || 0)}</tspan>–<tspan class="tl-xg-a">${Number(block.away_total || 0)}</tspan> · ${avg}</span>
+      ${boxRateRowHtml(m)}
       ${endToEndSvg(tl)}
     </span>`;
   }
@@ -3124,7 +3177,7 @@
       if (mount.isConnected) mount.innerHTML = timelineSvg(tl);
       if (xgMount && xgMount.isConnected) xgMount.innerHTML = xgSvg(tl);
       const e2e = root.querySelector(`.mc-e2e[data-e2e-for="${eid}"]`);
-      if (e2e) e2e.innerHTML = endToEndHtml(tl);
+      if (e2e) e2e.innerHTML = endToEndHtml(tl, m);
       const stats = root.querySelector(`.mc-stats[data-stats-for="${eid}"]`);
       if (stats) stats.innerHTML = chicletStatsHtml(tl);
       const board = root.querySelector(`.mc-bulletin[data-bulletin-for="${eid}"]`);

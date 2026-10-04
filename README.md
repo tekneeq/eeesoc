@@ -22,7 +22,10 @@ travels, scaled so the league's typical archived game sits in the middle of the 
 above is hotter, below is quieter — ESPN has no player GPS, so this
 is the ball's path, not miles run), a separate end-to-end line graph of how many seconds
 the ball took from one end of the pitch to a team's first touch in the opposite box
-(home green, away blue; each point is that arrival, lower is faster), a duel graph with three lines (home, away, and 50%) over
+(home green, away blue; each point is that arrival, lower is faster). Under that graph each
+club shows **box touches per goal**: completed passes into the opponent's penalty area
+divided by goals scored, for the season and again over the last five results (a window
+with no goals shows —). A duel graph with three lines (home, away, and 50%) over
 that same last-15′ window at every minute, and a territory heat of
 where the ball has actually been in those last 15′ — so a first-half siege that flipped after
 the break does not collapse to "even".
