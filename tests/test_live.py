@@ -1244,7 +1244,11 @@ def test_chiclet_shows_possession_and_duel_graphs():
     assert "own box is left off" in js
     assert "e2e-link" in js
     assert "Y is how many so far" not in js
-    assert "endToEndHtml(cached)" in js
+    assert "endToEndHtml(cached, m)" in js
+    assert "touches in the box per goal" in js
+    assert "box_per_goal" in js and "recent_box_per_goal" in js
+    assert ".mc-box-rate" in css
+    assert "touches in the box per goal" in html
     assert 'data-e2e-for="' in js
     assert "e2e-rail" in js and "e2e-link" in js
     assert ".mc-e2e" in css

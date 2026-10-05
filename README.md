@@ -24,7 +24,9 @@ is the ball's path, not miles run), a separate box-to-box graph with the home
 penalty box on the top line and the away penalty box on the bottom line, time
 across. A dot is the other team touching the ball in that box; a team in its own box is left off. A flat stretch means the ball is back at
 the same end; a slope is the trip to the other box, and how wide it is is how
-long that took. A duel graph with three lines (home, away, and 50%) over
+long that took. Under that heading each club shows **touches in the box per goal**
+(passes into the opponent's penalty area divided by goals scored) for the season and
+for the last five results; a window with no goals shows —. A duel graph with three lines (home, away, and 50%) over
 that same last-15′ window at every minute, and a territory heat of
 where the ball has actually been in those last 15′ — so a first-half siege that flipped after
 the break does not collapse to "even".

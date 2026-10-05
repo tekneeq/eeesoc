@@ -883,6 +883,57 @@ main {
   overflow: visible;
 }
 
+.mc-box-rate {
+  display: flex;
+  flex-direction: column;
+  gap: 0.16rem;
+  margin: 0.28rem 0 0.2rem;
+  font-size: 0.82rem;
+  line-height: 1.25;
+}
+
+.mc-box-rate-label {
+  color: var(--text);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.mc-box-rate-side {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.28rem;
+}
+
+.mc-box-rate-name {
+  min-width: 4.6rem;
+  font-weight: 700;
+}
+
+.mc-box-rate-side b {
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.mc-box-rate-side.home {
+  color: var(--accent);
+}
+
+.mc-box-rate-side.away {
+  color: rgba(125, 200, 255, 0.95);
+}
+
+.mc-box-win {
+  margin-right: 0.45rem;
+  color: var(--muted);
+  font-size: 0.62rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
 .e2e-link {
   stroke: rgba(230, 245, 238, 0.72);
   stroke-width: 1.6;

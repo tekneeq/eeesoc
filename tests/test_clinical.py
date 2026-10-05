@@ -554,6 +554,52 @@ def test_half_goals_buckets_three_plus_and_skips_games_without_ht_score():
     }
 
 
+def _box_entries(home: int, away: int) -> dict:
+    return {
+        "1": {"home": list(range(home)), "away": list(range(away))},
+        "2": {"home": [], "away": []},
+    }
+
+
+def test_box_touches_per_goal_uses_season_and_last_five():
+    def game(eid, start, home_goals, away_goals, home_box, away_box, *, box=True):
+        events = [_ev(10 + i, "goal", "home", 0.2) for i in range(home_goals)]
+        events += [_ev(50 + i, "goal", "away", 0.2) for i in range(away_goals)]
+        if not events:
+            events.append(_ev(12, "shot", "home"))
+        rec = _rec(eid, "Sharp FC", "Blunt Town", "10", "20", events, start=start)
+        if box:
+            rec["box_entries"] = _box_entries(home_box, away_box)
+        return rec
+
+    records = [
+        game("old", "2026-01-01T12:00:00Z", 1, 0, 100, 0),
+        game("a", "2026-02-01T12:00:00Z", 0, 0, 4, 1),
+        game("b", "2026-03-01T12:00:00Z", 1, 0, 2, 0),
+        game("c", "2026-04-01T12:00:00Z", 1, 2, 4, 8),
+        game("d", "2026-05-01T12:00:00Z", 0, 1, 0, 3),
+        game("e", "2026-06-01T12:00:00Z", 5, 0, 0, 0, box=False),
+    ]
+    by = {t["team"]: t for t in build_clinical_board(records)["leagues"]["eng.1"]["teams"]}
+    sharp = by["Sharp FC"]
+    blunt = by["Blunt Town"]
+    assert sharp["box_touches"] == 110 and sharp["box_goals"] == 3 and sharp["box_games"] == 5
+    assert sharp["box_per_goal"] == 36.7
+    assert sharp["recent_box_touches"] == 10 and sharp["recent_box_goals"] == 2 and sharp["recent_box_games"] == 4
+    assert sharp["recent_box_per_goal"] == 5.0
+    assert sharp["recent"][0]["box_touches"] == 4
+    assert sharp["recent"][-1]["box_touches"] is None
+    assert blunt["box_touches"] == 12 and blunt["box_goals"] == 3
+    assert blunt["box_per_goal"] == 4.0
+    assert blunt["recent_box_per_goal"] == 4.0
+
+    quiet = game("q", "2026-07-01T12:00:00Z", 0, 0, 9, 0)
+    only = build_clinical_board([quiet])["leagues"]["eng.1"]["teams"]
+    sharp_q = next(t for t in only if t["team"] == "Sharp FC")
+    assert sharp_q["box_touches"] == 9 and sharp_q["box_goals"] == 0
+    assert sharp_q["box_per_goal"] is None and sharp_q["recent_box_per_goal"] is None
+
+
 def test_lookup_by_id_then_name_and_cache_tracks_archive():
     recs = _records()
     for r in recs:
