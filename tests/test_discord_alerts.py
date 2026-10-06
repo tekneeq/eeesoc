@@ -7,6 +7,7 @@ from eeesoc.discord_alerts import (
     flatten_board,
     format_alert,
     format_similar_paths,
+    overlay_play_scores,
     poll_alerts,
     scoreline_for_alert,
 )
@@ -109,6 +110,89 @@ def test_no_alert_when_score_unchanged():
     current = {"1": _row(home_score=1, away_score=0, clock="30'")}
     alerts, _nxt = detect_alerts(prev, current, seeded=True)
     assert alerts == []
+
+
+def _goal_play(team_id: str, clock: str, name: str, team_name: str) -> dict:
+    return {
+        "type": {"type": "goal"},
+        "scoringPlay": True,
+        "shortText": f"{name} Goal",
+        "text": f"{name} ({team_name}) Goal at {clock}",
+        "clock": {"displayValue": clock},
+        "team": {"$ref": f"http://sports.core.api.espn.com/v2/sports/soccer/leagues/eng.2/teams/{team_id}"},
+    }
+
+
+def test_overlay_uses_play_score_when_scoreboard_still_nil_nil():
+    rows = {
+        "1": _row(
+            state="in",
+            home="Cardiff City",
+            away="Charlton Athletic",
+            home_id="349",
+            away_id="372",
+            home_score=0,
+            away_score=0,
+            clock="11'",
+        )
+    }
+
+    def fake_plays(league, event_id):
+        assert league == "eng.1"
+        assert event_id == "1"
+        return [_goal_play("349", "8'", "J. Moylan", "Cardiff City")]
+
+    out = overlay_play_scores(rows, fetch_plays=fake_plays)
+    assert out["1"]["home_score"] == 1
+    assert out["1"]["away_score"] == 0
+    assert out["1"]["clock"] == "8'"
+
+
+def test_overlay_does_not_drop_a_scoreboard_goal():
+    rows = {"1": _row(state="in", home_score=1, away_score=0, clock="18'")}
+    out = overlay_play_scores(rows, fetch_plays=lambda *_a, **_k: [])
+    assert out["1"]["home_score"] == 1
+    assert out["1"]["clock"] == "18'"
+
+
+def test_overlay_skips_upcoming_matches():
+    called = []
+    overlay_play_scores({"1": _row(state="pre")}, fetch_plays=lambda *a, **_k: called.append(a) or [])
+    assert called == []
+
+
+def test_poll_announces_play_by_play_goal_before_scoreboard_ticks():
+    board = _board(
+        _row(
+            state="in",
+            home="Cardiff City",
+            away="Charlton Athletic",
+            home_id="349",
+            away_id="372",
+            home_score=0,
+            away_score=0,
+            clock="11'",
+        )
+    )
+    seeded = {
+        "seeded": True,
+        "matches": {"1": {"state": "in", "home_score": 0, "away_score": 0, "path": ["0-0"]}},
+    }
+    messages, nxt = poll_alerts(
+        board=board,
+        state=seeded,
+        corpus=[],
+        overlay_plays=True,
+        fetch_plays=lambda *_a, **_k: [_goal_play("349", "8'", "J. Moylan", "Cardiff City")],
+    )
+    assert len(messages) == 1
+    text = messages[0]
+    assert "Goal" in text
+    assert "Cardiff City 1–0 Charlton Athletic" in text
+    assert "8'" in text
+    assert "11'" not in text
+    assert nxt["matches"]["1"]["home_score"] == 1
+    assert nxt["matches"]["1"]["path"] == ["0-0", "1-0"]
 
 
 def test_poll_attaches_similar_paths_for_both_clubs():
