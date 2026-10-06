@@ -1999,6 +1999,7 @@
     return (
       pair("Shots", (counts.home_shot || 0) + (counts.home_shot_on || 0) + (counts.home_blocked || 0) + (counts.home_goal || 0), (counts.away_shot || 0) + (counts.away_shot_on || 0) + (counts.away_blocked || 0) + (counts.away_goal || 0)) +
       pair("On target", (counts.home_shot_on || 0) + (counts.home_goal || 0), (counts.away_shot_on || 0) + (counts.away_goal || 0)) +
+      pair("Blocked", counts.home_blocked || 0, counts.away_blocked || 0) +
       pair("Corners", counts.home_corner || 0, counts.away_corner || 0) +
       pair("Fouls", counts.home_foul || 0, counts.away_foul || 0) +
       pair("xG", Number(xgHome || 0).toFixed(2), Number(xgAway || 0).toFixed(2))
@@ -2007,7 +2008,7 @@
 
   function chicletStatsHtml(tl) {
     if (!tl) {
-      return `<span class="mc-stat mc-stat-empty">shots · on target · corners · xG</span>`;
+      return `<span class="mc-stat mc-stat-empty">shots · on target · blocked · corners · xG</span>`;
     }
     const xg = tl.xg || {};
     const halves = tl.counts_by_half || {};
@@ -2057,6 +2058,9 @@
               }</span>
               <span class="mc-xg" data-xg-for="${escapeHtml(m.event_id)}" aria-label="Expected goals versus time">${
                 cached ? xgSvg(cached) : `<span class="mc-timeline-loading">xG…</span>`
+              }</span>
+              <span class="mc-e2e" data-e2e-for="${escapeHtml(m.event_id)}" aria-label="End-to-end opposite-box times">${
+                cached ? endToEndHtml(cached) : `<span class="mc-timeline-loading">end-to-end…</span>`
               }</span>
               <span class="mc-territory" data-terr-for="${escapeHtml(m.event_id)}" aria-label="Territory map">${
                 cached ? territorySvg(cached) : `<span class="mc-timeline-loading">territory…</span>`
@@ -2401,6 +2405,87 @@
       <text x="${W - padR}" y="${H - 4}" class="tl-label" text-anchor="end">${maxM}'</text>
       <text x="${W - padR}" y="11" class="tl-xg-total" text-anchor="end">xG <tspan class="tl-xg-h">${Number(xg.home_total || 0).toFixed(2)}</tspan>–<tspan class="tl-xg-a">${Number(xg.away_total || 0).toFixed(2)}</tspan></text>
     </svg>`;
+  }
+
+  function endToEndGap(minutes) {
+    const s = Math.max(0, Math.round(Number(minutes) * 60));
+    const m = Math.floor(s / 60);
+    const r = s % 60;
+    if (!m) return `${r}s`;
+    return r ? `${m}'${String(r).padStart(2, "0")}` : `${m}'`;
+  }
+
+  function endToEndEvents(block) {
+    const rows = [];
+    for (const p of block?.home || []) {
+      if (p.minute) rows.push({ ...p, team: "home" });
+    }
+    for (const p of block?.away || []) {
+      if (p.minute) rows.push({ ...p, team: "away" });
+    }
+    rows.sort((a, b) => a.minute - b.minute);
+    return rows;
+  }
+
+  function endToEndSvg(tl) {
+    const W = 640;
+    const H = 96;
+    const padL = 62;
+    const padR = 10;
+    const padT = 14;
+    const padB = 18;
+    const { maxM, ticks, now } = chartAxis(tl);
+    const homeName = shortName(tl.home || "Home");
+    const awayName = shortName(tl.away || "Away");
+    const rail = (name) => (name.length > 8 ? `${name.slice(0, 7)}…` : name);
+    const xAt = (m) => padL + ((Number(m) / maxM) * (W - padL - padR));
+    const yHome = padT + 8;
+    const yAway = H - padB - 8;
+    const yFor = (box) => (box === "R" ? yAway : yHome);
+    const nowX = xAt(now).toFixed(1);
+    const events = endToEndEvents(tl.end_to_end).filter((p) => p.minute <= now + 0.02);
+    const pts = events.map((p) => `${xAt(p.minute).toFixed(1)} ${yFor(p.box).toFixed(1)}`);
+    const tickMarks = ticks
+      .map((t) => {
+        const tx = xAt(t).toFixed(1);
+        return `<line x1="${tx}" y1="${yHome}" x2="${tx}" y2="${yAway}" class="tl-ht"/>
+      <text x="${tx}" y="${H - 4}" class="tl-label" text-anchor="middle">${t}'</text>`;
+      })
+      .join("");
+    const dots = events
+      .map((p, i) => {
+        const x = xAt(p.minute).toFixed(1);
+        const y = yFor(p.box).toFixed(1);
+        const where = p.box === "R" ? `${awayName} box` : `${homeName} box`;
+        const who = p.team === "away" ? awayName : homeName;
+        const prev = i > 0 ? events[i - 1] : null;
+        const gap = prev ? ` · ${endToEndGap(p.minute - prev.minute)} since the last box` : "";
+        const same = prev && prev.box === p.box ? " · same end" : prev ? " · other box" : "";
+        const title = `${p.clock || p.minute + "'"} · ${where} · ${who} touch${gap}${same}`;
+        const cls = p.team === "away" ? "e2e-a" : "e2e-h";
+        return `<g class="e2e-mark ${cls}"><title>${escapeHtml(title)}</title><circle cx="${x}" cy="${y}" r="3.4"/></g>`;
+      })
+      .join("");
+    return `<svg class="mc-e2e-svg" viewBox="0 0 ${W} ${H}" width="100%" height="${H}" role="img" aria-label="Penalty boxes versus time. Top is the home box, bottom is the away box. Across is the minute." data-pad-l="${padL}" data-pad-r="${padR}" data-width="${W}" data-max="${maxM}">
+      <text x="${padL - 6}" y="${yHome + 3}" class="tl-label tl-xg-h" text-anchor="end">${escapeHtml(rail(homeName))}</text>
+      <text x="${padL - 6}" y="${yAway + 3}" class="tl-label tl-xg-a" text-anchor="end">${escapeHtml(rail(awayName))}</text>
+      <line x1="${padL}" y1="${yHome}" x2="${W - padR}" y2="${yHome}" class="e2e-rail"/>
+      <line x1="${padL}" y1="${yAway}" x2="${W - padR}" y2="${yAway}" class="e2e-rail"/>
+      ${tickMarks}
+      <line x1="${nowX}" y1="${yHome - 6}" x2="${nowX}" y2="${yAway + 6}" class="tl-now"/>
+      ${pts.length > 1 ? `<path d="M ${pts.join(" L ")}" class="e2e-link" fill="none"/>` : ""}
+      ${dots}
+      <text x="${padL}" y="${H - 4}" class="tl-label">0'</text>
+      <text x="${W - padR}" y="${H - 4}" class="tl-label" text-anchor="end">${maxM}'</text>
+    </svg>`;
+  }
+
+  function endToEndHtml(tl) {
+    if (!tl) return "";
+    return `<span class="mc-e2e-block">
+      <span class="mc-pressure-head">Box to box · top is the home penalty box, bottom is the away box · only the other team’s touch in that box · a team in its own box is left off · across is time · a flat line is the same end, a slope is the other box and how wide it is is how long it took</span>
+      ${endToEndSvg(tl)}
+    </span>`;
   }
 
   function pressureHeadline(tl) {
@@ -2999,6 +3084,8 @@
       const eid = CSS.escape(String(m.event_id));
       if (mount.isConnected) mount.innerHTML = timelineSvg(tl);
       if (xgMount && xgMount.isConnected) xgMount.innerHTML = xgSvg(tl);
+      const e2e = root.querySelector(`.mc-e2e[data-e2e-for="${eid}"]`);
+      if (e2e) e2e.innerHTML = endToEndHtml(tl);
       const stats = root.querySelector(`.mc-stats[data-stats-for="${eid}"]`);
       if (stats) stats.innerHTML = chicletStatsHtml(tl);
       const board = root.querySelector(`.mc-bulletin[data-bulletin-for="${eid}"]`);
@@ -3026,6 +3113,14 @@
         bulletin: (tl.bulletin || []).map((e) => [e.minute, e.kind, e.team, e.player, e.player_off]),
         xh: tl.xg?.home_total,
         xa: tl.xg?.away_total,
+        e2e: [
+          tl.end_to_end?.home_total,
+          tl.end_to_end?.away_total,
+          tl.end_to_end?.home?.at(-1)?.minute,
+          tl.end_to_end?.away?.at(-1)?.minute,
+          tl.end_to_end?.home?.at(-1)?.box,
+          tl.end_to_end?.away?.at(-1)?.box,
+        ],
         fouls: [tl.counts?.home_foul, tl.counts?.away_foul],
         halves: [
           tl.counts_by_half?.["1h"]?.home_shot,
@@ -3167,6 +3262,8 @@
         if (tlSvg) moveNowCursor(tlSvg, nowM);
         const xgSvgEl = btn.querySelector(".mc-xg svg");
         if (xgSvgEl) moveNowCursor(xgSvgEl, nowM);
+        const e2eSvgEl = btn.querySelector(".mc-e2e svg");
+        if (e2eSvgEl) moveNowCursor(e2eSvgEl, nowM);
         continue;
       }
       const secs = kickoffElapsedSeconds(btn.__match);
@@ -4772,6 +4869,7 @@ echo "done → $OUT/${safe}_reel.mp4 ($N clips)"
     return (
       htStatPair("Shots", h.shots || 0, a.shots || 0) +
       htStatPair("On target", h.sot || 0, a.sot || 0) +
+      htStatPair("Blocked", h.blocked || 0, a.blocked || 0) +
       htStatPair("Corners", h.corners || 0, a.corners || 0) +
       xg
     );

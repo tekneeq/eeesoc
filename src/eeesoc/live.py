@@ -39,6 +39,7 @@ LEAGUES: list[tuple[str, str]] = [
     ("fra.1", "Ligue 1"),
     ("uefa.champions", "UCL"),
     ("uefa.europa", "UEL"),
+    ("uefa.nations", "Nations"),
     ("eng.2", "Championship"),
     ("eng.league_cup", "Carabao"),
     ("eng.fa", "FA Cup"),
@@ -2042,6 +2043,109 @@ def compact_intensity(block: dict[str, Any] | None) -> dict[str, Any] | None:
     }
 
 
+def _abs_box_end(x: float, y: float) -> str | None:
+    """Which penalty box on the absolute pitch (home attacks right), or None."""
+    if y < BOX_Y_MIN or y > BOX_Y_MAX:
+        return None
+    if x >= BOX_X_MIN:
+        return "R"
+    if x <= (100.0 - BOX_X_MIN):
+        return "L"
+    return None
+
+
+def _clock_from_minute(t: float) -> str:
+    total = max(0, int(round(float(t) * 60.0)))
+    mins, secs = divmod(total, 60)
+    return f"{mins}'{secs:02d}" if secs else f"{mins}'"
+
+
+def _cumulative_box_series(arrivals: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Step series of box touches, starting at 0' — same shape as the xG chart."""
+    series: list[dict[str, Any]] = [{"minute": 0, "cumulative": 0}]
+    for i, a in enumerate(arrivals, 1):
+        series.append(
+            {
+                "minute": a["minute"],
+                "cumulative": i,
+                "box": a.get("box"),
+                "clock": a.get("clock"),
+            }
+        )
+    return series
+
+
+def _build_end_to_end(
+    points: list[tuple[Any, ...]],
+    *,
+    now_minute: int,
+) -> dict[str, Any]:
+    """
+    When a team touches the ball in the opponent's penalty box.
+
+    ``points`` is ``(minute_float, abs_x, abs_y, side)`` or the same plus a
+    ``"1h"`` / ``"2h"`` half tag. Home attacks right, so the left box is
+    home's and the right box is away's. A touch in a team's own box is
+    ignored. A touch in the other box counts once; more touches in that same
+    box do not count until the ball has been on the other half of the pitch.
+    The latches reset at half-time.
+
+    The chart puts the home box on the top rail and the away box on the bottom
+    rail, with time across, so a flat run is the same end and a slope is the
+    trip to the other box.
+    """
+    now_minute = max(1, min(90, int(now_minute)))
+    pts = sorted(
+        (
+            (
+                float(p[0]),
+                float(p[1]),
+                float(p[2]),
+                p[3],
+                p[4] if len(p) > 4 else ("2h" if float(p[0]) > 45.0 else "1h"),
+            )
+            for p in points
+            if p and p[0] is not None and p[3] in {"home", "away"}
+        ),
+        key=lambda p: (p[4], p[0]),
+    )
+    open_box = {"L": True, "R": True}
+    arrivals: dict[str, list[dict[str, Any]]] = {"home": [], "away": []}
+    last_half: str | None = None
+
+    for t, x, y, side, half in pts:
+        if last_half and half != last_half:
+            open_box["L"] = open_box["R"] = True
+        last_half = half
+        # The other half rearms the box we have left. Inside a box we are
+        # still on that box's own half, so only the far box opens.
+        if x > 50.0:
+            open_box["L"] = True
+        elif x < 50.0:
+            open_box["R"] = True
+        box = _abs_box_end(x, y)
+        opp = "R" if side == "home" else "L"
+        if box == opp and open_box[box]:
+            arrivals[side].append(
+                {
+                    "minute": round(float(t), 2),
+                    "box": box,
+                    "clock": _clock_from_minute(t),
+                }
+            )
+            open_box[box] = False
+
+    home = arrivals["home"]
+    away = arrivals["away"]
+    return {
+        "to_minute": now_minute,
+        "home": _cumulative_box_series(home),
+        "away": _cumulative_box_series(away),
+        "home_total": len(home),
+        "away_total": len(away),
+    }
+
+
 def _cumulative_xg_series(
     points: list[tuple[int, float]],
 ) -> list[dict[str, Any]]:
@@ -2078,6 +2182,9 @@ def build_event_timeline(
     of on-ball events and 1v1 contests, same window as pressure.
     ``intensity`` is end-to-end swings + ball travel over a rolling 5′ — how
     frantic the game is, not who is pinning whom.
+    ``end_to_end`` is a separate chart: home box on top, away box on the bottom,
+    time across. The same box does not count again until the ball has been on
+    the other half.
     ``elapsed_seconds`` is the best live clock for a client-side 1s cursor tick;
     ``frozen`` flags HT/FT-style clocks where the tick should pause.
     """
@@ -2139,6 +2246,7 @@ def build_event_timeline(
     poss_pts: list[tuple[int, str]] = []
     touches: list[tuple[float, str, str]] = []
     intensity_pts: list[tuple[float, float, float]] = []
+    end_to_end_pts: list[tuple[float, float, float, str, str]] = []
     duel_pts: list[tuple[int, str]] = []
     bulletin: list[dict[str, Any]] = []
 
@@ -2190,7 +2298,9 @@ def build_event_timeline(
                     pressure_pts.append((pmin, px, py, side, kind))
                     ax, ay = _absolute_xy(px, py, side)
                     if ax is not None and ay is not None:
-                        intensity_pts.append((_play_minute_exact(play, pmin), ax, ay))
+                        t_exact = _play_minute_exact(play, pmin)
+                        intensity_pts.append((t_exact, ax, ay))
+                        end_to_end_pts.append((t_exact, ax, ay, side, half))
 
         if "foul" in ptype and side in {"home", "away"}:
             counts["foul"] += 1
@@ -2321,6 +2431,7 @@ def build_event_timeline(
         ),
         "possession_spells": _build_possession_spells(touches, now_minute=minute, final=final),
         "intensity": _build_intensity(intensity_pts, now_minute=minute),
+        "end_to_end": _build_end_to_end(end_to_end_pts, now_minute=minute),
         "duels": _build_share_clock(
             duel_pts,
             now_minute=minute,

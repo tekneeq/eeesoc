@@ -112,6 +112,12 @@ def test_leagues_include_english_carabao_and_fa_cup():
     assert slugs.index("eng.2") < slugs.index("eng.league_cup") < slugs.index("eng.fa")
 
 
+def test_leagues_include_uefa_nations_league():
+    assert ("uefa.nations", "Nations") in LEAGUES
+    slugs = [slug for slug, _ in LEAGUES]
+    assert slugs.index("uefa.europa") < slugs.index("uefa.nations") < slugs.index("eng.2")
+
+
 def _stamp_event_dates(payload: dict, *starts: str) -> dict:
     """Copy a scoreboard payload and rewrite event kickoff times."""
     import copy
@@ -703,9 +709,12 @@ def test_build_event_timeline_kinds():
     # No period on these plays and every clock is ≤45′ — the 1H bucket matches the full row.
     assert tl["counts_by_half"]["1h"]["away_goal"] == 1
     assert tl["counts_by_half"]["1h"]["home_shot_on"] == 1
+    assert tl["counts_by_half"]["1h"]["away_blocked"] == 1
+    assert tl["counts"]["away_blocked"] == 1
     assert tl["counts_by_half"]["1h"]["away_xg"] == 0.55
     assert tl["counts_by_half"]["2h"]["away_goal"] == 0
     assert tl["counts_by_half"]["2h"]["home_xg"] == 0.0
+    assert tl["counts_by_half"]["2h"]["away_blocked"] == 0
 
 
 def test_count_play_goals_leads_scoreboard_clock():
@@ -758,11 +767,25 @@ def test_timeline_counts_split_by_half():
                 "team": {"$ref": ".../teams/1"},
             },
             {
+                "type": {"type": "shot-blocked"},
+                "clock": {"displayValue": "33'"},
+                "period": {"number": 1},
+                "expectedGoals": 0.05,
+                "team": {"$ref": ".../teams/2"},
+            },
+            {
                 "type": {"type": "shot-on-target"},
                 "clock": {"displayValue": "52'"},
                 "period": {"number": 2},
                 "expectedGoals": 0.25,
                 "team": {"$ref": ".../teams/2"},
+            },
+            {
+                "type": {"type": "shot-blocked"},
+                "clock": {"displayValue": "61'"},
+                "period": {"number": 2},
+                "expectedGoals": 0.07,
+                "team": {"$ref": ".../teams/1"},
             },
             {
                 "type": {"type": "goal"},
@@ -793,10 +816,12 @@ def test_timeline_counts_split_by_half():
     )
     h1, h2 = tl["counts_by_half"]["1h"], tl["counts_by_half"]["2h"]
     assert h1["home_shot"] == 1 and h1["away_corner"] == 1 and h1["home_foul"] == 1
-    assert h1["home_xg"] == 0.1 and h1["away_xg"] == 0.0
+    assert h1["away_blocked"] == 1 and h1["home_blocked"] == 0
+    assert h1["home_xg"] == 0.1 and h1["away_xg"] == 0.05
     assert h1["home_goal"] == 0 and h2["home_goal"] == 1
     assert h2["away_shot_on"] == 1 and h2["away_foul"] == 1
-    assert h2["home_xg"] == 0.4 and h2["away_xg"] == 0.25
+    assert h2["home_blocked"] == 1 and h2["away_blocked"] == 0
+    assert h2["home_xg"] == 0.47 and h2["away_xg"] == 0.25
     assert tl["counts"]["home_goal"] == 1
     assert tl["counts"]["home_foul"] == 1
     assert tl["counts"]["away_foul"] == 1
@@ -831,6 +856,8 @@ def test_chiclet_stats_keep_full_row_and_add_halves():
     assert "function chicletStatChips" in js
     assert 'row("1H"' in js and 'row("2H"' in js
     assert "counts_by_half" in js
+    assert 'pair("Blocked"' in js
+    assert "htStatPair(\"Blocked\"" in js
     assert ".mc-stats-half" in css
     assert ".mc-stat-period" in css
 
@@ -1225,10 +1252,26 @@ def test_chiclet_shows_possession_and_duel_graphs():
     assert "possession graph" in html
     assert "intensity graph" in html
     assert "duel graph" in html
+    assert "box-to-box graph" in html
     assert "Possession · 1H / 2H ribbons" in html
     assert "Intensity · vs league" in html
     assert "Duels · last 15′" in html
+    assert "Box to box · home box on top" in html
     assert "no player GPS" in html
+    assert "function endToEndHtml" in js
+    assert "function endToEndSvg" in js
+    assert "function endToEndEvents" in js
+    assert "top is the home penalty box" in js
+    assert "only the other team" in js
+    assert "own box is left off" in js
+    assert "e2e-link" in js
+    assert "Y is how many so far" not in js
+    assert "endToEndHtml(cached)" in js
+    assert 'data-e2e-for="' in js
+    assert "e2e-rail" in js and "e2e-link" in js
+    assert ".mc-e2e" in css
+    assert ".e2e-link" in css and ".e2e-rail" in css
+    assert "mc-e2e svg" in js
 
 
 def test_intensity_scale_pins_league_average_in_the_middle():
@@ -1359,6 +1402,134 @@ def test_timeline_payload_includes_intensity_from_coordinates():
     assert block["to_minute"] >= 26
     assert block["series"][-1]["score"] == block["score"] or block["series"]
     assert block["ball_km_total"] > 0
+
+
+def test_box_touch_counts_once_until_the_other_half():
+    from eeesoc.live import _build_end_to_end, _clock_from_minute
+
+    assert _clock_from_minute(10.0) == "10'"
+    assert _clock_from_minute(10.15) == "10'09"
+
+    pts = [
+        (10.00, 90.0, 50.0, "home", "1h"),  # right box — counts
+        (10.20, 92.0, 50.0, "home", "1h"),  # still in that box
+        (10.40, 70.0, 50.0, "away", "1h"),  # out of the box, still the same half
+        (10.50, 88.0, 50.0, "away", "1h"),  # back in — still no
+        (10.60, 90.0, 10.0, "home", "1h"),  # in the end, but wide of the box
+        (11.00, 40.0, 50.0, "home", "1h"),  # other half, not a box — rearms the right box
+        (12.00, 91.0, 50.0, "home", "1h"),  # back in the right box — counts again
+        (12.20, 10.0, 50.0, "away", "1h"),  # other box — counts for away
+        (12.30, 12.0, 50.0, "away", "1h"),  # still in the left box
+        (12.40, 90.0, 50.0, "home", "1h"),  # other box again — home, right
+        (44.00, 90.0, 50.0, "home", "1h"),  # same box, never left that half
+        (46.00, 90.0, 50.0, "home", "2h"),  # new half — counts again
+    ]
+    block = _build_end_to_end(pts, now_minute=46)
+    home = [p for p in block["home"] if p["minute"]]
+    away = [p for p in block["away"] if p["minute"]]
+    assert [(p["minute"], p["box"], p["cumulative"]) for p in home] == [
+        (10.0, "R", 1),
+        (12.0, "R", 2),
+        (12.4, "R", 3),
+        (46.0, "R", 4),
+    ]
+    assert [(p["minute"], p["box"], p["cumulative"]) for p in away] == [(12.2, "L", 1)]
+    assert block["home_total"] == 4
+    assert block["away_total"] == 1
+    assert "seconds" not in home[0]
+    assert block["to_minute"] == 46
+
+
+def test_box_touch_ignores_a_team_in_its_own_box():
+    from eeesoc.live import _build_end_to_end
+
+    pts = [
+        (5.0, 90.0, 50.0, "away", "1h"),  # away in their own box
+        (5.5, 88.0, 50.0, "home", "1h"),  # home in the away box — still counts
+        (9.0, 10.0, 50.0, "home", "1h"),  # home in their own box
+        (9.2, 12.0, 50.0, "away", "1h"),  # away in the home box
+        (9.4, 11.0, 50.0, "home", "1h"),  # home still in their own box
+    ]
+    block = _build_end_to_end(pts, now_minute=12)
+    home = [p for p in block["home"] if p["minute"]]
+    away = [p for p in block["away"] if p["minute"]]
+    assert [(p["minute"], p["box"]) for p in home] == [(5.5, "R")]
+    assert [(p["minute"], p["box"]) for p in away] == [(9.2, "L")]
+
+
+def test_box_touch_ignores_play_outside_the_box():
+    from eeesoc.live import _build_end_to_end
+
+    pts = [
+        (8.00, 25.0, 50.0, "home", "1h"),  # defensive third, not the box
+        (8.40, 90.0, 50.0, "home", "1h"),  # right box
+    ]
+    block = _build_end_to_end(pts, now_minute=12)
+    home = [p for p in block["home"] if p["minute"]]
+    assert block["home_total"] == 1
+    assert home[0]["box"] == "R"
+    assert home[0]["minute"] == 8.4
+
+
+def test_timeline_payload_includes_end_to_end_from_coordinates():
+    from eeesoc.live import build_event_timeline, clear_timeline_cache
+
+    clear_timeline_cache()
+    items = [
+        {
+            "type": {"type": "pass"},
+            "clock": {"displayValue": "10'", "value": 10 * 60},
+            "period": {"number": 1},
+            "team": {"$ref": ".../teams/1"},
+            "fieldPositionX": 10.0,
+            "fieldPositionY": 50.0,
+        },
+        {
+            "type": {"type": "pass"},
+            "clock": {"displayValue": "10'", "value": 10 * 60 + 9},
+            "period": {"number": 1},
+            "team": {"$ref": ".../teams/1"},
+            "fieldPositionX": 90.0,
+            "fieldPositionY": 50.0,
+        },
+        {
+            "type": {"type": "shot-on-target"},
+            "clock": {"displayValue": "20'", "value": 20 * 60},
+            "period": {"number": 1},
+            "team": {"$ref": ".../teams/2"},
+            "fieldPositionX": 12.0,
+            "fieldPositionY": 50.0,
+        },
+        {
+            "type": {"type": "pass"},
+            "clock": {"displayValue": "20'", "value": 20 * 60 + 18},
+            "period": {"number": 1},
+            "team": {"$ref": ".../teams/2"},
+            "fieldPositionX": 88.0,
+            "fieldPositionY": 50.0,
+        },
+    ]
+    tl = build_event_timeline(
+        "eng.1",
+        "e2e-1",
+        home="Arsenal",
+        away="Chelsea",
+        home_id="1",
+        away_id="2",
+        clock="21'",
+        fetcher=lambda url: {"pageCount": 1, "items": items},
+        use_cache=False,
+    )
+    block = tl["end_to_end"]
+    home = [p for p in block["home"] if p["minute"]]
+    away = [p for p in block["away"] if p["minute"]]
+    # Home's first touch is in their own box, so it is left off. The next
+    # home touch is in the away box. Away's touch in their own box is left
+    # off; the following away touch is in the home box.
+    assert [(p["minute"], p["box"]) for p in home] == [(10.15, "R")]
+    assert [(p["minute"], p["box"]) for p in away] == [(20.3, "L")]
+    assert block["home_total"] == 1
+    assert block["away_total"] == 1
 
 
 def test_timeline_payload_includes_pressure():

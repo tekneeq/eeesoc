@@ -20,7 +20,11 @@ a pressure graph of that same window at every minute, a possession graph as two 
 hands), an intensity graph under those ribbons (end-to-end swings plus how far the ball
 travels, scaled so the league's typical archived game sits in the middle of the plot —
 above is hotter, below is quieter — ESPN has no player GPS, so this
-is the ball's path, not miles run), a duel graph with three lines (home, away, and 50%) over
+is the ball's path, not miles run), a separate box-to-box graph with the home
+penalty box on the top line and the away penalty box on the bottom line, time
+across. A dot is the other team touching the ball in that box; a team in its own box is left off. A flat stretch means the ball is back at
+the same end; a slope is the trip to the other box, and how wide it is is how
+long that took. A duel graph with three lines (home, away, and 50%) over
 that same last-15′ window at every minute, and a territory heat of
 where the ball has actually been in those last 15′ — so a first-half siege that flipped after
 the break does not collapse to "even".
@@ -261,7 +265,7 @@ DISCORD_CHANNEL_ID=...         # required for the ready greeting, live alerts, a
 
 With `DISCORD_CHANNEL_ID` set, the bot also **posts on its own**:
 
-- **9:30 AM ET** every day — today's scheduled matches in MLS, Premier League, Championship, Carabao Cup, FA Cup, Ligue 1, La Liga, Bundesliga, Serie A, Champions League, Europa League, and Conference League (kickoff times in ET). If the bot starts later the same morning, it still posts once. `!soc today` reprints that slate.
+- **9:30 AM ET** every day — today's scheduled matches in MLS, Premier League, Championship, Carabao Cup, FA Cup, Ligue 1, La Liga, Bundesliga, Serie A, Champions League, Europa League, Conference League, and Nations League (kickoff times in ET). If the bot starts later the same morning, it still posts once. `!soc today` reprints that slate.
 - Kickoff (`pre` → `in`) and every goal, with the live score path (`0-0 → 1-0 → …`) and each club’s Similar “from here” branches (what usually happens next from that scoreline at that minute). Goal posts use ESPN **play-by-play** when that feed is ahead of the scoreboard (the scoreboard clock/score often lag a few minutes, especially outside the Premier League).
 
 The bot **also** responds to `!soc …` (or `!eee …`) messages:
