@@ -1218,13 +1218,17 @@
   function makeChicletDraggable(btn, wrap) {
     // Pointer drag — HTML5 DnD on <button> (and on SVG children) is unreliable:
     // Firefox never starts the drag, and Chromium often cancels it the moment
-    // insertBefore moves the drag source. Hold / move is what the Live tab wants.
+    // insertBefore moves the drag source. Reorder starts on the ⠿ grip only.
+    // A press-drag on the card itself scrolls. These chiclets are tall buttons,
+    // so treating the whole card as a drag surface was moving the card and the page.
     const MOVE_PX = 6;
-    const TOUCH_HOLD_MS = 160;
+    const TOUCH_HOLD_MS = 400;
     let pointerId = null;
     let originX = 0;
     let originY = 0;
+    let lastY = 0;
     let dragging = false;
+    let scrolling = false;
     let holdTimer = null;
     let pointerType = "mouse";
 
@@ -1242,7 +1246,7 @@
     };
 
     const startDrag = () => {
-      if (dragging || pointerId == null) return;
+      if (dragging || scrolling || pointerId == null) return;
       dragging = true;
       state.chicletDrag = true;
       btn.__suppressClick = true;
@@ -1270,44 +1274,64 @@
         if (commit) persistOrder();
       }
       dragging = false;
+      scrolling = false;
       pointerId = null;
+    };
+
+    const scrollPage = (dy) => {
+      if (!dy) return;
+      const scroller = document.scrollingElement || document.documentElement;
+      scroller.scrollBy(0, dy);
     };
 
     const onMove = (e) => {
       if (e.pointerId !== pointerId) return;
       const dx = e.clientX - originX;
       const dy = e.clientY - originY;
+      if (scrolling) {
+        scrollPage(e.clientY - lastY);
+        lastY = e.clientY;
+        return;
+      }
       if (!dragging) {
         if (Math.hypot(dx, dy) < MOVE_PX) return;
-        // Touch/pen: movement before the hold completes is a page scroll.
+        // Touch/pen: movement before the hold is a scroll. The grip blocks
+        // native panning, so the page has to move with the finger.
         if (pointerType !== "mouse") {
-          stopDrag(false);
+          clearHold();
+          scrolling = true;
+          btn.__suppressClick = true;
+          scrollPage(e.clientY - lastY);
+          lastY = e.clientY;
           return;
         }
         startDrag();
       }
       e.preventDefault();
       const edge = 56;
-      const scroller = document.scrollingElement || document.documentElement;
-      if (e.clientY < edge) scroller.scrollBy(0, -20);
-      else if (e.clientY > window.innerHeight - edge) scroller.scrollBy(0, 20);
+      if (e.clientY < edge) scrollPage(-20);
+      else if (e.clientY > window.innerHeight - edge) scrollPage(20);
       placeChicletAtY(wrap, btn, e.clientY);
     };
 
     const onUp = (e) => {
       if (pointerId != null && e.pointerId !== pointerId) return;
-      stopDrag(true);
+      stopDrag(dragging);
     };
 
     btn.addEventListener("pointerdown", (e) => {
       if (e.isPrimary === false) return;
       if (e.pointerType === "mouse" && e.button !== 0) return;
       if (e.target.closest(".mc-collapse")) return;
+      // Anywhere but the grip stays a scroll, including a press-drag on the charts.
+      if (!e.target.closest(".mc-grip")) return;
       pointerType = e.pointerType || "mouse";
       pointerId = e.pointerId;
       originX = e.clientX;
       originY = e.clientY;
+      lastY = e.clientY;
       dragging = false;
+      scrolling = false;
       btn.addEventListener("pointermove", onMove, { passive: false });
       window.addEventListener("pointerup", onUp);
       window.addEventListener("pointercancel", onUp);

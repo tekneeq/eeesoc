@@ -2175,12 +2175,22 @@ def test_half_goals_row_tags_each_side_with_its_own_ht_score():
 
 
 def test_live_chiclets_use_pointer_drag():
-    """Live reorder must not rely on HTML5 DnD on <button> (broken in Firefox / SVG)."""
+    """Live reorder must not rely on HTML5 DnD on <button> (broken in Firefox / SVG).
+
+    A press-drag on the card scrolls. Reorder starts from the grip only.
+    """
     js = Path("src/eeesoc/static/app.js").read_text(encoding="utf-8")
+    css = Path("src/eeesoc/static/app.css").read_text(encoding="utf-8")
     assert "function placeChicletAtY" in js
     assert 'addEventListener("pointerdown"' in js
+    assert 'e.target.closest(".mc-grip")' in js
     assert "btn.draggable = true" not in js
     assert "makeChicletDropZone" not in js
+    card = css.split(".match-chiclet-tl {", 1)[1].split("}", 1)[0]
+    grip = css.split(".mc-grip {", 1)[1].split("}", 1)[0]
+    assert "touch-action: pan-y" in card
+    assert "cursor: grab" not in card
+    assert "touch-action: none" in grip
 
 
 def test_live_league_chips_toggle_instead_of_replacing():

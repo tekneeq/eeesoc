@@ -778,15 +778,11 @@ main {
   min-width: min(100%, 22rem);
   max-width: 56rem;
   width: 100%;
-  cursor: grab;
+  cursor: default;
+  touch-action: pan-y;
   user-select: none;
   -webkit-user-select: none;
   -webkit-user-drag: none;
-}
-
-.match-chiclet-tl:active,
-.match-chiclet.dragging {
-  cursor: grabbing;
 }
 
 .match-chiclet-tl svg,
@@ -796,6 +792,7 @@ main {
 }
 
 .match-chiclet.dragging {
+  cursor: grabbing;
   opacity: 0.45;
   border-style: dashed;
   border-color: rgba(125, 255, 179, 0.6);
@@ -814,9 +811,17 @@ main {
   font-size: 0.85rem;
   line-height: 1;
   letter-spacing: -0.08em;
+  display: inline-flex;
+  align-items: center;
+  padding: 0.2rem 0.35rem;
+  margin: -0.2rem 0;
   user-select: none;
   cursor: grab;
   touch-action: none;
+}
+
+.mc-grip:active {
+  cursor: grabbing;
 }
 
 .match-chiclet-tl:hover .mc-grip {
