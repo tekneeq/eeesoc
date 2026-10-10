@@ -1246,6 +1246,8 @@ def test_chiclet_shows_possession_and_duel_graphs():
     assert "Y is how many so far" not in js
     assert "endToEndHtml(cached, m)" in js
     assert "touches in the box per goal" in js
+    assert "function boxTouchesNow" in js
+    assert 'mc-box-win">now' in js and 'mc-box-win">1H' in js and 'mc-box-win">2H' in js
     assert "box_per_goal" in js and "recent_box_per_goal" in js
     assert ".mc-box-rate" in css
     assert "touches in the box per goal" in html
