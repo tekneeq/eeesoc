@@ -593,11 +593,33 @@ def test_box_touches_per_goal_uses_season_and_last_five():
     assert blunt["box_per_goal"] == 4.0
     assert blunt["recent_box_per_goal"] == 4.0
 
+    # To allow: the opponent's passes into this club's box per goal it conceded.
+    assert sharp["box_touches_against"] == 12 and sharp["box_goals_against"] == 3
+    assert sharp["box_per_goal_against"] == 4.0
+    assert sharp["recent_box_per_goal_against"] == 4.0
+    assert sharp["recent"][0]["box_touches_against"] == 1
+    assert blunt["box_touches_against"] == 110 and blunt["box_goals_against"] == 3
+    assert blunt["box_per_goal_against"] == 36.7
+    assert blunt["recent_box_touches_against"] == 10 and blunt["recent_box_goals_against"] == 2
+    assert blunt["recent_box_per_goal_against"] == 5.0
+
+    # Ranks: fewer touches to score is #1; more touches allowed per goal is #1.
+    assert blunt["box_per_goal_rank"] == 1 and sharp["box_per_goal_rank"] == 2
+    assert blunt["recent_box_per_goal_rank"] == 1 and sharp["recent_box_per_goal_rank"] == 2
+    assert blunt["box_per_goal_against_rank"] == 1 and sharp["box_per_goal_against_rank"] == 2
+    assert blunt["recent_box_per_goal_against_rank"] == 1 and sharp["recent_box_per_goal_against_rank"] == 2
+    league = build_clinical_board(records)["leagues"]["eng.1"]
+    assert league["par_box_per_goal"] == 20.3  # 122 touches / 6 goals
+    assert league["box_rank_n"]["box_per_goal"] == 2
+    assert league["box_rank_n"]["box_per_goal_against"] == 2
+
     quiet = game("q", "2026-07-01T12:00:00Z", 0, 0, 9, 0)
     only = build_clinical_board([quiet])["leagues"]["eng.1"]["teams"]
     sharp_q = next(t for t in only if t["team"] == "Sharp FC")
     assert sharp_q["box_touches"] == 9 and sharp_q["box_goals"] == 0
     assert sharp_q["box_per_goal"] is None and sharp_q["recent_box_per_goal"] is None
+    assert sharp_q["box_per_goal_against"] is None
+    assert sharp_q["box_per_goal_rank"] is None and sharp_q["box_per_goal_against_rank"] is None
 
 
 def test_lookup_by_id_then_name_and_cache_tracks_archive():

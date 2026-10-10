@@ -2025,41 +2025,89 @@
     return { total: h1 + h2, h1, h2 };
   }
 
-  function boxRateTitle(row, name, now) {
-    const game = now
-      ? `This game: ${now.total} dots on the graph (${now.h1} in the 1st half, ${now.h2} in the 2nd).`
+  // The four cells of the box table: season / last 5 × to score / to allow.
+  const BOX_CELLS = [
+    { key: "box_per_goal", kind: "for", window: "season", touches: "box_touches", goals: "box_goals", games: "box_games" },
+    { key: "recent_box_per_goal", kind: "for", window: "last 5", touches: "recent_box_touches", goals: "recent_box_goals", games: "recent_box_games" },
+    { key: "box_per_goal_against", kind: "against", window: "season", touches: "box_touches_against", goals: "box_goals_against", games: "box_games_against" },
+    { key: "recent_box_per_goal_against", kind: "against", window: "last 5", touches: "recent_box_touches_against", goals: "recent_box_goals_against", games: "recent_box_games_against" },
+  ];
+
+  // To score: fewer touches per goal than the league is good. To allow: more is good.
+  function boxRateTone(value, par, kind) {
+    if (value == null || !par) return "";
+    const edge = (Number(value) - Number(par)) / Number(par);
+    if (!Number.isFinite(edge) || Math.abs(edge) < 0.1) return "";
+    const good = kind === "for" ? edge < 0 : edge > 0;
+    return good ? " up" : " down";
+  }
+
+  function boxRateGameText(now) {
+    return now
+      ? `This game: ${now.total} touches in the other box so far (${now.h1} in the 1st half, ${now.h2} in the 2nd) — the dots on the graph.`
       : "This game: the box graph is not in yet.";
-    if (!row) return `${name}: ${game} No finished games archived yet for box touches per goal.`;
-    const line = (label, touches, goals, games, rate, ofGames) => {
-      if (!games) return `${label}: no box touches archived`;
-      if (rate == null) return `${label}: ${touches} box touches and 0 goals over ${games} game${games === 1 ? "" : "s"}`;
-      const span = ofGames && games < ofGames ? `${games} of ${ofGames}` : String(games);
-      return `${label}: ${boxRateText(rate)} (${touches} box touches ÷ ${goals} goal${goals === 1 ? "" : "s"}, ${span} game${span === "1" ? "" : "s"})`;
-    };
-    const season = line("season", row.box_touches, row.box_goals, row.box_games, row.box_per_goal);
-    const lastN = (row.recent || []).length;
-    const last = line("last 5", row.recent_box_touches, row.recent_box_goals, row.recent_box_games, row.recent_box_per_goal, lastN);
-    return `${row.team || name}: ${game} Touches in the box per goal — completed passes into the opponent’s penalty area, divided by goals scored. ${season}. ${last}.`;
+  }
+
+  function boxRateCellHtml(row, spec, league) {
+    const par = league?.par_box_per_goal;
+    const what = spec.kind === "for" ? "to score" : "to allow";
+    if (!row) {
+      return `<span class="mc-box-cell none" title="${escapeHtml(`${spec.window} ${what}: no finished games archived yet`)}"><b>–</b><small>no games</small></span>`;
+    }
+    const games = Number(row[spec.games]) || 0;
+    const touches = Number(row[spec.touches]) || 0;
+    const goals = Number(row[spec.goals]) || 0;
+    if (!games) {
+      return `<span class="mc-box-cell none" title="${escapeHtml(`${spec.window} ${what}: no box touches archived`)}"><b>–</b><small>no games</small></span>`;
+    }
+    const value = row[spec.key];
+    const rank = row[`${spec.key}_rank`];
+    const rankN = league?.box_rank_n?.[spec.key] || league?.teams_ranked || 0;
+    const leagueName = league?.label || row.league_chiclet || "the league";
+    const goalWord = goals === 1 ? "goal" : "goals";
+    const who = spec.kind === "for" ? "passes into the other box" : "opponent passes into this box";
+    const ratio =
+      value == null
+        ? `${touches} ${who} and 0 ${spec.kind === "for" ? "goals scored" : "goals allowed"}`
+        : `${boxRateText(value)} — ${touches} ${who} ÷ ${goals} ${goalWord} ${spec.kind === "for" ? "scored" : "allowed"}`;
+    const rankText = rank ? `#${rank} of ${rankN} in ${leagueName}` : "unranked";
+    const parText = par != null ? `league ${boxRateText(par)}` : "";
+    const tip = `${spec.window} ${what}: ${ratio} over ${games} game${games === 1 ? "" : "s"} · ${rankText}${parText ? ` · ${parText}` : ""}`;
+    const main = value == null ? "∞" : boxRateText(value);
+    const rankHtml = rank ? `<i class="mc-box-rank">#${rank}</i>` : `<i class="mc-box-rank mc-box-rank-none">–</i>`;
+    return `<span class="mc-box-cell${boxRateTone(value, par, spec.kind)}" title="${escapeHtml(tip)}"><b>${main}</b><small>${touches}–${goals}</small>${rankHtml}</span>`;
   }
 
   function boxRateSideHtml(m, side, tl) {
     const name = side === "home" ? m.home : m.away;
     const row = clinicalFor(m.league_slug, side === "home" ? m.home_id : m.away_id, name);
+    const league = row?._league || state.clinical?.leagues?.[m.league_slug] || null;
     const now = boxTouchesNow(tl, side);
-    const title = escapeHtml(boxRateTitle(row, name, now));
-    const season = boxRateText(row?.box_per_goal);
-    const last = boxRateText(row?.recent_box_per_goal);
     const game = now
       ? `<b>${now.total}</b><span class="mc-box-win">now</span><b>${now.h1}</b><span class="mc-box-win">1H</span><b>${now.h2}</b><span class="mc-box-win">2H</span>`
       : `<b>—</b><span class="mc-box-win">now</span><b>—</b><span class="mc-box-win">1H</span><b>—</b><span class="mc-box-win">2H</span>`;
-    return `<span class="mc-box-rate-side ${side}" title="${title}"><span class="mc-box-rate-name">${escapeHtml(shortName(name))}</span>${game}<b>${season}</b><span class="mc-box-win">season</span><b>${last}</b><span class="mc-box-win">last 5</span></span>`;
+    const nameCell = `<span class="mc-box-rate-side ${side}" title="${escapeHtml(`${row?.team || name}: ${boxRateGameText(now)}`)}"><span class="mc-box-rate-name">${escapeHtml(shortName(name))}</span><span class="mc-box-game">${game}</span></span>`;
+    return nameCell + BOX_CELLS.map((spec) => boxRateCellHtml(row, spec, league)).join("");
   }
 
   function boxRateRowInner(m, tl) {
     const timeline = tl || state.timelines?.[m?.event_id];
+    const league = state.clinical?.leagues?.[m?.league_slug];
     const help =
-      "Now, 1H and 2H count the dots on this graph: each time that team touches the ball in the other box. Season and last 5 are touches in the box per goal — completed passes into the opponent’s penalty area, divided by goals scored. A window with no goals shows —.";
-    return `<span class="mc-box-rate-label" title="${escapeHtml(help)}">touches in the box</span>${boxRateSideHtml(m, "home", timeline)}${boxRateSideHtml(m, "away", timeline)}`;
+      "Touches in the box per goal — completed passes into a penalty area, divided by goals. To score is this club’s passes into the other box per goal it scored (fewer is better). To allow is the opponents’ passes into this club’s box per goal it conceded (more is better). Season uses every archived game with box data; last 5 is the club’s last five results. #n is the rank in the league for that column. Green is 10%+ better than the league, amber 10%+ worse. A window with no goals shows ∞. Under each name, now / 1H / 2H count this game’s dots on the graph.";
+    const par = league?.par_box_per_goal;
+    const key = `${par != null ? `League ${boxRateText(par)} · ` : ""}<small>touches–goals · #rank</small>`;
+    return `<span class="mc-box-head"><span class="mc-box-rate-label" title="${escapeHtml(help)}">touches in the box per goal</span><span class="mc-box-key">${key}</span></span>
+      <span class="mc-box-grid">
+        <span></span>
+        <span class="mc-box-group" title="Passes into the other box this club needs to score once — fewer is better">To score</span>
+        <span class="mc-box-group" title="Passes into this club’s box opponents need to score once — more is better">To allow</span>
+        <span></span>
+        <span class="mc-box-h">Season</span><span class="mc-box-h">Last 5</span>
+        <span class="mc-box-h">Season</span><span class="mc-box-h">Last 5</span>
+        ${boxRateSideHtml(m, "home", timeline)}
+        ${boxRateSideHtml(m, "away", timeline)}
+      </span>`;
   }
 
   function boxRateRowHtml(m, tl) {
