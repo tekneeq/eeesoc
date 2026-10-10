@@ -2027,6 +2027,7 @@ def _cumulative_box_series(arrivals: list[dict[str, Any]]) -> list[dict[str, Any
                 "cumulative": i,
                 "box": a.get("box"),
                 "clock": a.get("clock"),
+                "half": a.get("half"),
             }
         )
     return series
@@ -2088,6 +2089,7 @@ def _build_end_to_end(
                     "minute": round(float(t), 2),
                     "box": box,
                     "clock": _clock_from_minute(t),
+                    "half": half,
                 }
             )
             open_box[box] = False
