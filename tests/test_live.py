@@ -826,6 +826,12 @@ def test_live_pitch_panel_sits_above_the_chiclet_grid():
     assert 0 <= pitch < grid
     assert "scrollIntoView" in js
     assert "at the top" in html
+    panel = html[pitch:grid]
+    assert panel.index('id="pitchClose"') < panel.index('id="pitchSvg"')
+    assert panel.index('id="pitchFeed"') < panel.index('id="pitchCloseBottom"')
+    assert "function closePitchPanel" in js
+    assert "data-pc-close" in js
+    assert ".pitch-close-row" in Path("src/eeesoc/static/app.css").read_text(encoding="utf-8")
 
 
 def test_chiclet_stats_keep_full_row_and_add_halves():

@@ -78,7 +78,8 @@
               Switch to <b>Finished</b> for the same
               chiclet on today’s and yesterday’s full-time games, or <b>Upcoming</b> for today’s
               kickoffs that have not started yet. Tap a chiclet and the pitch graphic opens
-              <b>at the top</b> — last 15′ of the ball, fading older touches, home attacking right —
+              <b>at the top</b> — <b>✕ close</b> is at the top and the bottom of that panel —
+              last 15′ of the ball, fading older touches, home attacking right —
               plus each team's <b>formation and XI</b> — every player's match <b>power</b> number, a freshness
               bar by minutes played, and ⇄ sub markers with the minute and who came off.
               <b>Click a player</b> for his card: every logged touch, pass and shot with the minute,
@@ -116,7 +117,10 @@
         <div class="pitch-panel" id="pitchPanel" hidden>
           <div class="pitch-toolbar">
             <div class="pitch-title" id="pitchTitle">—</div>
-            <div class="pitch-stats" id="pitchStats"></div>
+            <div class="pitch-toolbar-side">
+              <div class="pitch-stats" id="pitchStats"></div>
+              <button type="button" class="chiclet-tool" id="pitchClose" title="Close this match">✕ close</button>
+            </div>
           </div>
           <div class="pitch-wrap">
             <svg id="pitchSvg" class="pitch-svg" viewBox="0 0 1050 680" role="img" aria-label="Live pitch"></svg>
@@ -124,6 +128,9 @@
           <div class="pitch-lineups" id="pitchLineups"></div>
           <div class="player-card" id="playerCard" hidden></div>
           <div class="pitch-feed" id="pitchFeed"></div>
+          <div class="pitch-close-row">
+            <button type="button" class="chiclet-tool" id="pitchCloseBottom" title="Close this match">✕ close</button>
+          </div>
         </div>
         <div class="chiclet-row" id="leagueChiclets" role="toolbar" aria-label="League filters — click more than one"></div>
         <div class="tl-legend" aria-hidden="true">

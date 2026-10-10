@@ -3406,6 +3406,23 @@
     );
   }
 
+  function hidePitchPanel() {
+    closePlayerCard();
+    state.playerEvents = null;
+    const panel = $("#pitchPanel");
+    if (panel) panel.hidden = true;
+    if (state.trackTimer) clearInterval(state.trackTimer);
+    if (state.lineupTimer) clearInterval(state.lineupTimer);
+    state.trackTimer = null;
+    state.lineupTimer = null;
+  }
+
+  function closePitchPanel() {
+    state.selectedLive = null;
+    hidePitchPanel();
+    renderLiveTabChiclets({ soft: true, refreshTimelines: false });
+  }
+
   async function selectLiveMatch(m) {
     if (!state.selectedLive || String(state.selectedLive.event_id) !== String(m.event_id)) {
       closePlayerCard();
@@ -4072,6 +4089,12 @@
     }
   }
 
+  function bindPlayerCardClose(mount) {
+    mount?.querySelectorAll("[data-pc-close]").forEach((btn) => {
+      btn.addEventListener("click", closePlayerCard);
+    });
+  }
+
   function playerClipWindows(events, clip) {
     const before = Number(clip?.before_s) || 6;
     const after = Number(clip?.after_s) || 7;
@@ -4246,10 +4269,11 @@ echo "done → $OUT/${safe}_reel.mp4 ($N clips)"
       mount.innerHTML = `
         <div class="pc-head">
           <b>${escapeHtml(sel.full || sel.name)}</b>
-          <button type="button" class="chiclet-tool" id="pcClose">✕ close</button>
+          <button type="button" class="chiclet-tool" data-pc-close>✕ close</button>
         </div>
-        <p class="lede">No logged plays for ${escapeHtml(sel.name)} yet — ESPN files player names on passes, shots and duels as the feed catches up. Check back in a minute.</p>`;
-      $("#pcClose")?.addEventListener("click", closePlayerCard);
+        <p class="lede">No logged plays for ${escapeHtml(sel.name)} yet — ESPN files player names on passes, shots and duels as the feed catches up. Check back in a minute.</p>
+        <div class="pc-foot"><button type="button" class="chiclet-tool" data-pc-close>✕ close</button></div>`;
+      bindPlayerCardClose(mount);
       return;
     }
     const events = [...player.events].reverse();
@@ -4271,7 +4295,7 @@ echo "done → $OUT/${safe}_reel.mp4 ($N clips)"
         <span class="pc-tools">
           <button type="button" class="chiclet-tool" id="pcCutList" title="Download the clip list (match-clock times) as text">⬇ cut list</button>
           <button type="button" class="chiclet-tool" id="pcScript" title="Download a bash script that cuts these clips out of your own recording with ffmpeg">⬇ ffmpeg script</button>
-          <button type="button" class="chiclet-tool" id="pcClose">✕ close</button>
+          <button type="button" class="chiclet-tool" data-pc-close>✕ close</button>
         </span>
       </div>
       <div class="pc-chips">${playerCardCountsHtml(player.counts)}</div>
@@ -4280,8 +4304,9 @@ echo "done → $OUT/${safe}_reel.mp4 ($N clips)"
         <ol class="pc-events" aria-label="Newest plays first">${rows || `<li class="pc-ev"><span class="pc-ev-word">nothing logged yet</span></li>`}</ol>
       </div>
       <p class="pc-note">${windows.length} highlight clip${windows.length === 1 ? "" : "s"} (each ±${data.clip?.before_s ?? 6}–${data.clip?.after_s ?? 7}s around a logged play, overlaps merged). The cut list gives match-clock times; the script cuts your own screen recording once you tell it when each half kicked off in that file. Plays and names come from ESPN's play-by-play — logged plays, not broadcast-grade touch data.</p>
-      ${keeperNote}`;
-    $("#pcClose")?.addEventListener("click", closePlayerCard);
+      ${keeperNote}
+      <div class="pc-foot"><button type="button" class="chiclet-tool" data-pc-close>✕ close</button></div>`;
+    bindPlayerCardClose(mount);
     $("#pcCutList")?.addEventListener("click", () => {
       downloadText(`${playerNameKey(player.name).replace(/ /g, "_")}_cutlist.txt`, playerCutListText(m, player, windows));
     });
@@ -5543,12 +5568,7 @@ echo "done → $OUT/${safe}_reel.mp4 ($N clips)"
       }
 
       const all = flatLiveMatches(null, "all");
-      syncSelectedLive(all, "selectedLive", () => {
-        $("#pitchPanel").hidden = true;
-        closePlayerCard();
-        if (state.trackTimer) clearInterval(state.trackTimer);
-        if (state.lineupTimer) clearInterval(state.lineupTimer);
-      });
+      syncSelectedLive(all, "selectedLive", hidePitchPanel);
       syncSelectedLive(all, "selectedSimilarLive", () => {
         if (state.similarTimer) clearInterval(state.similarTimer);
       });
@@ -5575,6 +5595,8 @@ echo "done → $OUT/${safe}_reel.mp4 ($N clips)"
     state.chicletOrder = loadChicletOrder();
     state.collapsed = loadCollapsed();
     state.liveScope = loadLiveScope();
+    $("#pitchClose")?.addEventListener("click", closePitchPanel);
+    $("#pitchCloseBottom")?.addEventListener("click", closePitchPanel);
     const meta = await (await fetch("/api/meta")).json();
     state.meta = meta;
     $("#seasonLabel").textContent = `${meta.season} · ${meta.match_count} matches · ${meta.history_count} history`;
