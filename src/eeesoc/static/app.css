@@ -1946,6 +1946,22 @@ main {
   margin-bottom: 0.75rem;
 }
 
+.pitch-toolbar-side {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-left: auto;
+}
+
+.pitch-close-row,
+.pc-foot {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 0.85rem;
+}
+
 .pitch-title {
   font-weight: 700;
   font-size: 1.05rem;
