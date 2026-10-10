@@ -2004,21 +2004,31 @@
   }
 
   function boxTouchesNow(tl, side) {
-    const box = tl?.box_entries;
-    if (!box || typeof box !== "object") return null;
-    const count = (half) => {
-      const minutes = box[half]?.[side];
-      return Array.isArray(minutes) ? minutes.length : 0;
+    // Same events as the dots: a touch in the other team's box, once, until the
+    // ball has been on the other half. Passes into the box (the season rate)
+    // are a different count.
+    const block = tl?.end_to_end;
+    if (!block || (block.home == null && block.away == null)) return null;
+    const { now } = chartAxis(tl);
+    const halfOf = (p) => {
+      if (p.half === "2h" || p.half === "2") return "2";
+      if (p.half === "1h" || p.half === "1") return "1";
+      return Number(p.minute) > 45 ? "2" : "1";
     };
-    const h1 = count("1");
-    const h2 = count("2");
+    let h1 = 0;
+    let h2 = 0;
+    for (const p of endToEndEvents(block)) {
+      if (p.team !== side || p.minute > now + 0.02) continue;
+      if (halfOf(p) === "2") h2 += 1;
+      else h1 += 1;
+    }
     return { total: h1 + h2, h1, h2 };
   }
 
   function boxRateTitle(row, name, now) {
     const game = now
-      ? `This game: ${now.total} box touches (${now.h1} in the 1st half, ${now.h2} in the 2nd).`
-      : "This game: box touches not in yet.";
+      ? `This game: ${now.total} dots on the graph (${now.h1} in the 1st half, ${now.h2} in the 2nd).`
+      : "This game: the box graph is not in yet.";
     if (!row) return `${name}: ${game} No finished games archived yet for box touches per goal.`;
     const line = (label, touches, goals, games, rate, ofGames) => {
       if (!games) return `${label}: no box touches archived`;
@@ -2048,7 +2058,7 @@
   function boxRateRowInner(m, tl) {
     const timeline = tl || state.timelines?.[m?.event_id];
     const help =
-      "This game is completed passes into the opponent’s penalty area: the total so far, then the 1st half and the 2nd half. Season and last 5 are touches in the box per goal — those passes divided by goals scored. A window with no goals shows —.";
+      "Now, 1H and 2H count the dots on this graph: each time that team touches the ball in the other box. Season and last 5 are touches in the box per goal — completed passes into the opponent’s penalty area, divided by goals scored. A window with no goals shows —.";
     return `<span class="mc-box-rate-label" title="${escapeHtml(help)}">touches in the box</span>${boxRateSideHtml(m, "home", timeline)}${boxRateSideHtml(m, "away", timeline)}`;
   }
 
