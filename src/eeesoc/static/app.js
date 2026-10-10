@@ -2003,8 +2003,23 @@
     return Number.isFinite(n) ? n.toFixed(1) : "—";
   }
 
-  function boxRateTitle(row, name) {
-    if (!row) return `${name}: no finished games archived yet for box touches per goal`;
+  function boxTouchesNow(tl, side) {
+    const box = tl?.box_entries;
+    if (!box || typeof box !== "object") return null;
+    const count = (half) => {
+      const minutes = box[half]?.[side];
+      return Array.isArray(minutes) ? minutes.length : 0;
+    };
+    const h1 = count("1");
+    const h2 = count("2");
+    return { total: h1 + h2, h1, h2 };
+  }
+
+  function boxRateTitle(row, name, now) {
+    const game = now
+      ? `This game: ${now.total} box touches (${now.h1} in the 1st half, ${now.h2} in the 2nd).`
+      : "This game: box touches not in yet.";
+    if (!row) return `${name}: ${game} No finished games archived yet for box touches per goal.`;
     const line = (label, touches, goals, games, rate, ofGames) => {
       if (!games) return `${label}: no box touches archived`;
       if (rate == null) return `${label}: ${touches} box touches and 0 goals over ${games} game${games === 1 ? "" : "s"}`;
@@ -2014,27 +2029,32 @@
     const season = line("season", row.box_touches, row.box_goals, row.box_games, row.box_per_goal);
     const lastN = (row.recent || []).length;
     const last = line("last 5", row.recent_box_touches, row.recent_box_goals, row.recent_box_games, row.recent_box_per_goal, lastN);
-    return `${row.team}: touches in the box per goal — completed passes into the opponent’s penalty area, divided by goals scored. ${season}. ${last}.`;
+    return `${row.team || name}: ${game} Touches in the box per goal — completed passes into the opponent’s penalty area, divided by goals scored. ${season}. ${last}.`;
   }
 
-  function boxRateSideHtml(m, side) {
+  function boxRateSideHtml(m, side, tl) {
     const name = side === "home" ? m.home : m.away;
     const row = clinicalFor(m.league_slug, side === "home" ? m.home_id : m.away_id, name);
-    const title = escapeHtml(boxRateTitle(row, name));
+    const now = boxTouchesNow(tl, side);
+    const title = escapeHtml(boxRateTitle(row, name, now));
     const season = boxRateText(row?.box_per_goal);
     const last = boxRateText(row?.recent_box_per_goal);
-    return `<span class="mc-box-rate-side ${side}" title="${title}"><span class="mc-box-rate-name">${escapeHtml(shortName(name))}</span><b>${season}</b><span class="mc-box-win">season</span><b>${last}</b><span class="mc-box-win">last 5</span></span>`;
+    const game = now
+      ? `<b>${now.total}</b><span class="mc-box-win">now</span><b>${now.h1}</b><span class="mc-box-win">1H</span><b>${now.h2}</b><span class="mc-box-win">2H</span>`
+      : `<b>—</b><span class="mc-box-win">now</span><b>—</b><span class="mc-box-win">1H</span><b>—</b><span class="mc-box-win">2H</span>`;
+    return `<span class="mc-box-rate-side ${side}" title="${title}"><span class="mc-box-rate-name">${escapeHtml(shortName(name))}</span>${game}<b>${season}</b><span class="mc-box-win">season</span><b>${last}</b><span class="mc-box-win">last 5</span></span>`;
   }
 
-  function boxRateRowInner(m) {
+  function boxRateRowInner(m, tl) {
+    const timeline = tl || state.timelines?.[m?.event_id];
     const help =
-      "Touches in the box per goal: completed passes into the opponent’s penalty area, divided by goals scored. Season uses every archived game with box data; last 5 uses that club’s last five results. A window with no goals shows —.";
-    return `<span class="mc-box-rate-label" title="${escapeHtml(help)}">touches in the box per goal</span>${boxRateSideHtml(m, "home")}${boxRateSideHtml(m, "away")}`;
+      "This game is completed passes into the opponent’s penalty area: the total so far, then the 1st half and the 2nd half. Season and last 5 are touches in the box per goal — those passes divided by goals scored. A window with no goals shows —.";
+    return `<span class="mc-box-rate-label" title="${escapeHtml(help)}">touches in the box</span>${boxRateSideHtml(m, "home", timeline)}${boxRateSideHtml(m, "away", timeline)}`;
   }
 
-  function boxRateRowHtml(m) {
+  function boxRateRowHtml(m, tl) {
     if (!m) return "";
-    return `<span class="mc-box-rate" data-box-rate-for="${escapeHtml(m.event_id || "")}">${boxRateRowInner(m)}</span>`;
+    return `<span class="mc-box-rate" data-box-rate-for="${escapeHtml(m.event_id || "")}">${boxRateRowInner(m, tl)}</span>`;
   }
 
   function paintBoxRates() {
@@ -2042,7 +2062,7 @@
       const card = el.closest(".match-chiclet");
       const m = card?.__match;
       if (!m) return;
-      const html = boxRateRowInner(m);
+      const html = boxRateRowInner(m, state.timelines?.[m.event_id]);
       if (el.__html === html) return;
       el.__html = html;
       el.innerHTML = html;
@@ -2567,7 +2587,7 @@
     };
     return `<span class="mc-e2e-block">
       <span class="mc-pressure-head">Box to box · top is the home penalty box, bottom is the away box · only the other team’s touch in that box · a team in its own box is left off · across is time · a flat line is the same end, a slope is the other box and how wide it is is how long it took</span>
-      ${boxRateRowHtml(match)}
+      ${boxRateRowHtml(match, tl)}
       ${endToEndSvg(tl)}
     </span>`;
   }
@@ -3204,6 +3224,12 @@
           tl.end_to_end?.away?.at(-1)?.minute,
           tl.end_to_end?.home?.at(-1)?.box,
           tl.end_to_end?.away?.at(-1)?.box,
+        ],
+        box: [
+          tl.box_entries?.["1"]?.home?.length,
+          tl.box_entries?.["1"]?.away?.length,
+          tl.box_entries?.["2"]?.home?.length,
+          tl.box_entries?.["2"]?.away?.length,
         ],
         fouls: [tl.counts?.home_foul, tl.counts?.away_foul],
         halves: [
