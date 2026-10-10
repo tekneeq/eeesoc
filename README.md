@@ -27,10 +27,15 @@ is the ball's path, not miles run), a separate box-to-box graph with the home
 penalty box on the top line and the away penalty box on the bottom line, time
 across. A dot is the other team touching the ball in that box; a team in its own box is left off. A flat stretch means the ball is back at
 the same end; a slope is the trip to the other box, and how wide it is is how
-long that took. Under that heading each club shows **touches in the box** this game (the dots
-on the graph: the total so far, then the 1st half and the 2nd half) and **touches in the box per goal**
-(passes into the opponent's penalty area divided by goals scored) for the season and
-for the last five results; a window with no goals shows —. A duel graph with three lines (home, away, and 50%) over
+long that took. Under that heading sits a **touches in the box per goal** table in the eeehoc
+shots-per-goal style: **to score** is the club's passes into the opponent's penalty area divided by
+the goals it scored (fewer is better), **to allow** is opponents' passes into the club's own box
+divided by the goals it conceded (more is better), each for the season and the last five results.
+Every cell carries the touches–goals behind it and the club's **#rank in the league** for that
+column (`box_per_goal_rank`, `box_per_goal_against_rank` and the `recent_` pair from `/api/clinical`,
+plus the league's `par_box_per_goal`); a cell is green when it beats the league par by 10% or more
+and amber when it trails it, and a window with no goals shows ∞. Under each club's name, **now / 1H /
+2H** count this game's dots on the graph. A duel graph with three lines (home, away, and 50%) over
 that same last-15′ window at every minute, and a territory heat of
 where the ball has actually been in those last 15′ — so a first-half siege that flipped after
 the break does not collapse to "even".

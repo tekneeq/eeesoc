@@ -242,6 +242,7 @@ def _team_totals(records: list[dict[str, Any]]) -> dict[str, dict[str, dict[str,
                     "points": pts,
                     "letter": "W" if pts == 3 else ("D" if pts == 1 else "L"),
                     "box_touches": box_touches_for(rec, side),
+                    "box_touches_against": box_touches_for(rec, other),
                     **game,
                 }
             )
@@ -392,6 +393,13 @@ def _league_table(slug: str, teams: dict[str, dict[str, Any]], label: str) -> di
         recent_measured = [g for g in recent if g.get("box_touches") is not None]
         recent_box_touches = sum(int(g["box_touches"]) for g in recent_measured)
         recent_box_goals = sum(int(g["gf"]) for g in recent_measured)
+        # The other side of the same games: opponent passes into this club's box per goal allowed.
+        measured_against = [g for g in r["results"] if g.get("box_touches_against") is not None]
+        box_touches_against = sum(int(g["box_touches_against"]) for g in measured_against)
+        box_goals_against = sum(int(g["ga"]) for g in measured_against)
+        recent_measured_against = [g for g in recent if g.get("box_touches_against") is not None]
+        recent_box_touches_against = sum(int(g["box_touches_against"]) for g in recent_measured_against)
+        recent_box_goals_against = sum(int(g["ga"]) for g in recent_measured_against)
         row = {
             **{k: v for k, v in r.items() if k != "results"},
             # Only what the chiclet tooltip needs; the full log would triple the payload.
@@ -409,6 +417,7 @@ def _league_table(slug: str, teams: dict[str, dict[str, Any]], label: str) -> di
                     "h2_ga": (max(0, int(g["ga"]) - int(g["ht_ga"])) if g.get("ht_ga") is not None else None),
                     "letter": g["letter"],
                     "box_touches": g.get("box_touches"),
+                    "box_touches_against": g.get("box_touches_against"),
                 }
                 for g in recent
             ],
@@ -427,6 +436,18 @@ def _league_table(slug: str, teams: dict[str, dict[str, Any]], label: str) -> di
             "recent_box_goals": recent_box_goals,
             "recent_box_games": len(recent_measured),
             "recent_box_per_goal": _per_goal(recent_box_touches, recent_box_goals),
+            "box_touches_against": box_touches_against,
+            "box_goals_against": box_goals_against,
+            "box_games_against": len(measured_against),
+            "box_per_goal_against": _per_goal(box_touches_against, box_goals_against),
+            "recent_box_touches_against": recent_box_touches_against,
+            "recent_box_goals_against": recent_box_goals_against,
+            "recent_box_games_against": len(recent_measured_against),
+            "recent_box_per_goal_against": _per_goal(recent_box_touches_against, recent_box_goals_against),
+            "box_per_goal_rank": None,
+            "box_per_goal_against_rank": None,
+            "recent_box_per_goal_rank": None,
+            "recent_box_per_goal_against_rank": None,
             "points_per_game": round(r["points"] / r["games"], 2) if r["games"] else 0.0,
             "scored_per_game": round(r["scored"] / r["games"], 2) if r["games"] else 0.0,
             "momentum": int(round(momentum)),
@@ -487,6 +508,24 @@ def _league_table(slug: str, teams: dict[str, dict[str, Any]], label: str) -> di
     by_clean = sorted(ranked, key=lambda r: (-r["clean_sheets"], -r["clean_sheet_pct"], -r["recent_clean_sheets"], r["conceded"], r["team"]))
     for i, r in enumerate(by_clean, start=1):
         r["clean_sheet_rank"] = i
+    # Touches in the box per goal: to score, fewer is better; to allow, more is better.
+    # A club with touches but no goals in the window has no ratio and is left unranked.
+    box_rank_n = {}
+    for key, reverse in (
+        ("box_per_goal", False),
+        ("recent_box_per_goal", False),
+        ("box_per_goal_against", True),
+        ("recent_box_per_goal_against", True),
+    ):
+        with_rate = [r for r in ranked if r.get(key) is not None]
+        with_rate.sort(key=lambda r, k=key, rev=reverse: ((-r[k] if rev else r[k]), r["team"]))
+        for i, r in enumerate(with_rate, start=1):
+            r[f"{key}_rank"] = i
+        box_rank_n[key] = len(with_rate)
+    # League par: every measured game counted once from each side, so touches
+    # into any box divided by every goal scored — the same par for both columns.
+    par_box_touches = sum(int(r["box_touches"]) for r in out_rows)
+    par_box_goals = sum(int(r["box_goals"]) for r in out_rows)
     out_rows.sort(key=lambda r: (r["rank"] is None, r["rank"] or 0, r["team"]))
     return {
         "slug": slug,
@@ -507,6 +546,8 @@ def _league_table(slug: str, teams: dict[str, dict[str, Any]], label: str) -> di
         "par_xga_per_game": round(par_xga, 2),
         "par_sot_against_per_game": round(par_sota, 2),
         "par_power": PAR_POWER,
+        "par_box_per_goal": _per_goal(par_box_touches, par_box_goals),
+        "box_rank_n": box_rank_n,
         "teams": out_rows,
     }
 
