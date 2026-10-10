@@ -1258,6 +1258,15 @@ def test_chiclet_shows_possession_and_duel_graphs():
     assert "box_per_goal" in js and "recent_box_per_goal" in js
     assert ".mc-box-rate" in css
     assert "touches in the box per goal" in html
+    # eeehoc-style table: to score / to allow × season / last 5, with the league rank per cell.
+    assert "function boxRateCellHtml" in js and "function boxRateTone" in js
+    assert "box_per_goal_against" in js and "recent_box_per_goal_against" in js
+    assert "`${spec.key}_rank`" in js
+    assert "par_box_per_goal" in js and "box_rank_n" in js
+    assert ">To score<" in js and ">To allow<" in js
+    assert 'class="mc-box-rank"' in js
+    assert ".mc-box-grid" in css and ".mc-box-cell.up" in css and ".mc-box-cell.down" in css and ".mc-box-rank" in css
+    assert "to allow" in html and "#rank in the league" in html
     assert 'data-e2e-for="' in js
     assert "e2e-rail" in js and "e2e-link" in js
     assert ".mc-e2e" in css
