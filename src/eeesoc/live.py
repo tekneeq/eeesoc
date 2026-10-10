@@ -2117,6 +2117,162 @@ def _cumulative_xg_series(
     return series
 
 
+# Seconds a referee is likely to add. One play takes a single main bucket
+# (a yellow is not also a foul; a penalty goal is not also a plain goal).
+# Treatment and a VAR mention are extra on top of that play. Whole minutes
+# are the sum, rounded half-up. This is an anticipation, not the board.
+_STOPPAGE_SECONDS = {
+    "goals": 50,
+    "penalties": 110,
+    "penalty_miss": 70,
+    "fouls": 10,
+    "subs": 30,
+    "injuries": 60,
+    "injury_stretcher": 120,
+    "yellows": 30,
+    "reds": 90,
+    "var": 120,
+}
+_ADDED_LABELS = (
+    ("goals", "goal", "goals"),
+    ("penalties", "penalty", "penalties"),
+    ("fouls", "foul", "fouls"),
+    ("subs", "substitution", "substitutions"),
+    ("injuries", "injury", "injuries"),
+    ("yellows", "yellow", "yellows"),
+    ("reds", "red", "reds"),
+    ("var", "VAR", "VAR"),
+)
+_VAR_RE = re.compile(r"\bvar\b|video assistant|video review", re.I)
+_INJURY_RE = re.compile(r"injur|stretcher|treatment|physio|\bmedical\b", re.I)
+_STRETCHER_RE = re.compile(r"stretcher", re.I)
+_PENALTY_EVENT_RE = re.compile(r"\bpenalty\b(?!\s+(?:area|box|spot|arc))", re.I)
+
+
+def _play_blob(play: dict[str, Any]) -> str:
+    return " ".join(str(play.get(k) or "") for k in ("text", "shortText", "alternativeText"))
+
+
+def _is_yellow_card(ptype: str, play: dict[str, Any] | None = None) -> bool:
+    """A booking that does not send the player off."""
+    if _is_red_card(ptype, play):
+        return False
+    blob = (ptype or "").lower().replace("_", "-").replace(" ", "-")
+    if "yellow-card" in blob or blob in {"yellow", "yellowcard"}:
+        return True
+    if "card" in blob and "yellow" in blob and "red" not in blob:
+        return True
+    if play is None:
+        return False
+    text = _play_blob(play).lower()
+    return "yellow card" in text and "red card" not in text and "second yellow" not in text
+
+
+def _is_goal_stoppage(ptype: str, play: dict[str, Any]) -> bool:
+    if _is_own_goal(ptype, play):
+        return True
+    if ptype in GOAL_TYPES:
+        return True
+    return bool(play.get("scoringPlay"))
+
+
+def _is_penalty_stoppage(ptype: str, play: dict[str, Any]) -> bool:
+    blob = (ptype or "").lower()
+    if "penalty" in blob and "goal-kick" not in blob:
+        return True
+    return bool(_PENALTY_EVENT_RE.search(_play_blob(play)))
+
+
+def _stoppage_bits(ptype: str, play: dict[str, Any]) -> list[tuple[str, int]]:
+    """(count key, seconds) for one logged play. Empty when nothing stops the clock."""
+    text = _play_blob(play)
+    red = _is_red_card(ptype, play)
+    yellow = _is_yellow_card(ptype, play)
+    penalty = _is_penalty_stoppage(ptype, play)
+    goal = _is_goal_stoppage(ptype, play)
+    sub = _is_substitution(ptype, play)
+    foul = "foul" in (ptype or "") and not red and not yellow
+    injury = bool(_INJURY_RE.search(text)) or "injur" in (ptype or "").lower()
+    var_type = (ptype or "").lower().replace("_", "-") in {"var", "var-review", "video-review"} or (
+        ptype or ""
+    ).lower().startswith("var")
+    bits: list[tuple[str, int]] = []
+    if red:
+        bits.append(("reds", _STOPPAGE_SECONDS["reds"]))
+    elif yellow:
+        bits.append(("yellows", _STOPPAGE_SECONDS["yellows"]))
+    elif penalty and goal:
+        bits.append(("penalties", _STOPPAGE_SECONDS["penalties"]))
+    elif penalty:
+        bits.append(("penalties", _STOPPAGE_SECONDS["penalty_miss"]))
+    elif goal:
+        bits.append(("goals", _STOPPAGE_SECONDS["goals"]))
+    elif sub:
+        bits.append(("subs", _STOPPAGE_SECONDS["subs"]))
+    elif foul:
+        bits.append(("fouls", _STOPPAGE_SECONDS["fouls"]))
+    if injury and not red and not yellow:
+        seconds = _STOPPAGE_SECONDS["injury_stretcher"] if _STRETCHER_RE.search(text) else _STOPPAGE_SECONDS["injuries"]
+        bits.append(("injuries", seconds))
+    if var_type or _VAR_RE.search(text):
+        bits.append(("var", _STOPPAGE_SECONDS["var"]))
+    return bits
+
+
+def _added_minutes(seconds: int) -> int:
+    """Whole minutes. Under 30s stays 0; 30s rounds up to 1. Capped at 15."""
+    if seconds <= 0:
+        return 0
+    return min(15, (int(seconds) + 30) // 60)
+
+
+def _added_detail(bucket: dict[str, Any]) -> str:
+    parts: list[str] = []
+    for key, one, many in _ADDED_LABELS:
+        n = int(bucket.get(key) or 0)
+        if n:
+            parts.append(f"{n} {one if n == 1 else many}")
+    return ", ".join(parts)
+
+
+def _empty_added() -> dict[str, Any]:
+    bucket: dict[str, Any] = {"seconds": 0, "minutes": 0, "detail": ""}
+    for key, _one, _many in _ADDED_LABELS:
+        bucket[key] = 0
+    return bucket
+
+
+def added_time_from_plays(plays: list[dict[str, Any]]) -> dict[str, Any]:
+    """
+    Anticipated added time for each half.
+
+    Goals, penalty kicks, fouls, substitutions, injuries, cards and VAR
+    reviews each add a few seconds. ``minutes`` is what to show beside the
+    clock; ``detail`` is the reason list. First-half stoppage (45'+n, period 1)
+    stays on ``1h``.
+    """
+    halves = {"1h": _empty_added(), "2h": _empty_added()}
+    for play in plays:
+        if not isinstance(play, dict):
+            continue
+        ptype = _normalize_play_type(_play_type(play))
+        bits = _stoppage_bits(ptype, play)
+        if not bits:
+            continue
+        minute = _play_minute(play)
+        period = _play_period(play)
+        if minute is None and period is None:
+            continue
+        bucket = halves[_play_half(period, minute)]
+        for key, seconds in bits:
+            bucket["seconds"] = int(bucket["seconds"]) + int(seconds)
+            bucket[key] = int(bucket.get(key) or 0) + 1
+    for bucket in halves.values():
+        bucket["minutes"] = _added_minutes(int(bucket["seconds"]))
+        bucket["detail"] = _added_detail(bucket)
+    return halves
+
+
 def build_event_timeline(
     league_slug: str,
     event_id: str,
@@ -2146,6 +2302,8 @@ def build_event_timeline(
     the other half.
     ``elapsed_seconds`` is the best live clock for a client-side 1s cursor tick;
     ``frozen`` flags HT/FT-style clocks where the tick should pause.
+    ``added_time`` is the anticipated stoppage for each half (goals, fouls,
+    injuries, substitutions, cards, VAR) — not the fourth official's board.
     """
     cache_key = f"tl:{league_slug}:{event_id}"
     if use_cache and cache_key in _timeline_cache:
@@ -2371,6 +2529,7 @@ def build_event_timeline(
         "away_score": resolved_away,
         "events": events,
         "bulletin": bulletin,
+        "added_time": added_time_from_plays(plays),
         "counts": counts,
         "counts_by_half": {
             key: {

@@ -1617,6 +1617,32 @@ main {
   padding: 0.12rem 0.5rem;
 }
 
+.mc-added {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.28rem;
+  margin-left: 0.32rem;
+  padding-left: 0.34rem;
+  border-left: 1px solid rgba(255, 107, 107, 0.28);
+  font-size: 0.62rem;
+  font-weight: 650;
+  letter-spacing: 0.01em;
+  color: rgba(255, 196, 170, 0.48);
+  cursor: help;
+  white-space: nowrap;
+}
+
+.mc-added-kicker {
+  font-size: 0.56rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgba(255, 196, 170, 0.4);
+}
+
+.mc-added-half.on {
+  color: #ffc9a0;
+}
+
 .mc-ft-when {
   font-family: var(--mono);
   font-size: 0.68rem;

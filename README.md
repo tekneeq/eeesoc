@@ -5,6 +5,9 @@ Soccer **Matches + Similar** dashboard with a dark Revenant look.
 Freeze an in-play snapshot (cut minute, goal times, shots/SOT) and rank last-season lookalikes. History is cached under `~/.eeesoc/cache` (or `./data/cache` on EC2).
 
 The **Live** tab shows in-play matches as Revenant-style **match chiclets**, grouped by league.
+The live clock carries an **anticipated added time** for each half (1H and 2H), estimated from
+goals, fouls, injuries, substitutions and cards. It sits beside the running timer and is not
+the fourth official's board.
 The very top of the tab is the **quiet-start board** (`/api/halftime/quiet`), built from the
 finished-match archive and switchable per league (European leagues plus MLS and Liga MX): a bar graph
 of how many goals games with **no shot on target by 15′** went on to produce — 0 / 1 / 2 / 3 / 4+,
