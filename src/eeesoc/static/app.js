@@ -2154,7 +2154,7 @@
       ? `<span class="mc-live-badge mc-ft-badge" title="${escapeHtml(m.clock ? `Ended at ${m.clock}` : "Full time")}"><span class="mc-clock-text">FT</span></span>`
       : upcoming
         ? `<span class="mc-live-badge mc-ko-badge" title="Kickoff"><span class="mc-clock-text">${escapeHtml(upcomingKick(m))}</span></span>`
-        : `<span class="mc-live-badge"><span class="live-dot"></span><span class="mc-clock-text">${escapeHtml(m.clock || "LIVE")}</span></span>`;
+        : `<span class="mc-live-badge"><span class="live-dot"></span><span class="mc-clock-text">${escapeHtml(m.clock || "LIVE")}</span>${cached?.added_time ? addedTimeHtml(cached, m) : ""}</span>`;
     const chartPlaceholder = upcoming
       ? `<span class="mc-stats" data-stats-for="${escapeHtml(m.event_id)}"><span class="mc-stat mc-stat-empty">waiting for kickoff</span></span>`
       : withTimeline
@@ -2360,6 +2360,69 @@
   function formatTickClock(seconds) {
     const s = Math.max(0, Math.floor(seconds));
     return `${Math.floor(s / 60)}'${String(s % 60).padStart(2, "0")}`;
+  }
+
+  function addedMinuteLabel(n) {
+    return `+${Math.max(0, Number(n) || 0)}′`;
+  }
+
+  // Which period the running timer belongs to. Half-time still shows the 1st half.
+  function addedHalfKey(m, tl) {
+    const text = `${m?.detail || ""} ${m?.clock || ""} ${tl?.clock || ""}`.toLowerCase();
+    if (/half\s*-?\s*time|\bht\b/.test(text)) return "1h";
+    if (/2nd|second/.test(text)) return "2h";
+    if (/1st|first/.test(text)) return "1h";
+    const events = tl?.events || [];
+    if (events.some((e) => Number(e.period) >= 2)) return "2h";
+    if (events.some((e) => Number(e.period) === 1)) return "1h";
+    const clockMin = parseInt(String(m?.clock || tl?.clock || ""), 10);
+    const min = Number.isFinite(clockMin) ? clockMin : Number(tl?.minute) || 0;
+    return min > 45 ? "2h" : "1h";
+  }
+
+  function addedTimeTitle(tl) {
+    const line = (key, label) => {
+      const row = tl?.added_time?.[key] || {};
+      const why = row.detail ? ` — ${row.detail}` : "";
+      return `${label} ${addedMinuteLabel(row.minutes)}${why}`;
+    };
+    return `Anticipated added time for each half, from goals, fouls, injuries, substitutions and cards. Not the official board. ${line("1h", "1H")}. ${line("2h", "2H")}.`;
+  }
+
+  function addedTimeHtml(tl, m) {
+    if (!tl?.added_time) return "";
+    const phase = addedHalfKey(m, tl);
+    const cell = (key, label) => {
+      const row = tl.added_time[key] || {};
+      const on = phase === key ? " on" : "";
+      return `<span class="mc-added-half${on}" data-half="${key}">${label} ${addedMinuteLabel(row.minutes)}</span>`;
+    };
+    return `<span class="mc-added" title="${escapeHtml(addedTimeTitle(tl))}"><span class="mc-added-kicker">est</span>${cell("1h", "1H")}${cell("2h", "2H")}</span>`;
+  }
+
+  function paintAddedTime(btn, tl) {
+    if (!btn) return;
+    const badge = btn.querySelector(".mc-live-badge:not(.mc-ft-badge):not(.mc-ko-badge)");
+    if (!badge) return;
+    if (!tl?.added_time) {
+      badge.querySelector(".mc-added")?.remove();
+      return;
+    }
+    const phase = addedHalfKey(btn.__match, tl);
+    const sig = [
+      tl.added_time["1h"]?.minutes,
+      tl.added_time["1h"]?.detail,
+      tl.added_time["2h"]?.minutes,
+      tl.added_time["2h"]?.detail,
+      phase,
+    ].join("|");
+    const existing = badge.querySelector(".mc-added");
+    if (existing && existing.dataset.sig === sig) return;
+    const html = addedTimeHtml(tl, btn.__match);
+    if (existing) existing.outerHTML = html;
+    else badge.insertAdjacentHTML("beforeend", html);
+    const el = badge.querySelector(".mc-added");
+    if (el) el.dataset.sig = sig;
   }
 
   // Per-kind lanes (distance from axis) so a busy minute stays readable:
@@ -3216,6 +3279,7 @@
         const shown = displayedScore(m, tl);
         applyChicletScore(card, shown.home, shown.away);
         applyChicletReds(card, tl);
+        paintAddedTime(card, tl);
       }
     };
 
@@ -3242,6 +3306,12 @@
           tl.box_entries?.["2"]?.away?.length,
         ],
         fouls: [tl.counts?.home_foul, tl.counts?.away_foul],
+        added: [
+          tl.added_time?.["1h"]?.minutes,
+          tl.added_time?.["1h"]?.seconds,
+          tl.added_time?.["2h"]?.minutes,
+          tl.added_time?.["2h"]?.seconds,
+        ],
         halves: [
           tl.counts_by_half?.["1h"]?.home_shot,
           tl.counts_by_half?.["2h"]?.home_shot,
@@ -3317,6 +3387,7 @@
         applyChicletScore(card, shown.home, shown.away);
         // Period / first-half goals just arrived — the 2H-after-HT row can now resolve.
         paintPowerRow(card);
+        paintAddedTime(card, tl);
       }
       // Skip SVG rewrite when nothing meaningful changed (the ticker keeps the cursor moving).
       if (hasSvg() && prev && chartSig(prev) === chartSig(tl)) return;
@@ -3378,6 +3449,7 @@
           const clockEl = btn.querySelector(".mc-clock-text");
           if (clockEl) clockEl.textContent = formatTickClock(secs);
         }
+        paintAddedTime(btn, tl);
         const tlSvg = btn.querySelector(".mc-timeline svg");
         if (tlSvg) moveNowCursor(tlSvg, nowM);
         const xgSvgEl = btn.querySelector(".mc-xg svg");

@@ -2548,3 +2548,144 @@ def test_live_tab_opens_with_quiet_start_graphs():
     assert ".qs-svg" in css
     assert ".qs-count-hint" in css
     assert "not live games" in html
+
+
+def test_anticipated_added_time_per_half():
+    """Each half's clock allowance comes from goals, fouls, injuries, subs and cards."""
+    from eeesoc.live import added_time_from_plays, build_event_timeline, clear_timeline_cache
+
+    plays = [
+        {"type": {"type": "pass"}, "clock": {"displayValue": "3'"}, "period": {"number": 1}},
+        {"type": {"type": "goal"}, "clock": {"displayValue": "12'"}, "period": {"number": 1}, "scoringPlay": True},
+        {"type": {"type": "foul"}, "clock": {"displayValue": "18'"}, "period": {"number": 1}},
+        {"type": {"type": "foul"}, "clock": {"displayValue": "22'"}, "period": {"number": 1}},
+        {"type": {"type": "foul"}, "clock": {"displayValue": "31'"}, "period": {"number": 1}},
+        {"type": {"type": "foul"}, "clock": {"displayValue": "44'"}, "period": {"number": 1}},
+        {
+            "type": {"type": "yellow-card"},
+            "clock": {"displayValue": "33'"},
+            "period": {"number": 1},
+            "text": "is shown a yellow card.",
+        },
+        # First-half stoppage stays on 1H.
+        {"type": {"type": "foul"}, "clock": {"displayValue": "45'+2'"}, "period": {"number": 1}},
+        {
+            "type": {"type": "substitution"},
+            "substitution": True,
+            "clock": {"displayValue": "58'"},
+            "period": {"number": 2},
+            "text": "Substitution, Everton. Ainsley Maitland-Niles replaces James Garner because of an injury.",
+        },
+        {
+            "type": {"type": "red-card"},
+            "clock": {"displayValue": "71'"},
+            "period": {"number": 2},
+            "text": "is shown a red card.",
+        },
+        {"type": {"type": "foul"}, "clock": {"displayValue": "74'"}, "period": {"number": 2}},
+        {"type": {"type": "foul"}, "clock": {"displayValue": "77'"}, "period": {"number": 2}},
+        {"type": {"type": "foul"}, "clock": {"displayValue": "80'"}, "period": {"number": 2}},
+        {"type": {"type": "foul"}, "clock": {"displayValue": "83'"}, "period": {"number": 2}},
+        {"type": {"type": "foul"}, "clock": {"displayValue": "86'"}, "period": {"number": 2}},
+        {"type": {"type": "foul"}, "clock": {"displayValue": "88'"}, "period": {"number": 2}},
+        {
+            "type": {"type": "var-review"},
+            "clock": {"displayValue": "89'"},
+            "period": {"number": 2},
+            "text": "VAR review. Goal confirmed.",
+        },
+    ]
+    added = added_time_from_plays(plays)
+    # 1 goal (50) + 5 fouls (50) + 1 yellow (30) = 130s → 2′
+    assert added["1h"]["minutes"] == 2
+    assert added["1h"]["goals"] == 1
+    assert added["1h"]["fouls"] == 5
+    assert added["1h"]["yellows"] == 1
+    assert added["1h"]["detail"] == "1 goal, 5 fouls, 1 yellow"
+    # injury sub 30+60, red 90, 6 fouls 60, VAR 120 = 360s → 6′
+    assert added["2h"]["minutes"] == 6
+    assert added["2h"]["subs"] == 1
+    assert added["2h"]["injuries"] == 1
+    assert added["2h"]["reds"] == 1
+    assert added["2h"]["fouls"] == 6
+    assert added["2h"]["var"] == 1
+    assert added["2h"]["goals"] == 0
+    assert "1 injury" in added["2h"]["detail"]
+    assert "1 VAR" in added["2h"]["detail"]
+
+    # A penalty goal is the spot kick, not a second plain goal. A quiet foul stays under a minute.
+    pen = added_time_from_plays(
+        [
+            {
+                "type": {"type": "penalty---scored"},
+                "clock": {"displayValue": "40'"},
+                "period": {"number": 1},
+                "scoringPlay": True,
+                "shortText": "Penalty - Scored",
+            },
+            {"type": {"type": "foul"}, "clock": {"displayValue": "8'"}, "period": {"number": 1}},
+            {"type": {"type": "foul"}, "clock": {"displayValue": "9'"}, "period": {"number": 1}},
+        ]
+    )
+    assert pen["1h"]["penalties"] == 1
+    assert pen["1h"]["goals"] == 0
+    assert pen["1h"]["minutes"] == 2
+    assert pen["2h"]["minutes"] == 0
+    assert "penalty area" not in (pen["1h"]["detail"] or "")
+
+    # A foul in the penalty area is a foul, not a penalty.
+    area = added_time_from_plays(
+        [
+            {
+                "type": {"type": "foul"},
+                "clock": {"displayValue": "15'"},
+                "period": {"number": 1},
+                "text": "Foul by Smith in the penalty area.",
+            }
+        ]
+    )
+    assert area["1h"]["fouls"] == 1
+    assert area["1h"]["penalties"] == 0
+    assert area["1h"]["minutes"] == 0
+
+    stretcher = added_time_from_plays(
+        [
+            {
+                "type": {"type": "delay"},
+                "clock": {"displayValue": "61'"},
+                "period": {"number": 2},
+                "text": "Play delayed. Player taken off on a stretcher.",
+            }
+        ]
+    )
+    assert stretcher["2h"]["injuries"] == 1
+    assert stretcher["2h"]["minutes"] == 2
+    assert stretcher["1h"]["minutes"] == 0
+
+    clear_timeline_cache()
+
+    def fake_fetch(_url):
+        return {"pageCount": 1, "items": plays}
+
+    tl = build_event_timeline(
+        "eng.1",
+        "401",
+        clock="70'",
+        fetcher=fake_fetch,
+        use_cache=False,
+    )
+    assert tl["added_time"]["1h"]["minutes"] == 2
+    assert tl["added_time"]["2h"]["minutes"] == 6
+
+    js = Path("src/eeesoc/static/app.js").read_text(encoding="utf-8")
+    css = Path("src/eeesoc/static/app.css").read_text(encoding="utf-8")
+    html = Path("src/eeesoc/static/index.html").read_text(encoding="utf-8")
+    assert "function paintAddedTime" in js
+    assert "function addedTimeHtml" in js
+    assert 'data-half="1h"' in js or 'data-half="${key}"' in js
+    assert "mc-added-half" in js
+    assert "Anticipated added time" in js
+    assert "Not the official board" in js
+    assert ".mc-added" in css
+    assert ".mc-added-half.on" in css
+    assert "anticipated added time" in html
