@@ -1862,6 +1862,25 @@ main {
   white-space: nowrap;
 }
 
+.mc-standing {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.28rem;
+  flex: none;
+  font-family: var(--mono);
+  font-size: 0.62rem;
+  font-weight: 650;
+  letter-spacing: 0.01em;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.mc-standing b {
+  color: var(--warn);
+  font-weight: 700;
+}
+
 .mc-red {
   flex: none;
   font-size: 0.78rem;

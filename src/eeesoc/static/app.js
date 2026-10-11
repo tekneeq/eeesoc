@@ -1600,6 +1600,36 @@
     return `${standingsSideHtml(m, "home")}<span class="mc-power-label" title="Official league table: position, win–draw–loss record and points.">📊 table</span>${standingsSideHtml(m, "away")}`;
   }
 
+  // Compact #rank and W-D-L that sits beside the club's name on the scoreline.
+  function teamStandingHtml(m, side) {
+    const name = side === "home" ? m.home : m.away;
+    const row = standingsFor(m, side);
+    if (!row || row.rank == null) return "";
+    const rec = row.record || `${row.wins}-${row.draws}-${row.losses}`;
+    return `<span class="mc-standing" data-sig="${row.rank}|${escapeHtml(rec)}|${row.points}" title="${escapeHtml(standingsTitle(row, name))}"><b>#${row.rank}</b><span>${escapeHtml(rec)}</span></span>`;
+  }
+
+  function paintTeamStandings(btn) {
+    const m = btn?.__match;
+    if (!m) return;
+    for (const side of ["home", "away"]) {
+      const slot = btn.querySelector(`.mc-${side}`);
+      const name = slot?.querySelector(".mc-name");
+      if (!slot || !name) continue;
+      const html = teamStandingHtml(m, side);
+      const existing = slot.querySelector(".mc-standing");
+      if (!html) {
+        existing?.remove();
+        continue;
+      }
+      const sig = html.match(/data-sig="([^"]*)"/)?.[1] || "";
+      if (existing && existing.dataset.sig === sig) continue;
+      if (existing) existing.outerHTML = html;
+      else if (side === "home") name.insertAdjacentHTML("beforebegin", html);
+      else name.insertAdjacentHTML("afterend", html);
+    }
+  }
+
   const POWER_ROWS = [
     { spec: CLINICAL_SPEC, label: "⚡ clinical", help: "Clinical power: goals per 100 xG this season, ranked within the league. 100 = par." },
     {
@@ -1994,6 +2024,7 @@
 
   function paintClinicalRows() {
     document.querySelectorAll(".mc-power[data-power-for]").forEach((el) => paintPowerRow(el.closest(".match-chiclet")));
+    document.querySelectorAll(".mc-teams").forEach((el) => paintTeamStandings(el.closest(".match-chiclet")));
     paintBoxRates();
   }
 
@@ -2244,9 +2275,9 @@
         </span>
       </span>
       <span class="mc-teams">
-        <span class="mc-home"><span class="mc-name">${escapeHtml(shortName(m.home))}</span>${chicletRedHtml(reds.home)}<i class="mc-key mc-key-home" title="Home — green in charts"></i></span>
+        <span class="mc-home">${teamStandingHtml(m, "home")}<span class="mc-name">${escapeHtml(shortName(m.home))}</span>${chicletRedHtml(reds.home)}<i class="mc-key mc-key-home" title="Home — green in charts"></i></span>
         <span class="mc-score"><b class="mc-score-h">${shown.home}</b><span class="mc-score-sep">–</span><b class="mc-score-a">${shown.away}</b></span>
-        <span class="mc-away"><i class="mc-key mc-key-away" title="Away — blue in charts"></i>${chicletRedHtml(reds.away)}<span class="mc-name">${escapeHtml(shortName(m.away))}</span></span>
+        <span class="mc-away"><i class="mc-key mc-key-away" title="Away — blue in charts"></i>${chicletRedHtml(reds.away)}<span class="mc-name">${escapeHtml(shortName(m.away))}</span>${teamStandingHtml(m, "away")}</span>
       </span>
       <span class="mc-power" data-power-for="${escapeHtml(m.event_id)}">${clinicalRowHtml(m)}</span>
       ${withTimeline && !upcoming ? `<div class="mc-bulletin" data-bulletin-for="${escapeHtml(m.event_id)}">${cached ? chicletBulletinHtml(cached) : ""}</div>` : ""}
@@ -2373,6 +2404,7 @@
       applyChicletScore(btn, shown.home, shown.away);
       // The goals-per-half row follows the clock (1st half → HT → 2nd half) and the HT score.
       paintPowerRow(btn);
+      paintTeamStandings(btn);
       const names = btn.querySelectorAll(".mc-teams .mc-name");
       if (names.length === 2) {
         names[0].textContent = shortName(m.home);
