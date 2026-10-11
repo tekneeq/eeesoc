@@ -60,6 +60,7 @@ Lineups appear about an hour before kickoff; goals and cards are marked on the p
 
 Every chiclet also carries each club's **📊 league table** (`/api/live/standings`, ESPN):
 position, win–draw–loss record and points (conference/group name when the table is split, as in MLS).
+The same **#rank and record** sit beside the club's name on the scoreline.
 Every chiclet also carries each club's **⚡ clinical power** (`/api/clinical`): goals per 100 xG over the
 archived finished games this season, shrunk toward league par for thin samples. 100 means the club scores
 exactly what its chances are worth; above 100 is tagged *clinical*, below *wasteful*; the rank is its place

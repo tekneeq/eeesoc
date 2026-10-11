@@ -141,5 +141,10 @@ def test_chiclet_shows_league_table_row():
     assert "function standingsFor" in js
     assert "/api/live/standings" in js
     assert "📊 table" in js
+    assert "function teamStandingHtml" in js
+    assert "function paintTeamStandings" in js
+    assert 'class="mc-standing"' in js
     assert "league table" in html.lower() or "league standing" in html.lower()
+    assert "league rank and" in html
     assert ".mc-table-side" in css
+    assert ".mc-standing" in css
