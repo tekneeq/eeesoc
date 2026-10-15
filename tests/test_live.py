@@ -2201,7 +2201,9 @@ def test_half_goals_row_tags_each_side_with_its_own_ht_score():
 def test_live_chiclets_use_pointer_drag():
     """Live reorder must not rely on HTML5 DnD on <button> (broken in Firefox / SVG).
 
-    A press-drag on the card scrolls. Reorder starts from the grip only.
+    A mouse drag anywhere on the card reorders. The pointer is captured, and
+    moves are watched on the window, because an upward drag leaves the card
+    at once. A finger swipe still scrolls; the grip is the touch handle.
     """
     js = Path("src/eeesoc/static/app.js").read_text(encoding="utf-8")
     css = Path("src/eeesoc/static/app.css").read_text(encoding="utf-8")
@@ -2210,15 +2212,18 @@ def test_live_chiclets_use_pointer_drag():
     assert 'e.target.closest(".mc-grip")' in js
     assert "btn.draggable = true" not in js
     assert "makeChicletDropZone" not in js
+    assert "scrollFromCard" not in js
     card = css.split(".match-chiclet-tl {", 1)[1].split("}", 1)[0]
     grip = css.split(".mc-grip {", 1)[1].split("}", 1)[0]
     assert "touch-action: pan-y" in card
     assert "cursor: grab" not in card
     assert "touch-action: none" in grip
-    # A mouse drag on the card itself scrolls. The grip still reorders, and a
-    # short step into the card above is enough — not half of a tall chiclet.
+    assert ".match-chiclet-tl:has(.mc-grip)" in css
+    # Capture and window moves, so dragging up off the card still reorders.
+    # A short step into the card above is enough — not half of a tall chiclet.
     assert "function chicletDropIndex" in js
-    assert "scrollFromCard" in js
+    assert 'window.addEventListener("pointermove", onMove' in js
+    assert "capturePointer()" in js
     assert "edgeTick" in js
 
     script = r"""
