@@ -2215,6 +2215,50 @@ def test_live_chiclets_use_pointer_drag():
     assert "touch-action: pan-y" in card
     assert "cursor: grab" not in card
     assert "touch-action: none" in grip
+    # A mouse drag on the card itself scrolls. The grip still reorders, and a
+    # short step into the card above is enough — not half of a tall chiclet.
+    assert "function chicletDropIndex" in js
+    assert "scrollFromCard" in js
+    assert "edgeTick" in js
+
+    script = r"""
+""" + js[js.index("function chicletDropIndex") : js.index("function placeChicletAtY")] + r"""
+const tall = [{top: 0, bottom: 1400}, {top: 1400, bottom: 2800}];
+const open = {floor: null, ceil: null};
+// Pointer still on the boundary: stay put.
+let d = chicletDropIndex(tall, 1, 1400, open);
+if (d.index !== 1) process.exit(2);
+// Forty pixels into the card above moves this one up. The old midpoint
+// rule would have waited until y < 700.
+d = chicletDropIndex(tall, 1, 1355, open);
+if (d.index !== 0) process.exit(3);
+// That swap must not bounce back while the pointer is still in the card above.
+const back = chicletDropIndex(
+  [{top: 0, bottom: 80}, {top: 80, bottom: 1480}],
+  0,
+  1355,
+  {floor: d.floor, ceil: d.ceil}
+);
+if (back.index !== 0) process.exit(4);
+// Dragging back down past the lock moves it down again.
+const down = chicletDropIndex(
+  [{top: 0, bottom: 80}, {top: 80, bottom: 1480}],
+  0,
+  d.floor + 5,
+  {floor: d.floor, ceil: d.ceil}
+);
+if (down.index !== 1) process.exit(5);
+"""
+    import subprocess
+    import tempfile
+    with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as fh:
+        fh.write(script)
+        name = fh.name
+    try:
+        proc = subprocess.run(["node", name], capture_output=True, text=True)
+    finally:
+        Path(name).unlink(missing_ok=True)
+    assert proc.returncode == 0, proc.stderr or proc.stdout
 
 
 def test_live_league_chips_toggle_instead_of_replacing():
