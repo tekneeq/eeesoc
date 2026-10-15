@@ -1202,28 +1202,31 @@
     timelineObserver.observe(btn);
   }
 
-  // Where a gripped chiclet lands. Tall cards used to swap only at their
-  // midpoint, so moving one up meant dragging through half a card that was
-  // usually off the top of the screen. A short step into the neighbour is
-  // enough. floor/ceil stop that swap from bouncing straight back.
-  function chicletDropIndex(rects, index, pointerY, lock) {
-    const SWAP = 40;
+  // Where a dragged chiclet lands. These cards are taller than the window, and
+  // the pointer is usually somewhere in the middle of one. Compare the card's
+  // own top and bottom — where it is on screen — not the pointer. Otherwise a
+  // drag lifts the card and then snaps it back, because the pointer never
+  // reaches the neighbour. floor/ceil are on the card's top so a tall card
+  // cannot bounce straight back.
+  function chicletDropIndex(rects, index, visualTop, height, lock) {
+    const SWAP = 36;
     const floor = lock && lock.floor != null ? lock.floor : null;
     const ceil = lock && lock.ceil != null ? lock.ceil : null;
+    const visualBottom = visualTop + height;
     if (index > 0) {
       const prev = rects[index - 1];
       const span = Math.max(0, prev.bottom - prev.top);
       const edge = prev.bottom - Math.min(SWAP, span / 2);
-      if (pointerY < edge && (ceil == null || pointerY < ceil)) {
-        return { index: index - 1, floor: pointerY + SWAP, ceil: null };
+      if (visualTop < edge && (ceil == null || visualTop < ceil)) {
+        return { index: index - 1, floor: visualTop + SWAP, ceil: null };
       }
     }
     if (index < rects.length - 1) {
       const next = rects[index + 1];
       const span = Math.max(0, next.bottom - next.top);
       const edge = next.top + Math.min(SWAP, span / 2);
-      if (pointerY > edge && (floor == null || pointerY > floor)) {
-        return { index: index + 1, floor: null, ceil: pointerY - SWAP };
+      if (visualBottom > edge && (floor == null || visualTop > floor)) {
+        return { index: index + 1, floor: null, ceil: visualTop - SWAP };
       }
     }
     return { index, floor, ceil };
@@ -1234,10 +1237,12 @@
     const index = cards.indexOf(card);
     if (index < 0) return;
     const rects = cards.map((el) => {
+      if (el === card) return { top: 0, bottom: 0 };
       const r = el.getBoundingClientRect();
       return { top: r.top, bottom: r.bottom };
     });
-    const drop = chicletDropIndex(rects, index, clientY, {
+    const visualTop = clientY - (card.__grabOffset || 0);
+    const drop = chicletDropIndex(rects, index, visualTop, card.offsetHeight, {
       floor: card.__swapFloor ?? null,
       ceil: card.__swapCeil ?? null,
     });
@@ -1272,6 +1277,8 @@
     let captured = false;
     let listening = false;
     let grabOffset = 0;
+    let homeTop = 0;
+    let scrollAtStart = 0;
     let edgeDir = 0;
     let edgeRaf = 0;
 
@@ -1304,15 +1311,15 @@
       edgeRaf = 0;
     };
 
-    // Holding the pointer at the top of the screen keeps scrolling, so a
-    // chiclet can walk upward past neighbours that are taller than the window.
-    // Keep the grabbed point under the cursor. The card used to sit still
-    // until the pointer crossed into the neighbour, so a drag looked like
-    // nothing was happening.
-    const stickToPointer = (clientY) => {
-      btn.style.transform = "none";
-      const laid = btn.getBoundingClientRect().top;
-      btn.style.transform = `translateY(${clientY - grabOffset - laid}px)`;
+    // Follow with translateY, not position:fixed. The list's rise animation
+    // leaves a transform on the grid, and a fixed card inside it is positioned
+    // against the grid — so it flies off the screen. The button stays in the
+    // DOM until the pointer is released; moving it earlier makes Chromium
+    // drop the gesture.
+    const follow = (clientY) => {
+      const scroller = document.scrollingElement || document.documentElement;
+      const scrolled = scroller.scrollTop - scrollAtStart;
+      btn.style.transform = `translateY(${clientY - originY + scrolled}px)`;
     };
 
     const edgeTick = () => {
@@ -1320,9 +1327,7 @@
       if (!dragging || !edgeDir) return;
       const speed = 12 + Math.round(Math.abs(edgeDir) * 26);
       scrollPage(edgeDir < 0 ? -speed : speed);
-      stickToPointer(lastY);
-      placeChicletAtY(wrap, btn, lastY);
-      stickToPointer(lastY);
+      follow(lastY);
       edgeRaf = requestAnimationFrame(edgeTick);
     };
 
@@ -1344,9 +1349,36 @@
       dragging = true;
       state.chicletDrag = true;
       btn.__suppressClick = true;
+      const rect = btn.getBoundingClientRect();
+      homeTop = rect.top;
+      grabOffset = originY - rect.top;
+      btn.__grabOffset = grabOffset;
+      scrollAtStart = (document.scrollingElement || document.documentElement).scrollTop;
       btn.classList.add("dragging");
-      grabOffset = originY - btn.getBoundingClientRect().top;
+      btn.style.transition = "none";
+      btn.style.zIndex = "40";
       capturePointer();
+    };
+
+    const settle = (commit) => {
+      const visualTop = homeTop + (lastY - originY);
+      const before = [...wrap.querySelectorAll(".match-chiclet")].map((el) => el.dataset.eventId).join();
+      if (commit) placeChicletAtY(wrap, btn, lastY);
+      const moved = [...wrap.querySelectorAll(".match-chiclet")].map((el) => el.dataset.eventId).join() !== before;
+      // Keep transition off until the new layout position is measured.
+      // Otherwise the card animates away from the cursor and the scroll
+      // correction aims at the wrong place.
+      btn.style.transition = "none";
+      btn.style.transform = "";
+      if (moved) {
+        const laid = btn.getBoundingClientRect().top;
+        scrollPage(laid - visualTop);
+        persistOrder();
+      }
+      btn.classList.remove("dragging");
+      btn.style.transition = "";
+      btn.style.zIndex = "";
+      state.chicletDrag = false;
     };
 
     const stopDrag = (commit) => {
@@ -1365,16 +1397,12 @@
           /* already released */
         }
       }
-      if (dragging) {
-        btn.classList.remove("dragging");
-        btn.style.transform = "";
-        state.chicletDrag = false;
-        if (commit) persistOrder();
-      }
+      if (dragging) settle(commit);
       dragging = false;
       scrolling = false;
       captured = false;
       pointerId = null;
+      btn.__grabOffset = 0;
       btn.__swapFloor = null;
       btn.__swapCeil = null;
     };
@@ -1411,10 +1439,8 @@
       }
       e.preventDefault();
       lastY = e.clientY;
-      stickToPointer(e.clientY);
+      follow(e.clientY);
       aimEdge(e.clientY);
-      placeChicletAtY(wrap, btn, e.clientY);
-      stickToPointer(e.clientY);
     };
 
     const onUp = (e) => {
