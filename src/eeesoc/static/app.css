@@ -797,12 +797,13 @@ main {
 
 .match-chiclet.dragging {
   cursor: grabbing;
-  position: relative;
-  z-index: 5;
+  z-index: 40;
   border-style: dashed;
   border-color: rgba(125, 255, 179, 0.6);
-  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.45);
   touch-action: none;
+  transition: none;
+  pointer-events: none;
 }
 
 .mc-top-left {

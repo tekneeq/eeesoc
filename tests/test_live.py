@@ -2222,34 +2222,40 @@ def test_live_chiclets_use_pointer_drag():
     # Capture and window moves, so dragging up off the card still reorders.
     # A short step into the card above is enough — not half of a tall chiclet.
     assert "function chicletDropIndex" in js
+    assert "card.__grabOffset" in js
+    assert "card.offsetHeight" in js
     assert 'window.addEventListener("pointermove", onMove' in js
     assert "capturePointer()" in js
     assert "edgeTick" in js
 
     script = r"""
 """ + js[js.index("function chicletDropIndex") : js.index("function placeChicletAtY")] + r"""
-const tall = [{top: 0, bottom: 1400}, {top: 1400, bottom: 2800}];
+const tall = [{top: 0, bottom: 1500}, {top: 1518, bottom: 3018}];
 const open = {floor: null, ceil: null};
-// Pointer still on the boundary: stay put.
-let d = chicletDropIndex(tall, 1, 1400, open);
+const H = 1500;
+// Card still sitting on its own slot: stay put.
+let d = chicletDropIndex(tall, 1, 1518, H, open);
 if (d.index !== 1) process.exit(2);
-// Forty pixels into the card above moves this one up. The old midpoint
-// rule would have waited until y < 700.
-d = chicletDropIndex(tall, 1, 1355, open);
+// The top of a tall card has moved 80px up into the card above.
+// The pointer is still in the middle of this card — that must be enough.
+d = chicletDropIndex(tall, 1, 1438, H, open);
 if (d.index !== 0) process.exit(3);
-// That swap must not bounce back while the pointer is still in the card above.
+// After the swap the card is first. Its bottom hangs over the next card,
+// but that must not bounce it straight back.
 const back = chicletDropIndex(
-  [{top: 0, bottom: 80}, {top: 80, bottom: 1480}],
+  [{top: 0, bottom: 1500}, {top: 1518, bottom: 3018}],
   0,
-  1355,
+  1438,
+  H,
   {floor: d.floor, ceil: d.ceil}
 );
 if (back.index !== 0) process.exit(4);
-// Dragging back down past the lock moves it down again.
+// Dragging the top back down past the lock moves it down again.
 const down = chicletDropIndex(
-  [{top: 0, bottom: 80}, {top: 80, bottom: 1480}],
+  [{top: 0, bottom: 1500}, {top: 1518, bottom: 3018}],
   0,
   d.floor + 5,
+  H,
   {floor: d.floor, ceil: d.ceil}
 );
 if (down.index !== 1) process.exit(5);
