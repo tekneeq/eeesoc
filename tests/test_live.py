@@ -2219,46 +2219,23 @@ def test_live_chiclets_use_pointer_drag():
     assert "cursor: grab" not in card
     assert "touch-action: none" in grip
     assert ".match-chiclet-tl:has(.mc-grip)" in css
-    # Capture and window moves, so dragging up off the card still reorders.
-    # A short step into the card above is enough — not half of a tall chiclet.
-    assert "function chicletDropIndex" in js
-    assert "card.__grabOffset" in js
-    assert "card.offsetHeight" in js
+    # The page stays still during the drag. Direction follows the pointer:
+    # up moves the chiclet up one slot, down moves it down one slot.
+    assert "function chicletDragStep" in js
+    assert "lockPage" in js
+    assert "edgeTick" not in js
     assert 'window.addEventListener("pointermove", onMove' in js
     assert "capturePointer()" in js
-    assert "edgeTick" in js
 
     script = r"""
-""" + js[js.index("function chicletDropIndex") : js.index("function placeChicletAtY")] + r"""
-const tall = [{top: 0, bottom: 1500}, {top: 1518, bottom: 3018}];
-const open = {floor: null, ceil: null};
-const H = 1500;
-// Card still sitting on its own slot: stay put.
-let d = chicletDropIndex(tall, 1, 1518, H, open);
-if (d.index !== 1) process.exit(2);
-// The top of a tall card has moved 80px up into the card above.
-// The pointer is still in the middle of this card — that must be enough.
-d = chicletDropIndex(tall, 1, 1438, H, open);
-if (d.index !== 0) process.exit(3);
-// After the swap the card is first. Its bottom hangs over the next card,
-// but that must not bounce it straight back.
-const back = chicletDropIndex(
-  [{top: 0, bottom: 1500}, {top: 1518, bottom: 3018}],
-  0,
-  1438,
-  H,
-  {floor: d.floor, ceil: d.ceil}
-);
-if (back.index !== 0) process.exit(4);
-// Dragging the top back down past the lock moves it down again.
-const down = chicletDropIndex(
-  [{top: 0, bottom: 1500}, {top: 1518, bottom: 3018}],
-  0,
-  d.floor + 5,
-  H,
-  {floor: d.floor, ceil: d.ceil}
-);
-if (down.index !== 1) process.exit(5);
+""" + js[js.index("function chicletDragStep") : js.index("function placeChicletAtY")] + r"""
+if (chicletDragStep(1, 3, -10) !== 1) process.exit(2);
+// Dragging up moves up, even when the card is taller than the window.
+if (chicletDragStep(1, 3, -28) !== 0) process.exit(3);
+// Dragging down moves down, and does not wrap off the end.
+if (chicletDragStep(1, 3, 28) !== 2) process.exit(4);
+if (chicletDragStep(0, 3, -40) !== 0) process.exit(5);
+if (chicletDragStep(2, 3, 40) !== 2) process.exit(6);
 """
     import subprocess
     import tempfile
