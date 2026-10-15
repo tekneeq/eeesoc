@@ -785,6 +785,10 @@ main {
   -webkit-user-drag: none;
 }
 
+.match-chiclet-tl:has(.mc-grip) {
+  cursor: grab;
+}
+
 .match-chiclet-tl svg,
 .match-chiclet-tl img {
   -webkit-user-drag: none;
@@ -793,9 +797,11 @@ main {
 
 .match-chiclet.dragging {
   cursor: grabbing;
-  opacity: 0.45;
+  position: relative;
+  z-index: 5;
   border-style: dashed;
   border-color: rgba(125, 255, 179, 0.6);
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.4);
   touch-action: none;
 }
 

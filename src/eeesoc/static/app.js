@@ -1257,10 +1257,8 @@
   function makeChicletDraggable(btn, wrap) {
     // Pointer drag — HTML5 DnD on <button> (and on SVG children) is unreliable:
     // Firefox never starts the drag, and Chromium often cancels it the moment
-    // insertBefore moves the drag source. Reorder starts on the ⠿ grip only.
-    // A press-drag on the card itself scrolls. A mouse has no pan gesture, so
-    // that drag has to move the page itself. These chiclets are tall buttons,
-    // so treating the whole card as a reorder surface was moving the card and the page.
+    // insertBefore moves the drag source. A mouse drag anywhere on the card
+    // reorders it. A finger swipe scrolls; hold the ⠿ grip to reorder on touch.
     const MOVE_PX = 6;
     const TOUCH_HOLD_MS = 400;
     let pointerId = null;
@@ -1269,10 +1267,11 @@
     let lastY = 0;
     let dragging = false;
     let scrolling = false;
-    let scrollFromCard = false;
     let holdTimer = null;
     let pointerType = "mouse";
     let captured = false;
+    let listening = false;
+    let grabOffset = 0;
     let edgeDir = 0;
     let edgeRaf = 0;
 
@@ -1307,12 +1306,23 @@
 
     // Holding the pointer at the top of the screen keeps scrolling, so a
     // chiclet can walk upward past neighbours that are taller than the window.
+    // Keep the grabbed point under the cursor. The card used to sit still
+    // until the pointer crossed into the neighbour, so a drag looked like
+    // nothing was happening.
+    const stickToPointer = (clientY) => {
+      btn.style.transform = "none";
+      const laid = btn.getBoundingClientRect().top;
+      btn.style.transform = `translateY(${clientY - grabOffset - laid}px)`;
+    };
+
     const edgeTick = () => {
       edgeRaf = 0;
       if (!dragging || !edgeDir) return;
       const speed = 12 + Math.round(Math.abs(edgeDir) * 26);
       scrollPage(edgeDir < 0 ? -speed : speed);
+      stickToPointer(lastY);
       placeChicletAtY(wrap, btn, lastY);
+      stickToPointer(lastY);
       edgeRaf = requestAnimationFrame(edgeTick);
     };
 
@@ -1335,15 +1345,19 @@
       state.chicletDrag = true;
       btn.__suppressClick = true;
       btn.classList.add("dragging");
+      grabOffset = originY - btn.getBoundingClientRect().top;
       capturePointer();
     };
 
     const stopDrag = (commit) => {
       clearHold();
       stopEdge();
-      btn.removeEventListener("pointermove", onMove);
-      window.removeEventListener("pointerup", onUp);
-      window.removeEventListener("pointercancel", onUp);
+      if (listening) {
+        window.removeEventListener("pointermove", onMove);
+        window.removeEventListener("pointerup", onUp);
+        window.removeEventListener("pointercancel", onUp);
+        listening = false;
+      }
       if (captured) {
         try {
           btn.releasePointerCapture(pointerId);
@@ -1353,12 +1367,12 @@
       }
       if (dragging) {
         btn.classList.remove("dragging");
+        btn.style.transform = "";
         state.chicletDrag = false;
         if (commit) persistOrder();
       }
       dragging = false;
       scrolling = false;
-      scrollFromCard = false;
       captured = false;
       pointerId = null;
       btn.__swapFloor = null;
@@ -1382,14 +1396,13 @@
       }
       if (!dragging) {
         if (Math.hypot(dx, dy) < MOVE_PX) return;
-        // A mouse drag on the card scrolls — there is no touch pan for a mouse.
-        // Touch/pen on the grip: movement before the hold is a scroll too.
-        // The grip blocks native panning, so the page has to move with the finger.
-        if (scrollFromCard || pointerType !== "mouse") {
+        // Touch/pen on the grip: movement before the hold is a scroll. The grip
+        // blocks native panning, so the page has to move with the finger.
+        // A mouse drag reorders. The page still scrolls with the wheel.
+        if (pointerType !== "mouse") {
           clearHold();
           scrolling = true;
           btn.__suppressClick = true;
-          capturePointer();
           scrollPage(e.clientY - lastY);
           lastY = e.clientY;
           return;
@@ -1398,8 +1411,10 @@
       }
       e.preventDefault();
       lastY = e.clientY;
+      stickToPointer(e.clientY);
       aimEdge(e.clientY);
       placeChicletAtY(wrap, btn, e.clientY);
+      stickToPointer(e.clientY);
     };
 
     const onUp = (e) => {
@@ -1412,11 +1427,11 @@
       if (e.pointerType === "mouse" && e.button !== 0) return;
       if (e.target.closest(".mc-collapse")) return;
       const onGrip = !!e.target.closest(".mc-grip");
-      // Anywhere but the grip stays a scroll, including a press-drag on the charts.
-      // Touch already pans the page. A mouse drag has to scroll it from here.
+      // A finger swipe on the card scrolls. A mouse drag reorders from anywhere
+      // on the card — the grip alone is too easy to miss, and it sits on the
+      // top edge, so an upward drag leaves the button immediately.
       if (!onGrip && e.pointerType !== "mouse") return;
       pointerType = e.pointerType || "mouse";
-      scrollFromCard = !onGrip;
       pointerId = e.pointerId;
       originX = e.clientX;
       originY = e.clientY;
@@ -1426,9 +1441,16 @@
       captured = false;
       btn.__swapFloor = null;
       btn.__swapCeil = null;
-      btn.addEventListener("pointermove", onMove, { passive: false });
-      window.addEventListener("pointerup", onUp);
-      window.addEventListener("pointercancel", onUp);
+      // Listen on the window, and capture before the cursor moves. A listener
+      // on the card itself goes silent the moment the pointer crosses onto the
+      // chiclet above, which is exactly an upward drag.
+      if (!listening) {
+        window.addEventListener("pointermove", onMove, { passive: false });
+        window.addEventListener("pointerup", onUp);
+        window.addEventListener("pointercancel", onUp);
+        listening = true;
+      }
+      capturePointer();
       if (onGrip && pointerType !== "mouse") {
         holdTimer = setTimeout(startDrag, TOUCH_HOLD_MS);
       }
