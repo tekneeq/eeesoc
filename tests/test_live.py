@@ -2198,6 +2198,28 @@ def test_half_goals_row_tags_each_side_with_its_own_ht_score():
     assert "never the leader's sample on the trailer" in js
 
 
+def test_half_goal_cells_show_count_for_season_and_last_five():
+    """Each 0/1/2/3+ cell prints the percent and the game count, for season and last 5."""
+    js = Path("src/eeesoc/static/app.js").read_text(encoding="utf-8")
+    css = Path("src/eeesoc/static/app.css").read_text(encoding="utf-8")
+    html = Path("src/eeesoc/static/index.html").read_text(encoding="utf-8")
+    assert "recent_half_goals" in js
+    assert 'const recent = windowName === "recent"' in js
+    # Last 5 never borrows the league-wide season table.
+    assert "wide = recent ? null" in js
+    assert "if (!recent && wideN)" in js
+    assert 'tag: "season"' in js
+    assert 'tag: "last 5"' in js
+    assert "mc-half-window" in js
+    assert "mc-half-pct" in js
+    assert "mc-half-c" in js
+    assert "(${dist.counts[i]})" in js
+    assert "Last 5 is only that club's last five games" in js
+    assert ".mc-half-c" in css
+    assert "count of games in that bucket" in html
+    assert "whole season" in html and "last five" in html
+
+
 def test_live_chiclets_use_pointer_drag():
     """Live reorder must not rely on HTML5 DnD on <button> (broken in Firefox / SVG).
 

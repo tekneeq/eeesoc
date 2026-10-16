@@ -1965,21 +1965,25 @@
     return side === "home" ? `${hp.htHome}–${hp.htAway}` : `${hp.htAway}–${hp.htHome}`;
   }
 
-  function halfGoalsPick(m, side, hp) {
+  function halfGoalsPick(m, side, hp, windowName) {
     const league = state.clinical?.leagues?.[m.league_slug];
     const name = side === "home" ? m.home : m.away;
     const row = clinicalFor(m.league_slug, side === "home" ? m.home_id : m.away_id, name);
     const minN = state.clinical?.leagues?.[m.league_slug]?.half_goals_min_sample || 3;
+    const recent = windowName === "recent";
+    const club = recent ? row?.recent_half_goals : row?.half_goals;
     let own = null;
     let wide = null;
     let key = "";
     if (hp.phase === "1h") {
-      own = row?.half_goals?.first || null;
-      wide = league?.half_goals?.first || null;
+      own = club?.first || null;
+      // Last 5 stays this club's own games. The league table is the season, so it
+      // only fills in when the season row has nothing of the club's own.
+      wide = recent ? null : league?.half_goals?.first || null;
     } else if (!hp.unknown) {
       key = side === "home" ? `${hp.htHome}-${hp.htAway}` : `${hp.htAway}-${hp.htHome}`;
-      own = row?.half_goals?.second_by_ht?.[key] || null;
-      wide = league?.half_goals?.second_by_ht?.[`${hp.htHome}-${hp.htAway}`] || null;
+      own = club?.second_by_ht?.[key] || null;
+      wide = recent ? null : league?.half_goals?.second_by_ht?.[`${hp.htHome}-${hp.htAway}`] || null;
     }
     // The league tables are home–away view, so the away side's "scored" is the league's "allowed".
     const orient = (split) => {
@@ -1992,9 +1996,9 @@
     const wideN = wideSplit?.total?.n || 0;
     // The club's own matching games always lead — even one 0-0 half is that club's history.
     // Thin samples (below minN) are flagged and the league-wide split rides along for context.
-    if (own && ownN) return { split: own, source: "own", thin: ownN < minN, wide: wideN ? wideSplit : null, row, name, key, ownN };
-    if (wideN) return { split: wideSplit, source: "league", thin: false, wide: null, row, name, key, ownN };
-    return { split: null, source: "", thin: false, wide: null, row, name, key, ownN };
+    if (own && ownN) return { split: own, source: "own", thin: ownN < minN, wide: recent || !wideN ? null : wideSplit, row, name, key, ownN, windowName };
+    if (!recent && wideN) return { split: wideSplit, source: "league", thin: false, wide: null, row, name, key, ownN, windowName };
+    return { split: null, source: "", thin: false, wide: null, row, name, key, ownN, windowName };
   }
 
   function bucketWords(dist) {
@@ -2006,15 +2010,16 @@
   function halfGoalsTitle(m, side, hp, pick, metric) {
     const leagueLabel = state.clinical?.leagues?.[m.league_slug]?.label || m.league_chiclet;
     const noun = metric === "total" ? "total goals (both sides)" : metric === "scored" ? `goals scored by ${pick.name}` : `goals allowed by ${pick.name}`;
+    const span = pick.windowName === "recent" ? "last 5 games" : "whole season";
     const htWords = `${pick.key.replace("-", "–")} half-time score from ${pick.name}'s side`;
     const what = hp.phase === "1h" ? `${noun} in the first half` : `${noun} in the second half after a ${htWords}`;
     if (hp.unknown) return `${pick.name}: waiting for the timeline to read the half-time score`;
     const dist = pick.split?.[metric];
-    if (!dist) return `${pick.name}: no archived games yet to split ${what}`;
+    if (!dist) return `${pick.name}: no archived games yet to split ${what} (${span})`;
     const n = dist.n;
     const games = hp.phase === "1h" ? `archived game${n === 1 ? "" : "s"}` : `archived game${n === 1 ? "" : "s"} that stood ${pick.key.replace("-", "–")} at the break`;
     if (pick.source === "own") {
-      let text = `${pick.name}: ${what} — ${bucketWords(dist)}. From ${pick.name}'s ${n} ${games}.`;
+      let text = `${pick.name}: ${what} — ${bucketWords(dist)}. From ${pick.name}'s ${n} ${games}, ${span}.`;
       if (pick.thin && pick.wide?.[metric]?.n) {
         const w = pick.wide[metric];
         text += ` Thin sample — league-wide over ${w.n} ${leagueLabel} game${w.n === 1 ? "" : "s"}: ${bucketWords(w)}.`;
@@ -2024,8 +2029,8 @@
     return `${pick.name}: ${what} — ${bucketWords(dist)}. From ${n} ${leagueLabel} game${n === 1 ? "" : "s"} league-wide (${pick.name} has no matching game archived yet).`;
   }
 
-  function halfGoalsSideHtml(m, side, hp, metric) {
-    const pick = halfGoalsPick(m, side, hp);
+  function halfGoalsSideHtml(m, side, hp, metric, windowName) {
+    const pick = halfGoalsPick(m, side, hp, windowName);
     const title = escapeHtml(halfGoalsTitle(m, side, hp, pick, metric));
     const dist = pick.split?.[metric];
     if (hp.unknown || !dist) {
@@ -2035,7 +2040,8 @@
     const pcts = dist.counts.map((c) => Math.round((100 * c) / n));
     const top = Math.max(...pcts);
     const cells = GOAL_BUCKETS.map(
-      (b, i) => `<span class="mc-half-b${pcts[i] === top ? " top" : ""}"><b>${b}</b>${pcts[i]}%</span>`,
+      (b, i) =>
+        `<span class="mc-half-b${pcts[i] === top ? " top" : ""}"><b>${b}</b><span class="mc-half-pct">${pcts[i]}%</span><span class="mc-half-c">(${dist.counts[i]})</span></span>`,
     ).join("");
     const src = pick.source === "league" ? `<span class="mc-power-rank mc-half-n">${n} lg</span>` : `<span class="mc-power-rank mc-half-n">${n} g</span>`;
     const htTag = hp.phase !== "1h" && pick.key ? `<span class="mc-half-ht">${escapeHtml(pick.key.replace("-", "–"))}</span>` : "";
@@ -2049,23 +2055,31 @@
     { metric: "allowed", word: "allowed", noun: "goals the club allowed" },
   ];
 
+  const HALF_WINDOWS = [
+    { id: "season", tag: "season" },
+    { id: "recent", tag: "last 5" },
+  ];
+
   function halfGoalsRowsHtml(m) {
     const hp = halfPhase(m);
     if (!hp) return [];
     const common =
-      " Bold = most common. The small number is how many of the club's own games the split comes from; dashed cells mean a thin sample (the tooltip adds the league-wide split), 'lg' means the club has no matching game yet so the league-wide split is shown.";
+      " Each bucket shows the percent and, beside it, how many games landed there. Bold = most common. The small number after the buckets is how many of the club's own games the split comes from; dashed cells mean a thin sample (the season tooltip adds the league-wide split), 'lg' means the club has no matching game yet so the league-wide season split is shown. Last 5 is only that club's last five games.";
     const homeHt = ownHtScore(hp, "home");
     const awayHt = ownHtScore(hp, "away");
-    return HALF_METRICS.map(({ metric, word, noun }) => {
-      const label = hp.phase === "1h" ? `🥅 1H ${word}` : "🥅 2H " + word;
-      const help =
-        hp.phase === "1h"
-          ? `How often each club's first halves this season produced 0 / 1 / 2 / 3+ ${noun}.${common}`
-          : hp.unknown
-            ? `Waiting for the timeline to read the half-time score.${common}`
-            : `Each side uses its own score at the break: home after ${homeHt}, away after ${awayHt}. So a 2–0 home lead looks up the home club's games when they led 2–0, and the away club's games when they trailed 0–2 — never the leader's sample on the trailer. How often those second halves produced 0 / 1 / 2 / 3+ ${noun}.${common}`;
-      return `${halfGoalsSideHtml(m, "home", hp, metric)}<span class="mc-power-label" title="${escapeHtml(help)}">${label}</span>${halfGoalsSideHtml(m, "away", hp, metric)}`;
-    });
+    return HALF_METRICS.flatMap(({ metric, word, noun }) =>
+      HALF_WINDOWS.map(({ id, tag }) => {
+        const label = hp.phase === "1h" ? `🥅 1H ${word}` : "🥅 2H " + word;
+        const span = id === "recent" ? "the last 5 games" : "the whole season";
+        const help =
+          hp.phase === "1h"
+            ? `How often each club's first halves produced 0 / 1 / 2 / 3+ ${noun}, over ${span}.${common}`
+            : hp.unknown
+              ? `Waiting for the timeline to read the half-time score.${common}`
+              : `Each side uses its own score at the break: home after ${homeHt}, away after ${awayHt}. So a 2–0 home lead looks up the home club's games when they led 2–0, and the away club's games when they trailed 0–2 — never the leader's sample on the trailer. How often those second halves produced 0 / 1 / 2 / 3+ ${noun}, over ${span}.${common}`;
+        return `${halfGoalsSideHtml(m, "home", hp, metric, id)}<span class="mc-power-label" title="${escapeHtml(help)}"><span class="mc-half-label">${label}</span><span class="mc-half-window">${tag}</span></span>${halfGoalsSideHtml(m, "away", hp, metric, id)}`;
+      }),
+    );
   }
 
   // ---------------------------------------------------------------------------

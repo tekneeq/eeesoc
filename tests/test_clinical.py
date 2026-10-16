@@ -554,6 +554,52 @@ def test_half_goals_buckets_three_plus_and_skips_games_without_ht_score():
     }
 
 
+def test_recent_half_goals_are_the_last_five_and_season_is_every_game():
+    """The oldest of six games stays in the season split and drops out of last 5."""
+    assert FORM_GAMES == 5
+    recs = [
+        # Oldest: 0-0 at the break, one second-half goal. First-half bucket 0.
+        _rec("old", "Alpha FC", "Beta Town", "10", "20", [_ev(70, "goal", "home", 0.4)], start="2026-08-01"),
+    ]
+    for i in range(5):
+        # Two first-half goals, nothing after the break. First-half bucket 2, HT key 2-0.
+        recs.append(
+            _rec(
+                f"r{i}",
+                "Alpha FC",
+                "Beta Town",
+                "10",
+                "20",
+                [_ev(10, "goal", "home", 0.3), _ev(20, "goal", "home", 0.3)],
+                start=f"2026-08-{i + 2:02d}",
+            )
+        )
+    by = {t["team"]: t for t in build_clinical_board(recs)["leagues"]["eng.1"]["teams"]}
+
+    def dist(*counts):
+        return {"n": sum(counts), "counts": list(counts)}
+
+    alpha = by["Alpha FC"]
+    assert alpha["games"] == 6
+    assert alpha["half_goals"]["first"]["total"] == dist(1, 0, 5, 0)
+    assert alpha["half_goals"]["first"]["scored"] == dist(1, 0, 5, 0)
+    assert alpha["half_goals"]["first"]["allowed"] == dist(6, 0, 0, 0)
+    assert set(alpha["half_goals"]["second_by_ht"]) == {"0-0", "2-0"}
+    assert alpha["half_goals"]["second_by_ht"]["0-0"]["total"] == dist(0, 1, 0, 0)
+    assert alpha["half_goals"]["second_by_ht"]["2-0"]["total"] == dist(5, 0, 0, 0)
+    # Last five are the 2-0 halves only — the 0-0 night is season-only.
+    assert alpha["recent_half_goals"]["first"]["total"] == dist(0, 0, 5, 0)
+    assert alpha["recent_half_goals"]["first"]["scored"] == dist(0, 0, 5, 0)
+    assert alpha["recent_half_goals"]["first"]["allowed"] == dist(5, 0, 0, 0)
+    assert set(alpha["recent_half_goals"]["second_by_ht"]) == {"2-0"}
+    assert alpha["recent_half_goals"]["second_by_ht"]["2-0"]["total"] == dist(5, 0, 0, 0)
+    # The other side of the pitch: last 5 trails 0-2, and the dropped game was 0-0.
+    beta = by["Beta Town"]
+    assert set(beta["half_goals"]["second_by_ht"]) == {"0-0", "0-2"}
+    assert set(beta["recent_half_goals"]["second_by_ht"]) == {"0-2"}
+    assert beta["recent_half_goals"]["first"]["allowed"] == dist(0, 0, 5, 0)
+
+
 def _box_entries(home: int, away: int) -> dict:
     return {
         "1": {"home": list(range(home)), "away": list(range(away))},
