@@ -971,8 +971,38 @@
       .replaceAll('"', "&quot;");
   }
 
-  const TEAM_DROP = /^(fc|cf|afc|sc|ac|as|ss|ud|cd|rc|the|&|and)$/i;
+  // Club-type tags and articles that carry no identity: FC, VfB, TSG, SV, de, …
+  const TEAM_DROP = /^(fc|cf|afc|sc|ac|as|ss|ud|cd|rc|rcd|vfb|vfl|vfr|tsg|tsv|sv|fsv|bsc|spvgg|fk|nk|sk|kv|krc|rsc|gks|the|&|and|de|del|di|da|do|of|la|le)$/i;
+  // Trailing words shared by many clubs: Newcastle United → Newcastle.
   const TEAM_GENERIC = /^(united|city|town|athletic|rovers|wanderers|albion|hotspur|county)$/i;
+  // Leading brands shared by many clubs: Borussia Dortmund → Dortmund, not Borussia.
+  const TEAM_BRAND = /^(borussia|eintracht|bayer|dynamo|dinamo|lokomotiv|spartak|fortuna|viktoria|deportivo|olympique|racing|real)$/i;
+  // Ordinals and founding years: "1." FC Köln, Mainz "05", Hoffenheim "1899".
+  const TEAM_NUMBER = /^\d+\.?$/;
+  // Names whose natural short form is wrong or ambiguous. Keyed without accents.
+  const TEAM_NICK = {
+    "manchester united": ["Man United", "Man Utd"],
+    "manchester city": ["Man City"],
+    "wolverhampton wanderers": ["Wolves"],
+    "brighton hove albion": ["Brighton"],
+    "nottingham forest": ["Nottm Forest", "Forest"],
+    "sheffield united": ["Sheff Utd"],
+    "sheffield wednesday": ["Sheff Wed"],
+    "west bromwich albion": ["West Brom"],
+    "borussia monchengladbach": ["Gladbach"],
+    "paris saint germain": ["PSG"],
+    "olympique lyonnais": ["Lyon"],
+    "internazionale": ["Inter"],
+    "sporting kansas city": ["Sporting KC"],
+  };
+
+  function teamNameKey(parts) {
+    return parts
+      .join(" ")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase();
+  }
 
   function teamNameParts(name) {
     return String(name || "")
@@ -981,17 +1011,35 @@
       .filter((p) => p && !TEAM_DROP.test(p.replace(/\./g, "")));
   }
 
+  function teamNick(parts, maxLen) {
+    const names = TEAM_NICK[teamNameKey(parts)];
+    if (!names) return "";
+    return names.find((n) => n.length <= maxLen) || "";
+  }
+
+  // "1. FC Union Berlin" → "Union Berlin", "Borussia Dortmund" → "Dortmund",
+  // "Newcastle United" → "Newcastle", "Manchester United" → "Man United".
   function shortTeamName(name, maxLen) {
     const s = String(name || "").trim();
     if (!s) return "";
-    if (s.length <= maxLen) return s;
     const parts = teamNameParts(s);
+    const nick = parts.length ? teamNick(parts, maxLen) : "";
+    if (nick) return nick;
+    if (s.length <= maxLen) return s;
     if (!parts.length) return `${s.slice(0, Math.max(1, maxLen - 1))}…`;
+    // Numbers only go when a word is left to carry the name (1860 Munich keeps its year).
+    let words = parts.filter((p) => !TEAM_NUMBER.test(p));
+    if (!words.length) words = parts;
     // Drop trailing "United" / "City" / … so the first name can stand alone.
-    while (parts.length > 1 && TEAM_GENERIC.test(parts[parts.length - 1])) parts.pop();
-    const core = parts.join(" ");
+    while (words.length > 1 && TEAM_GENERIC.test(words[words.length - 1])) words.pop();
+    const core = words.join(" ");
     if (core.length <= maxLen) return core;
-    const first = parts[0];
+    // A shared brand up front says less than the city after it.
+    if (words.length > 1 && TEAM_BRAND.test(words[0].normalize("NFD").replace(/[\u0300-\u036f]/g, ""))) {
+      const rest = words.slice(1).join(" ");
+      if (rest.length <= maxLen) return rest;
+    }
+    const first = words[0];
     if (first.length <= maxLen) return first;
     return `${first.slice(0, maxLen - 1)}…`;
   }

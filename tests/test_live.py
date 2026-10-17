@@ -885,15 +885,42 @@ def test_short_team_name_prefers_first_word():
 const cases = [
   ["Newcastle United", 14, "Newcastle"],
   ["Newcastle United", 10, "Newcastle"],
-  ["Manchester United", 14, "Manchester"],
+  ["Manchester United", 14, "Man United"],
+  ["Manchester United", 10, "Man United"],
+  ["Manchester City", 14, "Man City"],
   ["West Ham United", 14, "West Ham"],
   ["Tottenham Hotspur", 14, "Tottenham"],
-  ["Brighton & Hove Albion", 14, "Brighton Hove"],
+  ["Brighton & Hove Albion", 14, "Brighton"],
   ["Crystal Palace", 14, "Crystal Palace"],
   ["Real Madrid", 14, "Real Madrid"],
-  ["Wolverhampton Wanderers", 14, "Wolverhampton"],
-  ["Wolverhampton Wanderers", 10, "Wolverham…"],
+  ["Real Valladolid", 14, "Valladolid"],
+  ["Wolverhampton Wanderers", 14, "Wolves"],
+  ["Wolverhampton Wanderers", 10, "Wolves"],
+  ["Nottingham Forest", 14, "Nottm Forest"],
+  ["Nottingham Forest", 10, "Forest"],
   ["AFC Bournemouth", 14, "Bournemouth"],
+  // Numbers and club tags go; the words that name the club stay.
+  ["1. FC Union Berlin", 14, "Union Berlin"],
+  ["1. FC Union Berlin", 10, "Union"],
+  ["1. FC Köln", 14, "1. FC Köln"],
+  ["1. FC Heidenheim 1846", 14, "Heidenheim"],
+  ["TSG 1899 Hoffenheim", 14, "Hoffenheim"],
+  ["FSV Mainz 05", 10, "Mainz"],
+  ["VfB Stuttgart", 10, "Stuttgart"],
+  ["1860 Munich", 14, "1860 Munich"],
+  ["Stade Brestois 29", 14, "Stade Brestois"],
+  // A shared brand says less than the city: Dortmund, not Borussia.
+  ["Borussia Dortmund", 14, "Dortmund"],
+  ["Borussia Dortmund", 10, "Dortmund"],
+  ["Borussia Mönchengladbach", 14, "Gladbach"],
+  ["Eintracht Frankfurt", 14, "Frankfurt"],
+  ["Bayer Leverkusen", 14, "Leverkusen"],
+  ["Deportivo Alavés", 14, "Alavés"],
+  ["Olympique de Marseille", 14, "Marseille"],
+  ["Olympique Lyonnais", 14, "Lyon"],
+  ["Paris Saint-Germain", 14, "PSG"],
+  ["Atlético Madrid", 14, "Atlético"],
+  ["Athletic Bilbao", 14, "Athletic"],
 ];
 let bad = 0;
 for (const [name, max, want] of cases) {
@@ -901,7 +928,10 @@ for (const [name, max, want] of cases) {
   if (got !== want) { console.error(JSON.stringify({name, max, want, got})); bad++; }
 }
 if (shortName("Newcastle United") !== "Newcastle") { console.error("shortName"); bad++; }
+if (shortName("1. FC Union Berlin") !== "Union Berlin") { console.error("shortName Union"); bad++; }
+if (shortName("Borussia Dortmund") !== "Dortmund") { console.error("shortName BVB"); bad++; }
 if (last5OppName("Newcastle United") !== "Newcastle") { console.error("last5"); bad++; }
+if (last5OppName("Borussia Dortmund") !== "Dortmund") { console.error("last5 BVB"); bad++; }
 if (last5OppName("Newcastle United") === "N. United") { console.error("old last5"); bad++; }
 process.exit(bad ? 1 : 0);
 """
