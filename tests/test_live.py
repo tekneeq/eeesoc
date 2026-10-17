@@ -2220,6 +2220,54 @@ def test_half_goal_cells_show_count_for_season_and_last_five():
     assert "whole season" in html and "last five" in html
 
 
+def test_expected_goals_row_scales_league_average_by_offence_and_defence():
+    """League goals per team-game × attack over par × par over the other defence."""
+    js = Path("src/eeesoc/static/app.js").read_text(encoding="utf-8")
+    css = Path("src/eeesoc/static/app.css").read_text(encoding="utf-8")
+    html = Path("src/eeesoc/static/index.html").read_text(encoding="utf-8")
+    assert "function expectedGoalsRowHtml" in js
+    assert "⚽ expected" in js
+    assert 'rows.findIndex((html) => html.includes("🛡 defence"))' in js
+    assert "off ${own.offense_power} ${oRank}" in js
+    assert "v def ${opp.defense_power} ${dRank}" in js
+    assert ".mc-xg-side.favoured" in css and ".mc-xg-side.underdog" in css
+    assert "<b>⚽ expected</b>" in html
+
+    script = (
+        js[js.index("function expectedGoalsPair") : js.index("function expectedGoalsSideHtml")]
+        + r"""
+const league = { par_power: 50, par_goals_per_game: 1.4 };
+const home = { offense_power: 70, defense_power: 70 };
+const away = { offense_power: 40, defense_power: 40 };
+const pair = expectedGoalsPair(home, away, league);
+// 1.4 × (70/50) × (50/40) = 2.45 for the home side.
+if (Math.abs(pair.home - 2.45) > 1e-9) process.exit(2);
+// 1.4 × (40/50) × (50/70) = 0.8 for the away side.
+if (Math.abs(pair.away - 0.8) > 1e-9) process.exit(3);
+if (expectedEdge(pair.home, pair.away) !== "favoured") process.exit(4);
+if (expectedEdge(pair.away, pair.home) !== "underdog") process.exit(5);
+if (expectedEdge(1.2, 1.4) !== "even") process.exit(6);
+// Par attack against par defence is the league average.
+const par = expectedGoalsPair({ offense_power: 50, defense_power: 50 }, { offense_power: 50, defense_power: 50 }, league);
+if (Math.abs(par.home - 1.4) > 1e-9 || Math.abs(par.away - 1.4) > 1e-9) process.exit(7);
+// A missing club has no read.
+const missing = expectedGoalsPair(home, null, league);
+if (missing.home !== null || missing.away !== null) process.exit(8);
+if (expectedEdge(null, 1) !== "") process.exit(9);
+"""
+    )
+    import subprocess
+    import tempfile
+    with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as fh:
+        fh.write(script)
+        name = fh.name
+    try:
+        proc = subprocess.run(["node", name], capture_output=True, text=True)
+    finally:
+        Path(name).unlink(missing_ok=True)
+    assert proc.returncode == 0, proc.stderr or proc.stdout
+
+
 def test_live_chiclets_use_pointer_drag():
     """Live reorder must not rely on HTML5 DnD on <button> (broken in Firefox / SVG).
 
