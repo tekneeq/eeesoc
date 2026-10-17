@@ -1142,6 +1142,7 @@
           });
         }
       }
+      if (scope === "live") paintChicletMoveButtons(wrap);
       grid.appendChild(wrap);
       return;
     }
@@ -1202,55 +1203,24 @@
     timelineObserver.observe(btn);
   }
 
-  // Where a dragged chiclet lands. These cards are taller than the window, and
-  // the pointer is usually somewhere in the middle of one. Compare the card's
-  // own top and bottom — where it is on screen — not the pointer. Otherwise a
-  // drag lifts the card and then snaps it back, because the pointer never
-  // reaches the neighbour. floor/ceil are on the card's top so a tall card
-  // cannot bounce straight back.
-  function chicletDropIndex(rects, index, visualTop, height, lock) {
-    const SWAP = 36;
-    const floor = lock && lock.floor != null ? lock.floor : null;
-    const ceil = lock && lock.ceil != null ? lock.ceil : null;
-    const visualBottom = visualTop + height;
-    if (index > 0) {
-      const prev = rects[index - 1];
-      const span = Math.max(0, prev.bottom - prev.top);
-      const edge = prev.bottom - Math.min(SWAP, span / 2);
-      if (visualTop < edge && (ceil == null || visualTop < ceil)) {
-        return { index: index - 1, floor: visualTop + SWAP, ceil: null };
-      }
-    }
-    if (index < rects.length - 1) {
-      const next = rects[index + 1];
-      const span = Math.max(0, next.bottom - next.top);
-      const edge = next.top + Math.min(SWAP, span / 2);
-      if (visualBottom > edge && (floor == null || visualTop > floor)) {
-        return { index: index + 1, floor: null, ceil: visualTop - SWAP };
-      }
-    }
-    return { index, floor, ceil };
+  // One slot per drag, in the direction the pointer moved. A tall card's
+  // bottom used to hang over the next chiclet, so dragging up still resolved
+  // as a move down.
+  function chicletDragStep(index, count, dy) {
+    const SWAP = 28;
+    if (dy <= -SWAP && index > 0) return index - 1;
+    if (dy >= SWAP && index < count - 1) return index + 1;
+    return index;
   }
 
   function placeChicletAtY(wrap, card, clientY) {
     const cards = [...wrap.querySelectorAll(".match-chiclet")];
     const index = cards.indexOf(card);
     if (index < 0) return;
-    const rects = cards.map((el) => {
-      if (el === card) return { top: 0, bottom: 0 };
-      const r = el.getBoundingClientRect();
-      return { top: r.top, bottom: r.bottom };
-    });
-    const visualTop = clientY - (card.__grabOffset || 0);
-    const drop = chicletDropIndex(rects, index, visualTop, card.offsetHeight, {
-      floor: card.__swapFloor ?? null,
-      ceil: card.__swapCeil ?? null,
-    });
-    card.__swapFloor = drop.floor;
-    card.__swapCeil = drop.ceil;
-    if (drop.index === index) return;
-    const target = cards[drop.index];
-    if (drop.index < index) {
+    const next = chicletDragStep(index, cards.length, clientY - (card.__dragOriginY ?? clientY));
+    if (next === index) return;
+    const target = cards[next];
+    if (next < index) {
       wrap.insertBefore(card, target);
       return;
     }
@@ -1259,35 +1229,89 @@
     else wrap.appendChild(card);
   }
 
+  // ▲ ⠿ ▼ in the chiclet's top-left corner. The arrows are the sure way to
+  // move a card: one click, one slot, no gesture to get right. The grip is the
+  // touch handle for a drag.
+  function chicletMoveHtml() {
+    return (
+      `<span class="mc-move">` +
+      `<span class="mc-move-btn up" role="button" tabindex="0" data-move="-1" title="Move this chiclet up one" aria-label="Move up">▲</span>` +
+      `<span class="mc-grip" title="Drag to reorder" aria-hidden="true">⠿</span>` +
+      `<span class="mc-move-btn down" role="button" tabindex="0" data-move="1" title="Move this chiclet down one" aria-label="Move down">▼</span>` +
+      `</span>`
+    );
+  }
+
+  // Move a live chiclet one slot and keep it where the eye was. The list is
+  // re-laid, so scroll by however far the card jumped and it stays put on screen.
+  function moveChiclet(btn, dir) {
+    const wrap = btn?.parentElement;
+    if (!wrap || !dir) return false;
+    const cards = [...wrap.querySelectorAll(":scope > .match-chiclet")];
+    const index = cards.indexOf(btn);
+    const next = index + (dir < 0 ? -1 : 1);
+    if (index < 0 || next < 0 || next >= cards.length) return false;
+    const wasTop = btn.getBoundingClientRect().top;
+    const target = cards[next];
+    if (dir < 0) wrap.insertBefore(btn, target);
+    else if (target.nextElementSibling) wrap.insertBefore(btn, target.nextElementSibling);
+    else wrap.appendChild(btn);
+    persistChicletOrder(
+      [...wrap.querySelectorAll(".match-chiclet[data-event-id]")].map((el) => String(el.dataset.eventId))
+    );
+    const scroller = document.scrollingElement || document.documentElement;
+    scroller.scrollBy(0, btn.getBoundingClientRect().top - wasTop);
+    paintChicletMoveButtons(wrap);
+    return true;
+  }
+
+  // The first card cannot go up and the last cannot go down.
+  function paintChicletMoveButtons(wrap) {
+    if (!wrap) return;
+    const cards = [...wrap.querySelectorAll(":scope > .match-chiclet")];
+    cards.forEach((card, i) => {
+      card.querySelector(".mc-move-btn.up")?.classList.toggle("off", i === 0);
+      card.querySelector(".mc-move-btn.down")?.classList.toggle("off", i === cards.length - 1);
+    });
+  }
+
+  function bindChicletMove(btn) {
+    btn.querySelectorAll(".mc-move-btn").forEach((el) => {
+      if (el.dataset.bound === "1") return;
+      el.dataset.bound = "1";
+      const go = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        btn.__suppressClick = false;
+        moveChiclet(btn, Number(el.dataset.move) || 0);
+      };
+      // Mouse presses would otherwise start a drag of the whole card.
+      el.addEventListener("pointerdown", (e) => e.stopPropagation());
+      el.addEventListener("click", go);
+      el.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" || e.key === " ") go(e);
+      });
+    });
+  }
+
   function makeChicletDraggable(btn, wrap) {
     // Pointer drag — HTML5 DnD on <button> (and on SVG children) is unreliable:
     // Firefox never starts the drag, and Chromium often cancels it the moment
     // insertBefore moves the drag source. A mouse drag anywhere on the card
-    // reorders it. A finger swipe scrolls; hold the ⠿ grip to reorder on touch.
+    // reorders it. A finger swipe on the card scrolls; a finger on the ⠿ grip
+    // drags at once — a hold-then-drag was lost whenever the finger moved
+    // first, which on a phone is always.
     const MOVE_PX = 6;
-    const TOUCH_HOLD_MS = 400;
     let pointerId = null;
     let originX = 0;
     let originY = 0;
     let lastY = 0;
     let dragging = false;
-    let scrolling = false;
-    let holdTimer = null;
     let pointerType = "mouse";
     let captured = false;
     let listening = false;
-    let grabOffset = 0;
     let homeTop = 0;
-    let scrollAtStart = 0;
-    let edgeDir = 0;
-    let edgeRaf = 0;
-
-    const clearHold = () => {
-      if (holdTimer) {
-        clearTimeout(holdTimer);
-        holdTimer = null;
-      }
-    };
+    let scrollLock = null;
 
     const persistOrder = () => {
       persistChicletOrder(
@@ -1305,55 +1329,43 @@
       }
     };
 
-    const stopEdge = () => {
-      edgeDir = 0;
-      if (edgeRaf) cancelAnimationFrame(edgeRaf);
-      edgeRaf = 0;
-    };
-
-    // Follow with translateY, not position:fixed. The list's rise animation
-    // leaves a transform on the grid, and a fixed card inside it is positioned
-    // against the grid — so it flies off the screen. The button stays in the
-    // DOM until the pointer is released; moving it earlier makes Chromium
-    // drop the gesture.
-    const follow = (clientY) => {
+    // The page must not scroll while the card is held. Dragging toward the
+    // top of the window was auto-scrolling the list downward, so the chiclet
+    // went down with the page instead of up with the pointer.
+    const lockPage = () => {
       const scroller = document.scrollingElement || document.documentElement;
-      const scrolled = scroller.scrollTop - scrollAtStart;
-      btn.style.transform = `translateY(${clientY - originY + scrolled}px)`;
+      scrollLock = scroller.scrollTop;
+      document.documentElement.style.overflow = "hidden";
+      document.body.style.overflow = "hidden";
     };
 
-    const edgeTick = () => {
-      edgeRaf = 0;
-      if (!dragging || !edgeDir) return;
-      const speed = 12 + Math.round(Math.abs(edgeDir) * 26);
-      scrollPage(edgeDir < 0 ? -speed : speed);
-      follow(lastY);
-      edgeRaf = requestAnimationFrame(edgeTick);
-    };
-
-    const aimEdge = (clientY) => {
-      const zone = 80;
-      const view = window.innerHeight || 0;
-      if (clientY < zone) edgeDir = -Math.max(0.35, (zone - clientY) / zone);
-      else if (view && clientY > view - zone) edgeDir = Math.max(0.35, (clientY - (view - zone)) / zone);
-      else edgeDir = 0;
-      if (edgeDir && !edgeRaf) edgeRaf = requestAnimationFrame(edgeTick);
-      if (!edgeDir && edgeRaf) {
-        cancelAnimationFrame(edgeRaf);
-        edgeRaf = 0;
+    const unlockPage = () => {
+      document.documentElement.style.overflow = "";
+      document.body.style.overflow = "";
+      if (scrollLock != null) {
+        const scroller = document.scrollingElement || document.documentElement;
+        scroller.scrollTop = scrollLock;
       }
+      scrollLock = null;
+    };
+
+    const follow = (clientY) => {
+      if (scrollLock != null) {
+        const scroller = document.scrollingElement || document.documentElement;
+        if (scroller.scrollTop !== scrollLock) scroller.scrollTop = scrollLock;
+      }
+      btn.style.transform = `translateY(${clientY - originY}px)`;
     };
 
     const startDrag = () => {
-      if (dragging || scrolling || pointerId == null) return;
+      if (dragging || pointerId == null) return;
       dragging = true;
       state.chicletDrag = true;
       btn.__suppressClick = true;
       const rect = btn.getBoundingClientRect();
       homeTop = rect.top;
-      grabOffset = originY - rect.top;
-      btn.__grabOffset = grabOffset;
-      scrollAtStart = (document.scrollingElement || document.documentElement).scrollTop;
+      btn.__dragOriginY = originY;
+      lockPage();
       btn.classList.add("dragging");
       btn.style.transition = "none";
       btn.style.zIndex = "40";
@@ -1363,6 +1375,7 @@
     const settle = (commit) => {
       const visualTop = homeTop + (lastY - originY);
       const before = [...wrap.querySelectorAll(".match-chiclet")].map((el) => el.dataset.eventId).join();
+      unlockPage();
       if (commit) placeChicletAtY(wrap, btn, lastY);
       const moved = [...wrap.querySelectorAll(".match-chiclet")].map((el) => el.dataset.eventId).join() !== before;
       // Keep transition off until the new layout position is measured.
@@ -1374,6 +1387,7 @@
         const laid = btn.getBoundingClientRect().top;
         scrollPage(laid - visualTop);
         persistOrder();
+        paintChicletMoveButtons(wrap);
       }
       btn.classList.remove("dragging");
       btn.style.transition = "";
@@ -1382,8 +1396,6 @@
     };
 
     const stopDrag = (commit) => {
-      clearHold();
-      stopEdge();
       if (listening) {
         window.removeEventListener("pointermove", onMove);
         window.removeEventListener("pointerup", onUp);
@@ -1399,12 +1411,9 @@
       }
       if (dragging) settle(commit);
       dragging = false;
-      scrolling = false;
       captured = false;
       pointerId = null;
-      btn.__grabOffset = 0;
-      btn.__swapFloor = null;
-      btn.__swapCeil = null;
+      btn.__dragOriginY = null;
     };
 
     const scrollPage = (dy) => {
@@ -1417,30 +1426,13 @@
       if (e.pointerId !== pointerId) return;
       const dx = e.clientX - originX;
       const dy = e.clientY - originY;
-      if (scrolling) {
-        scrollPage(e.clientY - lastY);
-        lastY = e.clientY;
-        return;
-      }
       if (!dragging) {
         if (Math.hypot(dx, dy) < MOVE_PX) return;
-        // Touch/pen on the grip: movement before the hold is a scroll. The grip
-        // blocks native panning, so the page has to move with the finger.
-        // A mouse drag reorders. The page still scrolls with the wheel.
-        if (pointerType !== "mouse") {
-          clearHold();
-          scrolling = true;
-          btn.__suppressClick = true;
-          scrollPage(e.clientY - lastY);
-          lastY = e.clientY;
-          return;
-        }
         startDrag();
       }
       e.preventDefault();
       lastY = e.clientY;
       follow(e.clientY);
-      aimEdge(e.clientY);
     };
 
     const onUp = (e) => {
@@ -1451,11 +1443,12 @@
     btn.addEventListener("pointerdown", (e) => {
       if (e.isPrimary === false) return;
       if (e.pointerType === "mouse" && e.button !== 0) return;
-      if (e.target.closest(".mc-collapse")) return;
+      if (e.target.closest(".mc-collapse") || e.target.closest(".mc-move-btn")) return;
       const onGrip = !!e.target.closest(".mc-grip");
-      // A finger swipe on the card scrolls. A mouse drag reorders from anywhere
-      // on the card — the grip alone is too easy to miss, and it sits on the
-      // top edge, so an upward drag leaves the button immediately.
+      // A finger swipe on the card scrolls (touch-action: pan-y); only the grip
+      // (touch-action: none) takes a touch drag. A mouse drag reorders from
+      // anywhere on the card — the grip alone is too easy to miss, and it sits
+      // on the top edge, so an upward drag leaves the button immediately.
       if (!onGrip && e.pointerType !== "mouse") return;
       pointerType = e.pointerType || "mouse";
       pointerId = e.pointerId;
@@ -1463,10 +1456,8 @@
       originY = e.clientY;
       lastY = e.clientY;
       dragging = false;
-      scrolling = false;
       captured = false;
-      btn.__swapFloor = null;
-      btn.__swapCeil = null;
+      btn.__dragOriginY = null;
       // Listen on the window, and capture before the cursor moves. A listener
       // on the card itself goes silent the moment the pointer crosses onto the
       // chiclet above, which is exactly an upward drag.
@@ -1477,9 +1468,6 @@
         listening = true;
       }
       capturePointer();
-      if (onGrip && pointerType !== "mouse") {
-        holdTimer = setTimeout(startDrag, TOUCH_HOLD_MS);
-      }
     });
   }
 
@@ -2502,7 +2490,7 @@
     btn.innerHTML = `
       <span class="mc-top">
         <span class="mc-top-left">
-          ${withTimeline && !finished && !upcoming ? `<span class="mc-grip" title="Drag to reorder" aria-hidden="true">⠿</span>` : ""}
+          ${withTimeline && !finished && !upcoming ? chicletMoveHtml() : ""}
           ${badge}
           ${finished || upcoming ? `<span class="mc-ft-when">${escapeHtml(finished ? finishedWhen(m) : upcomingWhen(m))}</span>` : ""}
         </span>
@@ -2528,6 +2516,7 @@
       if (btn.__onSelect) btn.__onSelect(btn.__match);
     });
     bindCollapse(btn);
+    bindChicletMove(btn);
     return btn;
   }
 
