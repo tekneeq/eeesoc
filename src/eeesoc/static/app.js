@@ -1298,28 +1298,20 @@
     // Pointer drag — HTML5 DnD on <button> (and on SVG children) is unreliable:
     // Firefox never starts the drag, and Chromium often cancels it the moment
     // insertBefore moves the drag source. A mouse drag anywhere on the card
-    // reorders it. A finger swipe scrolls; hold the ⠿ grip to reorder on touch.
+    // reorders it. A finger swipe on the card scrolls; a finger on the ⠿ grip
+    // drags at once — a hold-then-drag was lost whenever the finger moved
+    // first, which on a phone is always.
     const MOVE_PX = 6;
-    const TOUCH_HOLD_MS = 400;
     let pointerId = null;
     let originX = 0;
     let originY = 0;
     let lastY = 0;
     let dragging = false;
-    let scrolling = false;
-    let holdTimer = null;
     let pointerType = "mouse";
     let captured = false;
     let listening = false;
     let homeTop = 0;
     let scrollLock = null;
-
-    const clearHold = () => {
-      if (holdTimer) {
-        clearTimeout(holdTimer);
-        holdTimer = null;
-      }
-    };
 
     const persistOrder = () => {
       persistChicletOrder(
@@ -1366,7 +1358,7 @@
     };
 
     const startDrag = () => {
-      if (dragging || scrolling || pointerId == null) return;
+      if (dragging || pointerId == null) return;
       dragging = true;
       state.chicletDrag = true;
       btn.__suppressClick = true;
@@ -1404,7 +1396,6 @@
     };
 
     const stopDrag = (commit) => {
-      clearHold();
       if (listening) {
         window.removeEventListener("pointermove", onMove);
         window.removeEventListener("pointerup", onUp);
@@ -1420,7 +1411,6 @@
       }
       if (dragging) settle(commit);
       dragging = false;
-      scrolling = false;
       captured = false;
       pointerId = null;
       btn.__dragOriginY = null;
@@ -1436,24 +1426,8 @@
       if (e.pointerId !== pointerId) return;
       const dx = e.clientX - originX;
       const dy = e.clientY - originY;
-      if (scrolling) {
-        scrollPage(e.clientY - lastY);
-        lastY = e.clientY;
-        return;
-      }
       if (!dragging) {
         if (Math.hypot(dx, dy) < MOVE_PX) return;
-        // Touch/pen on the grip: movement before the hold is a scroll. The grip
-        // blocks native panning, so the page has to move with the finger.
-        // A mouse drag reorders. The page still scrolls with the wheel.
-        if (pointerType !== "mouse") {
-          clearHold();
-          scrolling = true;
-          btn.__suppressClick = true;
-          scrollPage(e.clientY - lastY);
-          lastY = e.clientY;
-          return;
-        }
         startDrag();
       }
       e.preventDefault();
@@ -1471,9 +1445,10 @@
       if (e.pointerType === "mouse" && e.button !== 0) return;
       if (e.target.closest(".mc-collapse") || e.target.closest(".mc-move-btn")) return;
       const onGrip = !!e.target.closest(".mc-grip");
-      // A finger swipe on the card scrolls. A mouse drag reorders from anywhere
-      // on the card — the grip alone is too easy to miss, and it sits on the
-      // top edge, so an upward drag leaves the button immediately.
+      // A finger swipe on the card scrolls (touch-action: pan-y); only the grip
+      // (touch-action: none) takes a touch drag. A mouse drag reorders from
+      // anywhere on the card — the grip alone is too easy to miss, and it sits
+      // on the top edge, so an upward drag leaves the button immediately.
       if (!onGrip && e.pointerType !== "mouse") return;
       pointerType = e.pointerType || "mouse";
       pointerId = e.pointerId;
@@ -1481,7 +1456,6 @@
       originY = e.clientY;
       lastY = e.clientY;
       dragging = false;
-      scrolling = false;
       captured = false;
       btn.__dragOriginY = null;
       // Listen on the window, and capture before the cursor moves. A listener
@@ -1494,9 +1468,6 @@
         listening = true;
       }
       capturePointer();
-      if (onGrip && pointerType !== "mouse") {
-        holdTimer = setTimeout(startDrag, TOUCH_HOLD_MS);
-      }
     });
   }
 

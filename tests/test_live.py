@@ -2285,7 +2285,7 @@ def test_live_chiclets_use_pointer_drag():
     assert "makeChicletDropZone" not in js
     assert "scrollFromCard" not in js
     card = css.split(".match-chiclet-tl {", 1)[1].split("}", 1)[0]
-    grip = css.split(".mc-grip {", 1)[1].split("}", 1)[0]
+    grip = css.split("\n.mc-grip {", 1)[1].split("}", 1)[0]
     assert "touch-action: pan-y" in card
     assert "cursor: grab" not in card
     assert "touch-action: none" in grip
@@ -2305,6 +2305,12 @@ def test_live_chiclets_use_pointer_drag():
     assert "bindChicletMove(btn)" in js
     assert ".mc-move-btn" in css
     assert "move it one slot up or down" in html
+    # Touch: a finger on the grip drags straight away — no hold timer to beat —
+    # and the arrows are finger-sized on coarse pointers.
+    assert "TOUCH_HOLD_MS" not in js
+    assert "holdTimer" not in js
+    assert "@media (pointer: coarse)" in css
+    assert "on a phone too" in html
 
     script = r"""
 """ + js[js.index("function chicletDragStep") : js.index("function placeChicletAtY")] + r"""
