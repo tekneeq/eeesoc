@@ -58,14 +58,17 @@ archived game, ``recent_clean_sheets`` over the last ``FORM_GAMES``, and
 ``clean_sheet_rank`` by total (ties to the club that needed fewer games).
 ``tight`` is True when the club's clean-sheet rate beats the league's.
 
-``half_goals`` is the club's history of goals per half: ``first`` is how
-often its first halves produced 0 / 1 / 2 / 3+ goals — ``total`` (both sides
-combined), ``scored`` (the club's own) and ``allowed`` — and ``second_by_ht``
-is the same three splits for second halves, keyed by the half-time score from
-the club's point of view (``"0-1"`` = trailed 0-1 at the break).  The league
-carries the same tables (home-away view, each game once, so ``scored`` is the
-home side's) for context when a club has fewer than ``HALF_GOALS_MIN_SAMPLE``
-matches, and as the fallback when it has none.
+``half_goals`` is the club's history of goals per half over every archived
+game this season: ``first`` is how often its first halves produced 0 / 1 / 2 /
+3+ goals — ``total`` (both sides combined), ``scored`` (the club's own) and
+``allowed`` — and ``second_by_ht`` is the same three splits for second halves,
+keyed by the half-time score from the club's point of view (``"0-1"`` =
+trailed 0-1 at the break). Each bucket is a count of games; the chiclet also
+prints that count beside the percent. ``recent_half_goals`` is the same shape
+over the last ``FORM_GAMES`` results. The league carries the season tables
+(home-away view, each game once, so ``scored`` is the home side's) for context
+when a club has fewer than ``HALF_GOALS_MIN_SAMPLE`` matches, and as the
+fallback when it has none.
 """
 
 from __future__ import annotations
@@ -460,6 +463,7 @@ def _league_table(slug: str, teams: dict[str, dict[str, Any]], label: str) -> di
             "recent_clean_sheets": sum(1 for g in recent if g["ga"] == 0),
             "tight": cs_pct > par_cs_pct,
             "half_goals": half_goals(r["results"]),
+            "recent_half_goals": half_goals(recent),
             "xg": round(r["xg"], 2),
             "xg_against": round(r["xg_against"], 2),
             "power": int(round(power)),

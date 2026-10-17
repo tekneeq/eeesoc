@@ -3868,6 +3868,30 @@ main {
   font-weight: 600;
 }
 
+.mc-half-pct {
+  color: var(--muted);
+}
+
+.mc-half-c {
+  font-size: 0.62rem;
+  color: var(--text);
+}
+
+.mc-half-b.top .mc-half-c {
+  color: inherit;
+}
+
+.mc-power-label .mc-half-label,
+.mc-power-label .mc-half-window {
+  display: block;
+  text-align: center;
+}
+
+.mc-power-label .mc-half-window {
+  letter-spacing: 0.04em;
+  opacity: 0.75;
+}
+
 .mc-half-b.top {
   border-color: var(--accent);
   color: var(--text);
