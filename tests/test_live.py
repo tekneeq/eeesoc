@@ -2229,6 +2229,7 @@ def test_live_chiclets_use_pointer_drag():
     """
     js = Path("src/eeesoc/static/app.js").read_text(encoding="utf-8")
     css = Path("src/eeesoc/static/app.css").read_text(encoding="utf-8")
+    html = Path("src/eeesoc/static/index.html").read_text(encoding="utf-8")
     assert "function placeChicletAtY" in js
     assert 'addEventListener("pointerdown"' in js
     assert 'e.target.closest(".mc-grip")' in js
@@ -2248,6 +2249,14 @@ def test_live_chiclets_use_pointer_drag():
     assert "edgeTick" not in js
     assert 'window.addEventListener("pointermove", onMove' in js
     assert "capturePointer()" in js
+    # Arrows beside the grip move a card one slot without any gesture at all.
+    assert "function chicletMoveHtml" in js
+    assert "function moveChiclet" in js
+    assert 'class="mc-move-btn up"' in js and 'class="mc-move-btn down"' in js
+    assert 'e.target.closest(".mc-move-btn")' in js
+    assert "bindChicletMove(btn)" in js
+    assert ".mc-move-btn" in css
+    assert "move it one slot up or down" in html
 
     script = r"""
 """ + js[js.index("function chicletDragStep") : js.index("function placeChicletAtY")] + r"""

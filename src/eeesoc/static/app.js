@@ -1142,6 +1142,7 @@
           });
         }
       }
+      if (scope === "live") paintChicletMoveButtons(wrap);
       grid.appendChild(wrap);
       return;
     }
@@ -1226,6 +1227,71 @@
     const after = target.nextElementSibling;
     if (after) wrap.insertBefore(card, after);
     else wrap.appendChild(card);
+  }
+
+  // ▲ ⠿ ▼ in the chiclet's top-left corner. The arrows are the sure way to
+  // move a card: one click, one slot, no gesture to get right. The grip is the
+  // touch handle for a drag.
+  function chicletMoveHtml() {
+    return (
+      `<span class="mc-move">` +
+      `<span class="mc-move-btn up" role="button" tabindex="0" data-move="-1" title="Move this chiclet up one" aria-label="Move up">▲</span>` +
+      `<span class="mc-grip" title="Drag to reorder" aria-hidden="true">⠿</span>` +
+      `<span class="mc-move-btn down" role="button" tabindex="0" data-move="1" title="Move this chiclet down one" aria-label="Move down">▼</span>` +
+      `</span>`
+    );
+  }
+
+  // Move a live chiclet one slot and keep it where the eye was. The list is
+  // re-laid, so scroll by however far the card jumped and it stays put on screen.
+  function moveChiclet(btn, dir) {
+    const wrap = btn?.parentElement;
+    if (!wrap || !dir) return false;
+    const cards = [...wrap.querySelectorAll(":scope > .match-chiclet")];
+    const index = cards.indexOf(btn);
+    const next = index + (dir < 0 ? -1 : 1);
+    if (index < 0 || next < 0 || next >= cards.length) return false;
+    const wasTop = btn.getBoundingClientRect().top;
+    const target = cards[next];
+    if (dir < 0) wrap.insertBefore(btn, target);
+    else if (target.nextElementSibling) wrap.insertBefore(btn, target.nextElementSibling);
+    else wrap.appendChild(btn);
+    persistChicletOrder(
+      [...wrap.querySelectorAll(".match-chiclet[data-event-id]")].map((el) => String(el.dataset.eventId))
+    );
+    const scroller = document.scrollingElement || document.documentElement;
+    scroller.scrollBy(0, btn.getBoundingClientRect().top - wasTop);
+    paintChicletMoveButtons(wrap);
+    return true;
+  }
+
+  // The first card cannot go up and the last cannot go down.
+  function paintChicletMoveButtons(wrap) {
+    if (!wrap) return;
+    const cards = [...wrap.querySelectorAll(":scope > .match-chiclet")];
+    cards.forEach((card, i) => {
+      card.querySelector(".mc-move-btn.up")?.classList.toggle("off", i === 0);
+      card.querySelector(".mc-move-btn.down")?.classList.toggle("off", i === cards.length - 1);
+    });
+  }
+
+  function bindChicletMove(btn) {
+    btn.querySelectorAll(".mc-move-btn").forEach((el) => {
+      if (el.dataset.bound === "1") return;
+      el.dataset.bound = "1";
+      const go = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        btn.__suppressClick = false;
+        moveChiclet(btn, Number(el.dataset.move) || 0);
+      };
+      // Mouse presses would otherwise start a drag of the whole card.
+      el.addEventListener("pointerdown", (e) => e.stopPropagation());
+      el.addEventListener("click", go);
+      el.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" || e.key === " ") go(e);
+      });
+    });
   }
 
   function makeChicletDraggable(btn, wrap) {
@@ -1329,6 +1395,7 @@
         const laid = btn.getBoundingClientRect().top;
         scrollPage(laid - visualTop);
         persistOrder();
+        paintChicletMoveButtons(wrap);
       }
       btn.classList.remove("dragging");
       btn.style.transition = "";
@@ -1402,7 +1469,7 @@
     btn.addEventListener("pointerdown", (e) => {
       if (e.isPrimary === false) return;
       if (e.pointerType === "mouse" && e.button !== 0) return;
-      if (e.target.closest(".mc-collapse")) return;
+      if (e.target.closest(".mc-collapse") || e.target.closest(".mc-move-btn")) return;
       const onGrip = !!e.target.closest(".mc-grip");
       // A finger swipe on the card scrolls. A mouse drag reorders from anywhere
       // on the card — the grip alone is too easy to miss, and it sits on the
@@ -2371,7 +2438,7 @@
     btn.innerHTML = `
       <span class="mc-top">
         <span class="mc-top-left">
-          ${withTimeline && !finished && !upcoming ? `<span class="mc-grip" title="Drag to reorder" aria-hidden="true">⠿</span>` : ""}
+          ${withTimeline && !finished && !upcoming ? chicletMoveHtml() : ""}
           ${badge}
           ${finished || upcoming ? `<span class="mc-ft-when">${escapeHtml(finished ? finishedWhen(m) : upcomingWhen(m))}</span>` : ""}
         </span>
@@ -2397,6 +2464,7 @@
       if (btn.__onSelect) btn.__onSelect(btn.__match);
     });
     bindCollapse(btn);
+    bindChicletMove(btn);
     return btn;
   }
 

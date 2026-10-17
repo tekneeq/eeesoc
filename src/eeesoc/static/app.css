@@ -812,6 +812,43 @@ main {
   gap: 0.4rem;
 }
 
+/* ▲ ⠿ ▼ — click an arrow to move the chiclet one slot; drag the grip on touch. */
+.mc-move {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.1rem;
+}
+
+.mc-move-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 1.35rem;
+  height: 1.35rem;
+  border: 1px solid var(--line);
+  border-radius: 0.22rem;
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--muted);
+  font-size: 0.6rem;
+  line-height: 1;
+  cursor: pointer;
+  user-select: none;
+  touch-action: manipulation;
+}
+
+.mc-move-btn:hover,
+.mc-move-btn:focus-visible {
+  color: var(--accent);
+  border-color: rgba(125, 255, 179, 0.4);
+  outline: none;
+}
+
+.mc-move-btn.off {
+  opacity: 0.25;
+  pointer-events: none;
+}
+
 .mc-grip {
   color: var(--muted);
   opacity: 0.55;
