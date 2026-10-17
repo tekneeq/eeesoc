@@ -3252,6 +3252,22 @@ main {
   color: var(--accent);
 }
 
+/* Expected goals this game: favoured reads green, underdog amber, even plain. */
+.mc-xg-side.favoured .mc-power-num,
+.mc-xg-side.favoured .mc-power-tag {
+  color: var(--accent);
+}
+
+.mc-xg-side.underdog .mc-power-num,
+.mc-xg-side.underdog .mc-power-tag {
+  color: var(--warn);
+}
+
+.mc-xg-side.even .mc-power-num,
+.mc-xg-side.even .mc-power-tag {
+  color: var(--text);
+}
+
 .mc-power-side.fading .mc-power-num,
 .mc-power-side.fading .mc-power-tag {
   color: var(--warn);

@@ -1789,6 +1789,82 @@
     }
   }
 
+  // ---------------------------------------------------------------------------
+  // Expected goals this game, from the two power indexes. The league's goals per
+  // team-game is scaled by this attack (offence power over par) and the other
+  // side's defence (par over defence power); 50 = par on both scales. So a 70
+  // attack against a 40 defence in a 1.4-goal league expects 1.4 × 1.4 × 1.25.
+  // ---------------------------------------------------------------------------
+
+  function expectedGoalsPair(home, away, league) {
+    const par = Number(league?.par_power) || 50;
+    const perGame = Number(league?.par_goals_per_game) || 0;
+    const one = (attack, defence) => {
+      if (!attack || !defence || !perGame) return null;
+      const att = Math.max(0, Number(attack.offense_power) || 0) / par;
+      const def = par / Math.max(1, Number(defence.defense_power) || 0);
+      return perGame * att * def;
+    };
+    return { home: one(home, away), away: one(away, home), par, perGame };
+  }
+
+  // favoured / underdog once the two reads are at least this far apart.
+  const XG_EDGE = 0.3;
+
+  function expectedEdge(mine, theirs) {
+    if (mine == null || theirs == null) return "";
+    if (mine - theirs >= XG_EDGE) return "favoured";
+    if (theirs - mine >= XG_EDGE) return "underdog";
+    return "even";
+  }
+
+  function expectedGoalsSideHtml(m, side, rows, pair) {
+    const name = side === "home" ? m.home : m.away;
+    const other = side === "home" ? "away" : "home";
+    const own = rows[side];
+    const opp = rows[other];
+    const xg = pair[side];
+    const league = state.clinical?.leagues?.[m.league_slug];
+    if (xg == null || !own || !opp) {
+      const why = `${name}: expected goals need both clubs' offence and defence power — archived games for ${!own ? name : side === "home" ? m.away : m.home} are missing`;
+      return `<span class="mc-power-side mc-xg-side ${side} none" title="${escapeHtml(why)}"><b class="mc-power-num">—</b></span>`;
+    }
+    const ranked = league?.teams_ranked || 0;
+    const label = league?.label || m.league_chiclet;
+    const oRank = own.offense_rank ? `#${own.offense_rank}` : "n/r";
+    const dRank = opp.defense_rank ? `#${opp.defense_rank}` : "n/r";
+    const att = (Number(own.offense_power) || 0) / pair.par;
+    const def = pair.par / Math.max(1, Number(opp.defense_power) || 0);
+    const oppName = side === "home" ? m.away : m.home;
+    const edge = expectedEdge(xg, pair[other]);
+    const title =
+      `${name}: expected ${xg.toFixed(2)} goals this game — ${label} averages ${pair.perGame.toFixed(2)} goals per team-game` +
+      ` × ${name}'s offence power ${own.offense_power} (${att.toFixed(2)}× par, ${oRank}${ranked ? ` of ${ranked}` : ""})` +
+      ` × ${oppName}'s defence power ${opp.defense_power} (allows ${def.toFixed(2)}× the league's chances, ${dRank}${ranked ? ` of ${ranked}` : ""}).` +
+      ` ${edge === "even" ? "The two reads are within" : "Favoured / underdog once the reads differ by"} ${XG_EDGE} goals.`;
+    return (
+      `<span class="mc-power-side mc-xg-side ${side} ${edge}" title="${escapeHtml(title)}">` +
+      `<b class="mc-power-num">${xg.toFixed(2)}</b>` +
+      `<span class="mc-power-rank">off ${own.offense_power} ${oRank}</span>` +
+      `<span class="mc-power-stat">v def ${opp.defense_power} ${dRank}</span>` +
+      `<span class="mc-power-tag">${edge}</span>` +
+      `</span>`
+    );
+  }
+
+  function expectedGoalsRowHtml(m) {
+    const league = state.clinical?.leagues?.[m.league_slug];
+    const rows = {
+      home: clinicalFor(m.league_slug, m.home_id, m.home),
+      away: clinicalFor(m.league_slug, m.away_id, m.away),
+    };
+    const pair = expectedGoalsPair(rows.home, rows.away, league);
+    const total = pair.home != null && pair.away != null ? ` · ${(pair.home + pair.away).toFixed(2)} total` : "";
+    const help =
+      `Expected goals for each club in this game, from the power rows above: the league's goals per team-game × this club's offence power (over 50) × the other club's defence power (50 over it). Each side shows the read, then the offence power and league rank it came from, then the defence power and rank it is up against${total}. Favoured / underdog when the two reads differ by ${XG_EDGE} or more.`;
+    return `${expectedGoalsSideHtml(m, "home", rows, pair)}<span class="mc-power-label" title="${escapeHtml(help)}">⚽ expected</span>${expectedGoalsSideHtml(m, "away", rows, pair)}`;
+  }
+
   const POWER_ROWS = [
     { spec: CLINICAL_SPEC, label: "⚡ clinical", help: "Clinical power: goals per 100 xG this season, ranked within the league. 100 = par." },
     {
@@ -2177,6 +2253,11 @@
       const last5 = last5GamesRowHtml(m);
       if (afterMomentum >= 0) rows.splice(afterMomentum + 1, 0, last5);
       else rows.push(last5);
+      // Expected goals read straight off the offence and defence rows, so it sits under them.
+      const afterDefence = rows.findIndex((html) => html.includes("🛡 defence"));
+      const expected = expectedGoalsRowHtml(m);
+      if (afterDefence >= 0) rows.splice(afterDefence + 1, 0, expected);
+      else rows.push(expected);
     }
     if (state.standings) rows.unshift(standingsRowHtml(m));
     const nogoal = nogoalRowHtml(m);
