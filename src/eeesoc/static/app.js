@@ -1809,22 +1809,53 @@
   }
 
   // ---------------------------------------------------------------------------
-  // Expected goals this game, from the two power indexes. The league's goals per
-  // team-game is scaled by this attack (offence power over par) and the other
-  // side's defence (par over defence power); 50 = par on both scales. So a 70
-  // attack against a 40 defence in a 1.4-goal league expects 1.4 × 1.4 × 1.25.
+  // Expected goals this game, two reads. Each scales the league's goals per
+  // team-game by this attack (over par) and the other side's defence (par over
+  // it); 50 = par on every scale. So a 70 attack against a 40 defence in a
+  // 1.4-goal league expects 1.4 × 1.4 × 1.25. "chances" reads the offence and
+  // defence power rows (xG, shots, corners…); "results" reads goals actually
+  // scored and conceded per game. When they disagree, one side has been
+  // finishing (or keeping) far from what its chances were worth.
   // ---------------------------------------------------------------------------
 
-  function expectedGoalsPair(home, away, league) {
+  const XG_READS = [
+    {
+      id: "chances",
+      attack: "offense_power",
+      attackRank: "offense_rank",
+      defence: "defense_power",
+      defenceRank: "defense_rank",
+      attackWord: "offence power",
+      defenceWord: "defence power",
+      attackAbbr: "off",
+      defenceAbbr: "def",
+      basis: "chance quality: the offence and defence power rows above (xG created and allowed, shots, corners), not the scoreline",
+    },
+    {
+      id: "results",
+      attack: "scoring_power",
+      attackRank: "scoring_rank",
+      defence: "stopping_power",
+      defenceRank: "stopping_rank",
+      attackWord: "scoring power",
+      defenceWord: "stopping power",
+      attackAbbr: "gf",
+      defenceAbbr: "ga",
+      basis: "results only: goals actually scored and conceded per game against the league's, shrunk toward par over two games",
+    },
+  ];
+
+  function expectedGoalsPair(home, away, league, read = XG_READS[0]) {
     const par = Number(league?.par_power) || 50;
     const perGame = Number(league?.par_goals_per_game) || 0;
     const one = (attack, defence) => {
       if (!attack || !defence || !perGame) return null;
-      const att = Math.max(0, Number(attack.offense_power) || 0) / par;
-      const def = par / Math.max(1, Number(defence.defense_power) || 0);
+      if (attack[read.attack] == null || defence[read.defence] == null) return null;
+      const att = Math.max(0, Number(attack[read.attack]) || 0) / par;
+      const def = par / Math.max(1, Number(defence[read.defence]) || 0);
       return perGame * att * def;
     };
-    return { home: one(home, away), away: one(away, home), par, perGame };
+    return { home: one(home, away), away: one(away, home), par, perGame, read };
   }
 
   // favoured / underdog once the two reads are at least this far apart.
@@ -1844,44 +1875,55 @@
     const opp = rows[other];
     const xg = pair[side];
     const league = state.clinical?.leagues?.[m.league_slug];
+    const read = pair.read;
     if (xg == null || !own || !opp) {
-      const why = `${name}: expected goals need both clubs' offence and defence power — archived games for ${!own ? name : side === "home" ? m.away : m.home} are missing`;
-      return `<span class="mc-power-side mc-xg-side ${side} none" title="${escapeHtml(why)}"><b class="mc-power-num">—</b></span>`;
+      const why = `${name}: expected goals (${read.id}) need both clubs' ${read.attackWord} and ${read.defenceWord} — archived games for ${!own ? name : side === "home" ? m.away : m.home} are missing`;
+      return `<span class="mc-power-side mc-xg-side ${read.id} ${side} none" title="${escapeHtml(why)}"><b class="mc-power-num">—</b></span>`;
     }
     const ranked = league?.teams_ranked || 0;
     const label = league?.label || m.league_chiclet;
-    const oRank = own.offense_rank ? `#${own.offense_rank}` : "n/r";
-    const dRank = opp.defense_rank ? `#${opp.defense_rank}` : "n/r";
-    const att = (Number(own.offense_power) || 0) / pair.par;
-    const def = pair.par / Math.max(1, Number(opp.defense_power) || 0);
+    const oRank = own[read.attackRank] ? `#${own[read.attackRank]}` : "n/r";
+    const dRank = opp[read.defenceRank] ? `#${opp[read.defenceRank]}` : "n/r";
+    const att = (Number(own[read.attack]) || 0) / pair.par;
+    const def = pair.par / Math.max(1, Number(opp[read.defence]) || 0);
     const oppName = side === "home" ? m.away : m.home;
     const edge = expectedEdge(xg, pair[other]);
+    const allows = read.id === "chances" ? "the league's chances" : "the league's goals";
     const title =
-      `${name}: expected ${xg.toFixed(2)} goals this game — ${label} averages ${pair.perGame.toFixed(2)} goals per team-game` +
-      ` × ${name}'s offence power ${own.offense_power} (${att.toFixed(2)}× par, ${oRank}${ranked ? ` of ${ranked}` : ""})` +
-      ` × ${oppName}'s defence power ${opp.defense_power} (allows ${def.toFixed(2)}× the league's chances, ${dRank}${ranked ? ` of ${ranked}` : ""}).` +
-      ` ${edge === "even" ? "The two reads are within" : "Favoured / underdog once the reads differ by"} ${XG_EDGE} goals.`;
+      `${name}: expected ${xg.toFixed(2)} goals this game from ${read.basis} — ${label} averages ${pair.perGame.toFixed(2)} goals per team-game` +
+      ` × ${name}'s ${read.attackWord} ${own[read.attack]} (${att.toFixed(2)}× par, ${oRank}${ranked ? ` of ${ranked}` : ""})` +
+      ` × ${oppName}'s ${read.defenceWord} ${opp[read.defence]} (allows ${def.toFixed(2)}× ${allows}, ${dRank}${ranked ? ` of ${ranked}` : ""}).` +
+      ` ${edge === "even" ? "The two sides are within" : "Favoured / underdog once the two sides differ by"} ${XG_EDGE} goals.`;
     return (
-      `<span class="mc-power-side mc-xg-side ${side} ${edge}" title="${escapeHtml(title)}">` +
+      `<span class="mc-power-side mc-xg-side ${read.id} ${side} ${edge}" title="${escapeHtml(title)}">` +
       `<b class="mc-power-num">${xg.toFixed(2)}</b>` +
-      `<span class="mc-power-rank">off ${own.offense_power} ${oRank}</span>` +
-      `<span class="mc-power-stat">v def ${opp.defense_power} ${dRank}</span>` +
+      `<span class="mc-power-rank">${read.attackAbbr} ${own[read.attack]} ${oRank}</span>` +
+      `<span class="mc-power-stat">v ${read.defenceAbbr} ${opp[read.defence]} ${dRank}</span>` +
       `<span class="mc-power-tag">${edge}</span>` +
       `</span>`
     );
   }
 
-  function expectedGoalsRowHtml(m) {
+  function expectedGoalsRowsHtml(m) {
     const league = state.clinical?.leagues?.[m.league_slug];
     const rows = {
       home: clinicalFor(m.league_slug, m.home_id, m.home),
       away: clinicalFor(m.league_slug, m.away_id, m.away),
     };
-    const pair = expectedGoalsPair(rows.home, rows.away, league);
-    const total = pair.home != null && pair.away != null ? ` · ${(pair.home + pair.away).toFixed(2)} total` : "";
-    const help =
-      `Expected goals for each club in this game, from the power rows above: the league's goals per team-game × this club's offence power (over 50) × the other club's defence power (50 over it). Each side shows the read, then the offence power and league rank it came from, then the defence power and rank it is up against${total}. Favoured / underdog when the two reads differ by ${XG_EDGE} or more.`;
-    return `${expectedGoalsSideHtml(m, "home", rows, pair)}<span class="mc-power-label" title="${escapeHtml(help)}">⚽ expected</span>${expectedGoalsSideHtml(m, "away", rows, pair)}`;
+    const pairs = XG_READS.map((read) => expectedGoalsPair(rows.home, rows.away, league, read));
+    const totals = pairs.map((p) => (p.home != null && p.away != null ? (p.home + p.away).toFixed(2) : null));
+    const split = pairs.every((p) => p.home != null && p.away != null) && expectedEdge(pairs[0].home, pairs[0].away) !== expectedEdge(pairs[1].home, pairs[1].away);
+    const common =
+      ` Each side shows the read, then the attack index and league rank it came from, then the defence index and rank it is up against. Favoured / underdog when the two sides differ by ${XG_EDGE} or more.` +
+      (split ? " The two reads disagree here: one club's results are a long way from what its chances were worth — expect some regression, but not all of it." : "");
+    const helps = {
+      chances: `Expected goals from chance quality: the league's goals per team-game × this club's offence power (over 50) × the other club's defence power (50 over it) — the 🎯 and 🛡 rows above, built from xG, shots, shots on target and corners, with goals only a small part${totals[0] ? ` · ${totals[0]} total` : ""}.${common}`,
+      results: `Expected goals from results: the league's goals per team-game × this club's scoring power (goals scored per game over the league's, shrunk toward par) × the other club's stopping power (the league's goals per game over what it concedes). No xG or shot data — only the scorelines${totals[1] ? ` · ${totals[1]} total` : ""}.${common}`,
+    };
+    return pairs.map(
+      (pair) =>
+        `${expectedGoalsSideHtml(m, "home", rows, pair)}<span class="mc-power-label" title="${escapeHtml(helps[pair.read.id])}"><span class="mc-half-label">⚽ expected</span><span class="mc-half-window">${pair.read.id}</span></span>${expectedGoalsSideHtml(m, "away", rows, pair)}`,
+    );
   }
 
   const POWER_ROWS = [
@@ -2272,11 +2314,11 @@
       const last5 = last5GamesRowHtml(m);
       if (afterMomentum >= 0) rows.splice(afterMomentum + 1, 0, last5);
       else rows.push(last5);
-      // Expected goals read straight off the offence and defence rows, so it sits under them.
+      // Expected goals read straight off the offence and defence rows, so they sit under them.
       const afterDefence = rows.findIndex((html) => html.includes("🛡 defence"));
-      const expected = expectedGoalsRowHtml(m);
-      if (afterDefence >= 0) rows.splice(afterDefence + 1, 0, expected);
-      else rows.push(expected);
+      const expected = expectedGoalsRowsHtml(m);
+      if (afterDefence >= 0) rows.splice(afterDefence + 1, 0, ...expected);
+      else rows.push(...expected);
     }
     if (state.standings) rows.unshift(standingsRowHtml(m));
     const nogoal = nogoalRowHtml(m);
