@@ -51,7 +51,12 @@ league) and its defence power, so 100 = a league-typical side on chance
 quality both ways.  ``results_power`` is the same construction on actual
 goals; ``potential_tag`` is ``upside`` when results lag the underlying
 numbers by ``POTENTIAL_GAP`` or more (they should improve), ``overachieving``
-when results outrun them, otherwise ``steady``.
+when results outrun them, otherwise ``steady``.  The two halves of
+``results_power`` are published on their own as ``scoring_power`` (goals
+scored per game over the league's, shrunk, ``PAR_POWER`` = par) and
+``stopping_power`` (the league's goals per game over the club's goals
+conceded), each ranked (``scoring_rank`` / ``stopping_rank``), so the chiclet
+can read expected goals from results as well as from chances.
 
 Clean sheets are counted from the final score: ``clean_sheets`` over every
 archived game, ``recent_clean_sheets`` over the last ``FORM_GAMES``, and
@@ -339,6 +344,14 @@ def _league_table(slug: str, teams: dict[str, dict[str, Any]], label: str) -> di
         ppg = _shrunk_rate(wpts, len(recent), par_ppg)
         return 100.0 * ppg / par_ppg, recent
 
+    def _results_indexes(r: dict[str, Any]) -> tuple[float, float]:
+        """(goals scored per game over the league's, league's over goals conceded per game), shrunk, 1.0 = par."""
+        if par_scored <= 0:
+            return 1.0, 1.0
+        gf_idx = _shrunk_rate(r["scored"], r["games"], par_scored) / par_scored
+        ga_pg = _shrunk_rate(r["conceded"], r["games"], par_scored)
+        return gf_idx, (par_scored / ga_pg if ga_pg > 0 else 1.0)
+
     def _potential(r: dict[str, Any], defense: float) -> tuple[float, float]:
         """(underlying strength from chance quality, the same index on actual goals)."""
         if basis == "xg" and par_rates["xg"] > 0:
@@ -348,14 +361,8 @@ def _league_table(slug: str, teams: dict[str, dict[str, Any]], label: str) -> di
         else:
             creation = 1.0
         potential = 100.0 * (creation * defense / 100.0) ** 0.5
-        if par_scored > 0:
-            gf_idx = _shrunk_rate(r["scored"], r["games"], par_scored) / par_scored
-            ga_pg = _shrunk_rate(r["conceded"], r["games"], par_scored)
-            ga_idx = par_scored / ga_pg if ga_pg > 0 else 1.0
-            results = 100.0 * (gf_idx * ga_idx) ** 0.5
-        else:
-            results = 100.0
-        return potential, results
+        gf_idx, ga_idx = _results_indexes(r)
+        return potential, 100.0 * (gf_idx * ga_idx) ** 0.5
 
     def _offense(r: dict[str, Any]) -> float:
         score = 0.0
@@ -385,6 +392,7 @@ def _league_table(slug: str, teams: dict[str, dict[str, Any]], label: str) -> di
             defense = 100.0 * par_sota / sota_pg if sota_pg > 0 else 100.0
         momentum, recent = _momentum(r)
         potential, results = _potential(r, defense)
+        scoring_idx, stopping_idx = _results_indexes(r)
         gap = potential - results
         potential_tag = "upside" if gap >= POTENTIAL_GAP else ("overachieving" if gap <= -POTENTIAL_GAP else "steady")
         clean_sheets = sum(1 for g in r["results"] if g["ga"] == 0)
@@ -458,6 +466,9 @@ def _league_table(slug: str, teams: dict[str, dict[str, Any]], label: str) -> di
             "potential": int(round(potential)),
             "results_power": int(round(results)),
             "potential_tag": potential_tag,
+            # Goals-only mirrors of offence / defence power, same 50 = par scale.
+            "scoring_power": _publish_power(100.0 * scoring_idx),
+            "stopping_power": _publish_power(100.0 * stopping_idx),
             "clean_sheets": clean_sheets,
             "clean_sheet_pct": int(round(cs_pct)),
             "recent_clean_sheets": sum(1 for g in recent if g["ga"] == 0),
@@ -486,6 +497,8 @@ def _league_table(slug: str, teams: dict[str, dict[str, Any]], label: str) -> di
             "rank": None,
             "offense_rank": None,
             "defense_rank": None,
+            "scoring_rank": None,
+            "stopping_rank": None,
             "momentum_rank": None,
             "potential_rank": None,
             "clean_sheet_rank": None,
@@ -502,6 +515,12 @@ def _league_table(slug: str, teams: dict[str, dict[str, Any]], label: str) -> di
     by_defense = sorted(ranked, key=lambda r: (-r["defense_power"], r["conceded"], r["team"]))
     for i, r in enumerate(by_defense, start=1):
         r["defense_rank"] = i
+    by_scoring = sorted(ranked, key=lambda r: (-r["scoring_power"], -r["scored"], r["team"]))
+    for i, r in enumerate(by_scoring, start=1):
+        r["scoring_rank"] = i
+    by_stopping = sorted(ranked, key=lambda r: (-r["stopping_power"], r["conceded"], r["team"]))
+    for i, r in enumerate(by_stopping, start=1):
+        r["stopping_rank"] = i
     by_momentum = sorted(ranked, key=lambda r: (-r["momentum"], -r["recent_points"], r["recent_allowed"] - r["recent_scored"], r["team"]))
     for i, r in enumerate(by_momentum, start=1):
         r["momentum_rank"] = i

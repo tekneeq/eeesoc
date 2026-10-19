@@ -2255,28 +2255,39 @@ def test_expected_goals_row_scales_league_average_by_offence_and_defence():
     js = Path("src/eeesoc/static/app.js").read_text(encoding="utf-8")
     css = Path("src/eeesoc/static/app.css").read_text(encoding="utf-8")
     html = Path("src/eeesoc/static/index.html").read_text(encoding="utf-8")
-    assert "function expectedGoalsRowHtml" in js
+    assert "function expectedGoalsRowsHtml" in js
     assert "⚽ expected" in js
     assert 'rows.findIndex((html) => html.includes("🛡 defence"))' in js
-    assert "off ${own.offense_power} ${oRank}" in js
-    assert "v def ${opp.defense_power} ${dRank}" in js
+    assert "rows.splice(afterDefence + 1, 0, ...expected)" in js
+    assert "${read.attackAbbr} ${own[read.attack]} ${oRank}" in js
+    assert "v ${read.defenceAbbr} ${opp[read.defence]} ${dRank}" in js
+    # Two reads, one row each, labelled like the half-goal windows.
+    assert '<span class="mc-half-label">⚽ expected</span><span class="mc-half-window">${pair.read.id}</span>' in js
     assert ".mc-xg-side.favoured" in css and ".mc-xg-side.underdog" in css
     assert "<b>⚽ expected</b>" in html
+    assert "<i>chances</i>" in html and "<i>results</i>" in html
 
     script = (
-        js[js.index("function expectedGoalsPair") : js.index("function expectedGoalsSideHtml")]
+        js[js.index("const XG_READS = [") : js.index("function expectedGoalsSideHtml")]
         + r"""
+if (XG_READS.map((r) => r.id).join() !== "chances,results") process.exit(1);
 const league = { par_power: 50, par_goals_per_game: 1.4 };
-const home = { offense_power: 70, defense_power: 70 };
-const away = { offense_power: 40, defense_power: 40 };
+const home = { offense_power: 70, defense_power: 70, scoring_power: 40, stopping_power: 40 };
+const away = { offense_power: 40, defense_power: 40, scoring_power: 70, stopping_power: 70 };
 const pair = expectedGoalsPair(home, away, league);
-// 1.4 × (70/50) × (50/40) = 2.45 for the home side.
+// Chances (the default read): 1.4 × (70/50) × (50/40) = 2.45 for the home side.
+if (pair.read.id !== "chances") process.exit(10);
 if (Math.abs(pair.home - 2.45) > 1e-9) process.exit(2);
 // 1.4 × (40/50) × (50/70) = 0.8 for the away side.
 if (Math.abs(pair.away - 0.8) > 1e-9) process.exit(3);
 if (expectedEdge(pair.home, pair.away) !== "favoured") process.exit(4);
 if (expectedEdge(pair.away, pair.home) !== "underdog") process.exit(5);
 if (expectedEdge(1.2, 1.4) !== "even") process.exit(6);
+// Results read the goals-only indexes, so the same two clubs flip.
+const results = expectedGoalsPair(home, away, league, XG_READS[1]);
+if (results.read.id !== "results") process.exit(11);
+if (Math.abs(results.home - 0.8) > 1e-9 || Math.abs(results.away - 2.45) > 1e-9) process.exit(12);
+if (expectedEdge(results.home, results.away) !== "underdog") process.exit(13);
 // Par attack against par defence is the league average.
 const par = expectedGoalsPair({ offense_power: 50, defense_power: 50 }, { offense_power: 50, defense_power: 50 }, league);
 if (Math.abs(par.home - 1.4) > 1e-9 || Math.abs(par.away - 1.4) > 1e-9) process.exit(7);
@@ -2284,6 +2295,9 @@ if (Math.abs(par.home - 1.4) > 1e-9 || Math.abs(par.away - 1.4) > 1e-9) process.
 const missing = expectedGoalsPair(home, null, league);
 if (missing.home !== null || missing.away !== null) process.exit(8);
 if (expectedEdge(null, 1) !== "") process.exit(9);
+// An older board without the goals-only indexes has no results read, but the chances read still works.
+const old = expectedGoalsPair({ offense_power: 60, defense_power: 60 }, { offense_power: 50, defense_power: 50 }, league, XG_READS[1]);
+if (old.home !== null || old.away !== null) process.exit(14);
 """
     )
     import subprocess

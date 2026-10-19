@@ -438,6 +438,30 @@ def test_potential_strips_finishing_luck_and_tags_results_gap():
     assert par["potential_tag"] == "steady"
 
 
+def test_scoring_and_stopping_power_are_the_goals_only_halves_of_results():
+    """Goals per game vs the league, shrunk over two par games, on the 50 = par scale and ranked."""
+    board = build_clinical_board(_records())
+    league = board["leagues"]["eng.1"]
+    by = {t["team"]: t for t in league["teams"]}
+    assert league["par_goals_per_game"] == 1.25  # 5 goals over 4 team-games
+
+    sharp = by["Sharp FC"]
+    # Scored 3 in 2: (3 + 2×1.25) / 4 = 1.375 → 1.1× par → 55. Conceded 2: 1.125 per game → 1.25 / 1.125 → 56.
+    assert sharp["scoring_power"] == 55 and sharp["stopping_power"] == 56
+    # √(1.1 × 1.11) is the published results_power, so the two halves multiply back to it.
+    assert sharp["results_power"] == 111
+    assert sharp["scoring_rank"] == 1 and sharp["stopping_rank"] == 1  # only ranked club
+
+    blunt = by["Blunt Town"]
+    # 1 scored in 1: (1 + 2.5) / 3 → 0.93× par → 47. 3 conceded: 1.83 per game → 0.68 → 34.
+    assert blunt["scoring_power"] == 47 and blunt["stopping_power"] == 34
+    assert blunt["scoring_rank"] is None and blunt["stopping_rank"] is None
+
+    par = by["Par United"]
+    # A clean sheet in one game still only shrinks to 0.83 conceded per game → 1.5 → 75.
+    assert par["scoring_power"] == 47 and par["stopping_power"] == 75
+
+
 def test_potential_and_momentum_rank_among_ranked_clubs():
     recs = _records() + [
         _rec("3", "Blunt Town", "Par United", "20", "30", [_ev(10, "shot_on", "away", 0.4), _ev(70, "shot", "home", 0.1)]),
