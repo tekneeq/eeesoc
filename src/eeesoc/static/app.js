@@ -2190,7 +2190,11 @@
         const m = card.__match;
         const prev = state.lineups[m.event_id];
         const age = prev ? Date.now() - prev._ts : Infinity;
-        if (prev && age < (prev.available ? LINEUP_POLL_MS : LINEUP_RETRY_MS)) continue;
+        if (prev && age < (prev.available ? LINEUP_POLL_MS : LINEUP_RETRY_MS)) {
+          // Fresh already (the same game sits on the Similar tab too) — just make sure it is drawn.
+          paintPowerRow(card);
+          continue;
+        }
         try {
           const data = await (await fetch(`/api/live/lineups?${liveQuery(m)}`)).json();
           data._ts = Date.now();
