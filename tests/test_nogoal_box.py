@@ -108,6 +108,63 @@ def test_box_backfill_enriches_old_records(monkeypatch, tmp_path):
     assert not has_box_data({"box_entries": {"1": {"home": [], "away": []}, "2": {"home": [], "away": []}}})
 
 
+def _roster_entry(pid: str, name: str, *, starter: bool, pos: str = "M") -> dict:
+    return {"starter": starter, "athlete": {"id": pid, "shortName": name}, "position": {"abbreviation": pos}}
+
+
+def _summary_with_rosters() -> dict:
+    return {
+        "rosters": [
+            {"homeAway": "home", "roster": [_roster_entry("h1", "H. One", starter=True, pos="G"), _roster_entry("h2", "H. Two", starter=False)]},
+            {"homeAway": "away", "roster": [_roster_entry("a1", "A. One", starter=True)]},
+        ]
+    }
+
+
+def test_record_keeps_lineups_only_when_looked_up(monkeypatch, tmp_path):
+    monkeypatch.setenv("EEESOC_CACHE", str(tmp_path))
+    plays = [_play("shot-on-target", m, "10", 90.0, 50.0) for m in (5, 10, 15, 20, 25, 30)]
+    tl = build_event_timeline("t.1", "1", home="A", away="B", home_id="10", away_id="20", clock="FT", fetcher=lambda url: {"items": plays, "pageCount": 1}, use_cache=False)
+    # The live full-time path without a squad lookup leaves the key off → the backfill will ask.
+    rec = halftime.record_from_timeline(tl, {"start": "2026-08-01T18:00Z"})
+    assert "lineups" not in rec
+    # Looked up and empty is stored as None → never retried.
+    assert halftime.record_from_timeline(tl, {"start": "2026-08-01T18:00Z", "lineups": None})["lineups"] is None
+    block = {"home": {"starters": [{"id": "h1", "short": "H. One", "pos": "G"}], "bench": []}, "away": {"starters": [], "bench": []}}
+    assert halftime.record_from_timeline(tl, {"lineups": block})["lineups"] == block
+
+
+def test_lineup_backfill_enriches_old_records(monkeypatch, tmp_path):
+    monkeypatch.setenv("EEESOC_CACHE", str(tmp_path))
+    halftime.clear_record_cache()
+    base = {
+        "league_slug": "t.1", "home": "A", "away": "B", "home_id": "10", "away_id": "20", "box_entries": None,
+        "date": "2026-08-01", "start": "2026-08-01T18:00Z", "ft_home": 0, "ft_away": 0, "ht_home": 0, "ht_away": 0,
+        "events": [{"minute": 10, "kind": "shot", "team": "home", "period": 1, "xg": None}] * 6, "has_xg": False,
+    }
+    old = halftime.record_path("t.1", "77")
+    old.parent.mkdir(parents=True)
+    old.write_text(json.dumps({**base, "event_id": "77"}))
+    done = halftime.record_path("t.1", "78")
+    done.write_text(json.dumps({**base, "event_id": "78", "lineups": None}))
+    assert [r["event_id"] for r in halftime.records_missing_lineups()] == ["77"]
+
+    urls = []
+
+    def fetcher(url):
+        urls.append(url)
+        return _summary_with_rosters()
+
+    status = halftime.backfill_lineups(fetcher=fetcher, pause_s=0)
+    assert status["todo"] == 1 and status["done"] == 1 and status["failed"] == 0
+    assert urls == ["https://site.api.espn.com/apis/site/v2/sports/soccer/t.1/summary?event=77"]
+    assert halftime.records_missing_lineups() == []
+    stored = json.loads(old.read_text())
+    assert stored["lineups"]["home"]["starters"] == [{"id": "h1", "short": "H. One", "pos": "G"}]
+    assert stored["lineups"]["home"]["bench"] == [{"id": "h2", "short": "H. Two", "pos": "M"}]
+    assert stored["lineups"]["away"] == {"starters": [{"id": "a1", "short": "A. One", "pos": "M"}], "bench": []}
+
+
 # ---------------------------------------------------------------------------
 # Model
 # ---------------------------------------------------------------------------

@@ -34,6 +34,7 @@ from eeesoc.live import (
     build_event_timeline,
     compact_intensity,
     fetch_all_plays,
+    fetch_lineup_block,
     parse_scoreboard,
     parse_start,
 )
@@ -216,7 +217,11 @@ def record_from_timeline(tl: dict[str, Any], meta: dict[str, Any] | None = None)
         for ev in events
     ]
     xg = tl.get("xg") or {}
+    # Match-day squads ride along only when the caller looked them up: a missing
+    # key means "not fetched yet" (the backfill picks it up), None means ESPN had none.
+    lineups = {"lineups": meta["lineups"]} if "lineups" in meta else {}
     return {
+        **lineups,
         "event_id": str(tl.get("event_id") or meta.get("event_id") or ""),
         "league_slug": str(tl.get("league_slug") or meta.get("league_slug") or ""),
         "league_chiclet": str(meta.get("league_chiclet") or ""),
@@ -1004,6 +1009,11 @@ def archive_match(
         "league_chiclet": m.league_chiclet,
         "league_name": m.league_name,
     }
+    # The squad is optional: a failed summary call leaves the key off so the backfill retries it.
+    try:
+        meta["lineups"] = fetch_lineup_block(m.league_slug, m.event_id, fetcher=fetcher)
+    except Exception:  # noqa: BLE001
+        pass
     return archive_timeline(tl, meta, force=force)
 
 
@@ -1206,4 +1216,86 @@ def start_box_backfill_thread(*, pause_s: float = 0.3) -> bool:
                 _box_state.update({"running": False, "finished_at": time.time()})
 
     threading.Thread(target=_run, name="eeesoc-box-backfill", daemon=True).start()
+    return True
+
+
+# ---------------------------------------------------------------------------
+# Lineup backfill for records archived before match-day squads were kept
+# ---------------------------------------------------------------------------
+
+_lineup_lock = threading.Lock()
+_lineup_state: dict[str, Any] = {"running": False, "todo": 0, "done": 0, "failed": 0, "started_at": None, "finished_at": None}
+
+
+def records_missing_lineups(records: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
+    """Records never asked for their squads (``lineups`` absent; None means ESPN filed none)."""
+    return [r for r in (load_records() if records is None else records) if "lineups" not in r]
+
+
+def enrich_lineups(
+    rec: dict[str, Any],
+    *,
+    fetcher: Callable[[str], dict[str, Any]] | None = None,
+) -> dict[str, Any] | None:
+    """Fetch the match summary once and store the starters and bench on the record."""
+    league, event_id = str(rec.get("league_slug") or ""), str(rec.get("event_id") or "")
+    if not league or not event_id:
+        return None
+    rec = dict(rec)
+    rec["lineups"] = fetch_lineup_block(league, event_id, fetcher=fetcher)
+    path = record_path(league, event_id)
+    write_json(path, rec)
+    with _records_lock:
+        _records_cache[str(path)] = (path.stat().st_mtime, rec)
+    return rec
+
+
+def backfill_lineups(
+    *,
+    fetcher: Callable[[str], dict[str, Any]] | None = None,
+    pause_s: float = 0.3,
+    limit: int | None = None,
+) -> dict[str, Any]:
+    """Add squads to every archived record that predates them (one pass, rate-limited)."""
+    with _lineup_lock:
+        if _lineup_state["running"]:
+            return {**_lineup_state, "busy": True}
+        _lineup_state.update({"running": True, "done": 0, "failed": 0, "started_at": time.time(), "finished_at": None})
+    todo = records_missing_lineups()
+    if limit is not None:
+        todo = todo[:limit]
+    with _lineup_lock:
+        _lineup_state["todo"] = len(todo)
+    for rec in todo:
+        try:
+            ok = enrich_lineups(rec, fetcher=fetcher) is not None
+        except Exception:  # noqa: BLE001 — keep sweeping
+            ok = False
+        with _lineup_lock:
+            _lineup_state["done" if ok else "failed"] += 1
+        if pause_s:
+            time.sleep(pause_s)
+    with _lineup_lock:
+        _lineup_state.update({"running": False, "finished_at": time.time()})
+        return dict(_lineup_state)
+
+
+def lineup_backfill_status() -> dict[str, Any]:
+    with _lineup_lock:
+        return dict(_lineup_state)
+
+
+def start_lineup_backfill_thread(*, pause_s: float = 0.3) -> bool:
+    with _lineup_lock:
+        if _lineup_state["running"]:
+            return False
+
+    def _run() -> None:
+        try:
+            backfill_lineups(pause_s=pause_s)
+        except Exception:  # noqa: BLE001 — never take the server down
+            with _lineup_lock:
+                _lineup_state.update({"running": False, "finished_at": time.time()})
+
+    threading.Thread(target=_run, name="eeesoc-lineup-backfill", daemon=True).start()
     return True

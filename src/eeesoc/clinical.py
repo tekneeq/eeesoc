@@ -74,6 +74,13 @@ over the last ``FORM_GAMES`` results. The league carries the season tables
 (home-away view, each game once, so ``scored`` is the home side's) for context
 when a club has fewer than ``HALF_GOALS_MIN_SAMPLE`` matches, and as the
 fallback when it has none.
+
+``xi`` is who usually starts, from the archived match-day squads: ``games`` is
+how many of the club's games have one, ``regulars`` the players who started
+at least ``REGULAR_SHARE`` of them (once ``REGULAR_MIN_GAMES`` are in) with
+their ``starts`` and ``bench`` counts and latest position, most starts first,
+and ``others`` everyone else who has started at least once. The chiclet
+checks today's XI against ``regulars`` to flag who is out or on the bench.
 """
 
 from __future__ import annotations
@@ -112,6 +119,11 @@ def _publish_power(value_100: float) -> int:
 # Fewer matching games than this and the chiclet flags the club's half-goal split as a thin sample
 # (the league-wide split rides along for context; the league only replaces it when the club has none).
 HALF_GOALS_MIN_SAMPLE = 3
+# A regular starter has started at least this share of the club's archived games
+# with a squad, once this many are in. 60% rides out rotation and a mid-season signing
+# better than a strict top-11 would.
+REGULAR_SHARE = 0.6
+REGULAR_MIN_GAMES = 3
 _CACHE_TTL_S = 300.0
 
 _lock = threading.Lock()
@@ -188,6 +200,44 @@ def _game_side_stats(rec: dict[str, Any], side: str, other: str, *, has_xg: bool
     return stats
 
 
+def _side_lineup(rec: dict[str, Any], side: str) -> dict[str, Any] | None:
+    """This side's archived starters and bench, or None when the record has no squad."""
+    block = (rec.get("lineups") or {}).get(side) if isinstance(rec.get("lineups"), dict) else None
+    if not block or not block.get("starters"):
+        return None
+    return {"starters": list(block.get("starters") or []), "bench": list(block.get("bench") or [])}
+
+
+def regular_xi(results: list[dict[str, Any]]) -> dict[str, Any]:
+    """
+    Who usually starts: every player's starts and bench appearances over the games
+    with a squad archived, newest position kept. ``regulars`` are those who started
+    at least ``REGULAR_SHARE`` of those games once ``REGULAR_MIN_GAMES`` are in,
+    most starts first.
+    """
+    with_xi = [g for g in sorted(results, key=lambda g: g["start"]) if g.get("lineup")]
+    players: dict[str, dict[str, Any]] = {}
+    for g in with_xi:
+        for role, entries in (("starts", g["lineup"]["starters"]), ("bench", g["lineup"]["bench"])):
+            for p in entries:
+                pid = str(p.get("id") or "")
+                if not pid:
+                    continue
+                row = players.setdefault(pid, {"id": pid, "short": "", "pos": "", "starts": 0, "bench": 0})
+                row[role] += 1
+                row["short"] = str(p.get("short") or row["short"])
+                row["pos"] = str(p.get("pos") or row["pos"])
+    n = len(with_xi)
+    ranked = sorted(players.values(), key=lambda p: (-p["starts"], -p["bench"], p["short"]))
+    regular_ids = {p["id"] for p in ranked if n >= REGULAR_MIN_GAMES and p["starts"] >= REGULAR_SHARE * n}
+    return {
+        "games": n,
+        "regulars": [p for p in ranked if p["id"] in regular_ids],
+        # Everyone else who has started at least once, so a stand-in can show his starts too.
+        "others": [p for p in ranked if p["id"] not in regular_ids and p["starts"]],
+    }
+
+
 def _team_totals(records: list[dict[str, Any]]) -> dict[str, dict[str, dict[str, Any]]]:
     """league_slug → team key → raw totals."""
     leagues: dict[str, dict[str, dict[str, Any]]] = {}
@@ -251,6 +301,7 @@ def _team_totals(records: list[dict[str, Any]]) -> dict[str, dict[str, dict[str,
                     "letter": "W" if pts == 3 else ("D" if pts == 1 else "L"),
                     "box_touches": box_touches_for(rec, side),
                     "box_touches_against": box_touches_for(rec, other),
+                    "lineup": _side_lineup(rec, side),
                     **game,
                 }
             )
@@ -475,6 +526,7 @@ def _league_table(slug: str, teams: dict[str, dict[str, Any]], label: str) -> di
             "tight": cs_pct > par_cs_pct,
             "half_goals": half_goals(r["results"]),
             "recent_half_goals": half_goals(recent),
+            "xi": regular_xi(r["results"]),
             "xg": round(r["xg"], 2),
             "xg_against": round(r["xg_against"], 2),
             "power": int(round(power)),
@@ -720,6 +772,8 @@ def build_clinical_board(records: list[dict[str, Any]] | None = None) -> dict[st
     return {
         "archive_total": len(records),
         "min_games": MIN_GAMES,
+        "regular_share": REGULAR_SHARE,
+        "regular_min_games": REGULAR_MIN_GAMES,
         "leagues": leagues,
         "fetched_at": time.time(),
     }

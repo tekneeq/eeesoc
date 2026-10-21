@@ -2679,12 +2679,14 @@ def _parse_side_roster(side: dict[str, Any]) -> dict[str, Any]:
         return 0
 
     players: list[dict[str, Any]] = []
+    bench: list[dict[str, str]] = []
     for e in entries:
         starter = bool(e.get("starter"))
         sub_in = bool(e.get("subbedIn"))
         sub_out = bool(e.get("subbedOut"))
         if not starter and not sub_in:
-            continue  # unused bench player
+            bench.append(_compact_player(e))  # unused so far; still "available today"
+            continue
         pos = e.get("position") or {}
         pos_abbr = str(pos.get("abbreviation") or "")
         is_keeper = pos_abbr.upper().startswith("G") or str(pos.get("name") or "").lower() == "goalkeeper"
@@ -2695,6 +2697,7 @@ def _parse_side_roster(side: dict[str, Any]) -> dict[str, Any]:
             place_by_jersey.setdefault(str(e.get("jersey") or ""), place)
         players.append(
             {
+                "id": str((e.get("athlete") or {}).get("id") or ""),
                 "name": str((e.get("athlete") or {}).get("displayName") or ""),
                 "short": _short_athlete(e),
                 "jersey": str(e.get("jersey") or ""),
@@ -2715,6 +2718,7 @@ def _parse_side_roster(side: dict[str, Any]) -> dict[str, Any]:
         "team": str((side.get("team") or {}).get("displayName") or ""),
         "formation": formation,
         "players": players,
+        "bench": bench,
     }
 
 
@@ -2773,6 +2777,54 @@ def build_lineups(
 
 def clear_lineup_cache() -> None:
     _lineup_cache.clear()
+
+
+def _compact_player(entry: dict[str, Any]) -> dict[str, str]:
+    athlete = entry.get("athlete") or {}
+    pos = entry.get("position") or {}
+    return {
+        "id": str(athlete.get("id") or ""),
+        "short": _short_athlete(entry),
+        "pos": str(pos.get("abbreviation") or ""),
+    }
+
+
+def compact_lineups(summary: dict[str, Any]) -> dict[str, Any] | None:
+    """
+    The archive's view of a match-day squad: per side, the XI that started and
+    the bench (whether or not they came on), each as ``{id, short, pos}``. None
+    when ESPN filed no starters, so the archive can tell "no lineup" from
+    "not fetched yet".
+    """
+    sides = {str(r.get("homeAway") or ""): r for r in (summary or {}).get("rosters") or []}
+    out: dict[str, Any] = {}
+    for side in ("home", "away"):
+        entries = (sides.get(side) or {}).get("roster") or []
+        starters = [_compact_player(e) for e in entries if e.get("starter")]
+        bench = [_compact_player(e) for e in entries if not e.get("starter")]
+        out[side] = {"starters": starters, "bench": bench}
+    if not out["home"]["starters"] and not out["away"]["starters"]:
+        return None
+    return out
+
+
+def fetch_lineup_block(
+    league_slug: str,
+    event_id: str,
+    *,
+    fetcher: Callable[[str], dict[str, Any]] | None = None,
+) -> dict[str, Any] | None:
+    """``compact_lineups`` of the match summary; None on a network error or when nothing is filed."""
+    fetch = fetcher or _fetch_json
+    url = SUMMARY_URL.format(
+        league=urllib.parse.quote(league_slug, safe="."),
+        event_id=urllib.parse.quote(str(event_id), safe=""),
+    )
+    try:
+        data = fetch(url)
+    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, OSError):
+        return None
+    return compact_lineups(data if isinstance(data, dict) else {})
 
 
 # —— Per-player event stream: live analysis + highlight cut lists ——
