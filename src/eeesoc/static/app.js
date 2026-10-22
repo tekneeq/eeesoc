@@ -2072,6 +2072,145 @@
   }
 
   // ---------------------------------------------------------------------------
+  // Usual starters out — today's XI and bench checked against who usually starts
+  // (the clinical board's `xi.regulars`: started ≥60% of the club's archived
+  // games with a squad, once three are in). Matched on ESPN athlete id, since
+  // the plays say "H. Son" and the lineups "Son Heung-Min".
+  // ---------------------------------------------------------------------------
+
+  const LINEUP_POLL_MS = 2 * 60 * 1000;
+  // Nothing to fetch for a game kicking off later than this: ESPN files XIs ~1h before.
+  const LINEUP_LOOKAHEAD_MS = 100 * 60 * 1000;
+  const LINEUP_RETRY_MS = 5 * 60 * 1000;
+
+  function lineupFor(m) {
+    return state.lineups?.[m.event_id] || null;
+  }
+
+  // Which regulars are starting, on the bench, or nowhere in the squad today.
+  function startersPick(m, side) {
+    const name = side === "home" ? m.home : m.away;
+    const row = clinicalFor(m.league_slug, side === "home" ? m.home_id : m.away_id, name);
+    const xi = row?.xi || null;
+    const regulars = xi?.regulars || [];
+    const lu = lineupFor(m);
+    const today = lu?.available && (lu[side]?.players || []).length ? lu[side] : null;
+    const pick = { name, row, xi, regulars, today, starting: [], bench: [], out: [], standIns: [] };
+    if (!today || !regulars.length) return pick;
+    const starting = new Map(today.players.filter((p) => p.starter).map((p) => [String(p.id || ""), p]));
+    const benchIds = new Set([...today.players.filter((p) => !p.starter), ...(today.bench || [])].map((p) => String(p.id || "")));
+    const regularIds = new Set(regulars.map((p) => String(p.id)));
+    for (const p of regulars) {
+      const id = String(p.id);
+      if (starting.has(id)) pick.starting.push(p);
+      else if (benchIds.has(id)) pick.bench.push(p);
+      else pick.out.push(p);
+    }
+    const starts = new Map((xi.others || []).map((p) => [String(p.id), p]));
+    for (const p of today.players) {
+      if (!p.starter || regularIds.has(String(p.id || ""))) continue;
+      const known = starts.get(String(p.id || ""));
+      pick.standIns.push({ id: p.id, short: p.short || p.name, pos: p.pos || known?.pos || "", starts: known?.starts || 0, bench: known?.bench || 0 });
+    }
+    return pick;
+  }
+
+  function startersPlayerWords(p, games) {
+    return `${p.short}${p.pos ? ` (${p.pos})` : ""} ${p.starts}/${games}`;
+  }
+
+  function startersTitle(m, side, pick) {
+    const { name, xi, regulars, today } = pick;
+    const games = xi?.games || 0;
+    const minGames = state.clinical?.regular_min_games || 3;
+    if (!xi || games < minGames) {
+      return `${name}: who usually starts needs ${minGames} archived games with a squad — ${games} so far`;
+    }
+    if (!regulars.length) return `${name}: nobody has started 60% of the ${games} archived games — the XI rotates too much to call anyone a regular`;
+    const list = `Usual XI (starts over ${games} archived games): ${regulars.map((p) => startersPlayerWords(p, games)).join(", ")}.`;
+    if (!today) {
+      const when = m.state === "pre" ? "ESPN files XIs about an hour before kickoff." : "Waiting for ESPN to file today's XI.";
+      return `${name}: ${list} ${when}`;
+    }
+    const bits = [];
+    bits.push(`${pick.starting.length} of ${regulars.length} regulars start today.`);
+    if (pick.out.length) bits.push(`OUT (not in the squad): ${pick.out.map((p) => startersPlayerWords(p, games)).join(", ")}.`);
+    if (pick.bench.length) bits.push(`On the bench: ${pick.bench.map((p) => startersPlayerWords(p, games)).join(", ")}.`);
+    if (pick.standIns.length) bits.push(`Standing in: ${pick.standIns.map((p) => startersPlayerWords(p, games)).join(", ")}.`);
+    return `${name}: ${bits.join(" ")} ${list}`;
+  }
+
+  function startersChip(p, games, cls) {
+    return `<span class="mc-xi-p ${cls}" title="${escapeHtml(startersPlayerWords(p, games))}"><em>${cls}</em><b>${escapeHtml(p.short)}</b><i>${escapeHtml(`${p.starts}/${games}${p.pos ? ` ${p.pos}` : ""}`)}</i></span>`;
+  }
+
+  function startersSideHtml(m, side) {
+    const pick = startersPick(m, side);
+    const title = escapeHtml(startersTitle(m, side, pick));
+    const games = pick.xi?.games || 0;
+    if (!pick.regulars.length || !pick.today) {
+      const note = !pick.regulars.length ? "" : m.state === "pre" ? `<span class="mc-power-rank">XI ~1h before KO</span>` : `<span class="mc-power-rank">XI pending</span>`;
+      return `<span class="mc-power-side mc-xi-side ${side} none" title="${title}"><b class="mc-power-num">—</b>${note}</span>`;
+    }
+    const missing = pick.out.length + pick.bench.length;
+    const count = `<span class="mc-power-rank mc-xi-n">${pick.starting.length}/${pick.regulars.length} reg</span>`;
+    if (!missing) {
+      return `<span class="mc-power-side mc-xi-side ${side} full" title="${title}"><b class="mc-power-num">full XI</b>${count}</span>`;
+    }
+    const chips = [...pick.out.map((p) => startersChip(p, games, "out")), ...pick.bench.map((p) => startersChip(p, games, "bench"))].join("");
+    return `<span class="mc-power-side mc-xi-side ${side}${pick.out.length ? " missing" : ""}" title="${title}"><span class="mc-xi-list">${chips}</span>${count}</span>`;
+  }
+
+  const STARTERS_HELP =
+    "Usual starters missing today. A regular is anyone who started at least 60% of the club's archived games with a squad (three games minimum); the count after each name is his starts over those games. OUT = not in today's squad at all; BENCH = named among the substitutes. The small number is how many regulars start today out of the club's regulars. Full XI = every regular starts. Hover a side for the whole usual XI and who is standing in. XIs land on ESPN about an hour before kickoff.";
+
+  function startersRowHtml(m) {
+    if (isFinishedMatch(m) || isDeadMatch(m)) return [];
+    return [`${startersSideHtml(m, "home")}<span class="mc-power-label" title="${escapeHtml(STARTERS_HELP)}">👥 starters</span>${startersSideHtml(m, "away")}`];
+  }
+
+  // A game is worth a lineup call when it is live, or kicks off within the lookahead.
+  function lineupWanted(m) {
+    if (!m || isFinishedMatch(m) || isDeadMatch(m)) return false;
+    if (m.state !== "pre") return true;
+    const d = kickoffDate(m);
+    return !!(d && d.getTime() - Date.now() < LINEUP_LOOKAHEAD_MS);
+  }
+
+  let lineupSweep = null;
+
+  // One pass over the rendered chiclets, one request at a time so a busy board
+  // does not burst 30 summary calls at once. Cheap when everything is fresh.
+  function refreshChicletLineups() {
+    if (lineupSweep) return lineupSweep;
+    state.lineups = state.lineups || {};
+    const cards = [...document.querySelectorAll(".match-chiclet")].filter((c) => c.__match && lineupWanted(c.__match));
+    lineupSweep = (async () => {
+      for (const card of cards) {
+        const m = card.__match;
+        const prev = state.lineups[m.event_id];
+        const age = prev ? Date.now() - prev._ts : Infinity;
+        if (prev && age < (prev.available ? LINEUP_POLL_MS : LINEUP_RETRY_MS)) {
+          // Fresh already (the same game sits on the Similar tab too) — just make sure it is drawn.
+          paintPowerRow(card);
+          continue;
+        }
+        try {
+          const data = await (await fetch(`/api/live/lineups?${liveQuery(m)}`)).json();
+          data._ts = Date.now();
+          state.lineups[m.event_id] = data;
+          if (card.isConnected) paintPowerRow(card);
+        } catch (err) {
+          /* keep the last squad; next sweep retries */
+        }
+      }
+    })().finally(() => {
+      lineupSweep = null;
+    });
+    return lineupSweep;
+  }
+
+  // ---------------------------------------------------------------------------
   // Goals-per-half odds — 1st-half total goals before the break, 2nd-half total goals
   // after it given the half-time score, from each club's archived games
   // ---------------------------------------------------------------------------
@@ -2319,6 +2458,8 @@
       const expected = expectedGoalsRowsHtml(m);
       if (afterDefence >= 0) rows.splice(afterDefence + 1, 0, ...expected);
       else rows.push(...expected);
+      // Who is missing comes first: it frames every power number below it.
+      rows.unshift(...startersRowHtml(m));
     }
     if (state.standings) rows.unshift(standingsRowHtml(m));
     const nogoal = nogoalRowHtml(m);
@@ -3895,6 +4036,7 @@
     // Keep the selected leagues; drop any that have nothing in the new scope.
     state.liveFilter = pruneLeagueFilter(state.liveFilter, scope);
     renderLiveTabChiclets();
+    refreshChicletLineups();
   }
 
   function renderSimilarTabChiclets(opts = {}) {
@@ -4496,6 +4638,13 @@
       const qs = new URLSearchParams({ league: m.league_slug, event_id: m.event_id });
       const data = await (await fetch(`/api/live/lineups?${qs}`)).json();
       renderLineups(data, m);
+      // The chiclet's starters row shares this squad.
+      data._ts = Date.now();
+      state.lineups = state.lineups || {};
+      state.lineups[m.event_id] = data;
+      document.querySelectorAll(".match-chiclet").forEach((card) => {
+        if (card.__match?.event_id === m.event_id) paintPowerRow(card);
+      });
     } catch (err) {
       const mount = $("#pitchLineups");
       if (mount && !mount.querySelector("svg")) mount.innerHTML = "";
@@ -6079,6 +6228,7 @@ echo "done → $OUT/${safe}_reel.mp4 ($N clips)"
 
       renderLiveTabChiclets({ soft: true });
       renderSimilarTabChiclets({ soft: true });
+      refreshChicletLineups();
 
       if (state.selectedLive) {
         const m = state.selectedLive;

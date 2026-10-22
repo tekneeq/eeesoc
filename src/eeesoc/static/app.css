@@ -4102,6 +4102,89 @@ main {
   opacity: 0.88;
 }
 
+/* Usual starters missing today: one chip per regular who is out or on the bench. */
+.mc-xi-side {
+  align-items: flex-end;
+  gap: 0.2rem;
+}
+
+.mc-xi-list {
+  display: inline-flex;
+  align-items: stretch;
+  flex-wrap: wrap;
+  gap: 0.16rem;
+  min-width: 0;
+}
+
+.mc-xi-side.home .mc-xi-list {
+  justify-content: flex-end;
+}
+
+.mc-xi-p {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 3.4rem;
+  padding: 0.08rem 0.22rem 0.12rem;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 0.22rem;
+  line-height: 1.08;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+
+.mc-xi-p em {
+  font-style: normal;
+  font-size: 0.48rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.mc-xi-p b {
+  font-size: 0.58rem;
+  font-weight: 600;
+  white-space: nowrap;
+  max-width: 6.2rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mc-xi-p i {
+  font-style: normal;
+  font-size: 0.52rem;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.mc-xi-p.out {
+  border-color: rgba(255, 107, 107, 0.5);
+}
+
+.mc-xi-p.out em,
+.mc-xi-p.out b {
+  color: var(--danger);
+}
+
+.mc-xi-p.bench {
+  border-color: rgba(255, 200, 87, 0.45);
+}
+
+.mc-xi-p.bench em,
+.mc-xi-p.bench b {
+  color: var(--warn);
+}
+
+.mc-xi-side.full .mc-power-num {
+  color: var(--accent);
+  font-size: 0.7rem;
+  letter-spacing: 0.04em;
+}
+
+.mc-xi-side.none .mc-power-rank {
+  opacity: 0.7;
+}
+
 /* Companion stat beside the rank: goals scored / allowed per game, recent W D L, results index. */
 .mc-power-stat {
   color: var(--text);

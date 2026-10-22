@@ -2250,6 +2250,88 @@ def test_half_goal_cells_show_count_for_season_and_last_five():
     assert "whole season" in html and "last five" in html
 
 
+def test_starters_row_flags_regulars_out_or_on_the_bench():
+    """Today's XI and bench against the board's regulars, matched on athlete id."""
+    js = Path("src/eeesoc/static/app.js").read_text(encoding="utf-8")
+    css = Path("src/eeesoc/static/app.css").read_text(encoding="utf-8")
+    html = Path("src/eeesoc/static/index.html").read_text(encoding="utf-8")
+    assert "function startersRowHtml" in js and "👥 starters" in js
+    assert "rows.unshift(...startersRowHtml(m))" in js
+    assert "function refreshChicletLineups" in js
+    assert "refreshChicletLineups();" in js[js.index("async function refreshLive()") :]
+    assert ".mc-xi-p.out" in css and ".mc-xi-p.bench" in css and ".mc-xi-side.full" in css
+    assert "<b>👥 starters</b>" in html
+
+    script = (
+        js[js.index("  function escapeHtml(s)") : js.index("  // Club-type tags and articles")]
+        + js[js.index("  const LINEUP_POLL_MS") : js.index("  // A game is worth a lineup call")]
+        + r"""
+const games = 8;
+const reg = (id, short, pos, starts) => ({ id, short, pos, starts, bench: games - starts });
+const regulars = [reg("1", "Keeper", "G", 8), reg("2", "Back", "CB", 8), reg("9", "Striker", "ST", 7), reg("10", "Playmaker", "AM", 6)];
+const row = { xi: { games, regulars, others: [reg("20", "Kid", "ST", 2)] } };
+const state = { clinical: { regular_min_games: 3, leagues: { "t.1": {} } } };
+function clinicalFor(slug, id) { return id === "H" ? row : id === "A" ? { xi: { games: 2, regulars: [], others: [] } } : null; }
+function isFinishedMatch(m) { return m.state === "post"; }
+function isDeadMatch() { return false; }
+const m = { event_id: "e1", league_slug: "t.1", home: "Home", away: "Away", home_id: "H", away_id: "A", state: "in" };
+
+// No squad yet → dash with a pending note, and the tooltip lists the usual XI.
+state.lineups = {};
+let side = startersSideHtml(m, "home");
+if (!side.includes('class="mc-power-side mc-xi-side home none"') || !side.includes("XI pending")) process.exit(2);
+if (!side.includes("Usual XI (starts over 8 archived games): Keeper (G) 8/8")) process.exit(3);
+const pre = startersSideHtml({ ...m, state: "pre" }, "home");
+if (!pre.includes("XI ~1h before KO") || !pre.includes("about an hour before kickoff")) process.exit(4);
+
+// Today: Keeper and Back start, Striker is on the bench, Playmaker is nowhere; Kid stands in.
+const player = (id, short, starter) => ({ id, short, starter });
+state.lineups.e1 = {
+  available: true,
+  home: { players: [player("1", "Keeper", true), player("2", "Back", true), player("20", "Kid", true), player("9", "Striker", false)], bench: [{ id: "30", short: "Spare" }] },
+  away: { players: [player("50", "Someone", true)], bench: [] },
+};
+const pick = startersPick(m, "home");
+if (pick.starting.map((p) => p.id).join() !== "1,2") process.exit(5);
+if (pick.bench.map((p) => p.id).join() !== "9") process.exit(6);
+if (pick.out.map((p) => p.id).join() !== "10") process.exit(7);
+if (JSON.stringify(pick.standIns) !== JSON.stringify([{ id: "20", short: "Kid", pos: "ST", starts: 2, bench: 6 }])) process.exit(8);
+side = startersSideHtml(m, "home");
+if (!side.includes('mc-xi-side home missing"')) process.exit(9);
+if (!side.includes('<span class="mc-xi-p out" title="Playmaker (AM) 6/8"><em>out</em><b>Playmaker</b><i>6/8 AM</i></span>')) process.exit(10);
+if (!side.includes('<span class="mc-xi-p bench" title="Striker (ST) 7/8"><em>bench</em><b>Striker</b><i>7/8 ST</i></span>')) process.exit(11);
+if (!side.includes('<span class="mc-power-rank mc-xi-n">2/4 reg</span>')) process.exit(12);
+if (!side.includes("OUT (not in the squad): Playmaker (AM) 6/8.") || !side.includes("On the bench: Striker (ST) 7/8.") || !side.includes("Standing in: Kid (ST) 2/8.")) process.exit(13);
+// Out chips come before bench chips.
+if (side.indexOf("mc-xi-p out") > side.indexOf("mc-xi-p bench")) process.exit(14);
+
+// Every regular starting → full XI.
+state.lineups.e1.home.players = [player("1", "Keeper", true), player("2", "Back", true), player("9", "Striker", true), player("10", "Playmaker", true)];
+side = startersSideHtml(m, "home");
+if (!side.includes('mc-xi-side home full"') || !side.includes("full XI") || !side.includes("4/4 reg")) process.exit(15);
+
+// Too few archived squads → dash, no pending note, and the reason in the tooltip.
+const away = startersSideHtml(m, "away");
+if (!away.includes("none") || away.includes("XI pending") || !away.includes("needs 3 archived games with a squad — 2 so far")) process.exit(16);
+
+// Finished games carry no row; live ones carry exactly one.
+if (startersRowHtml({ ...m, state: "post" }).length !== 0) process.exit(17);
+const rowHtml = startersRowHtml(m);
+if (rowHtml.length !== 1 || !rowHtml[0].includes("👥 starters")) process.exit(18);
+"""
+    )
+    import subprocess
+    import tempfile
+    with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as fh:
+        fh.write(script)
+        name = fh.name
+    try:
+        proc = subprocess.run(["node", name], capture_output=True, text=True)
+    finally:
+        Path(name).unlink(missing_ok=True)
+    assert proc.returncode == 0, proc.stderr or proc.stdout
+
+
 def test_expected_goals_row_scales_league_average_by_offence_and_defence():
     """League goals per team-game × attack over par × par over the other defence."""
     js = Path("src/eeesoc/static/app.js").read_text(encoding="utf-8")
@@ -2486,7 +2568,7 @@ def _lu_player(
     entry = {
         "starter": starter,
         "jersey": jersey,
-        "athlete": {"displayName": name, "shortName": name},
+        "athlete": {"id": f"a{jersey}", "displayName": name, "shortName": name},
         "position": {"name": pos, "abbreviation": pos},
         "formationPlace": str(place),
         "subbedIn": subbed_in,
@@ -2534,9 +2616,11 @@ def test_build_lineups_formation_subs_and_power():
     home = payload["home"]
     assert home["team"] == "Alpha" and home["formation"] == "4-2-3-1"
     by_jersey = {p["jersey"]: p for p in home["players"]}
-    assert set(by_jersey) == {"1", "2", "9", "27"}  # bench-only player dropped
+    assert set(by_jersey) == {"1", "2", "9", "27"}  # bench-only player is not on the pitch list…
+    assert home["bench"] == [{"id": "a30", "short": "Bench Only", "pos": "SUB"}]  # …but is still in the squad
 
     keeper = by_jersey["1"]
+    assert keeper["id"] == "a1"
     assert keeper["place"] == 1 and keeper["on_pitch"] is True
     assert keeper["power"] == 65 + 3 * 3 - 3  # saves help, conceded hurts
 
@@ -2551,6 +2635,34 @@ def test_build_lineups_formation_subs_and_power():
     assert striker["power"] == 65 + 12 + 4 + 1  # goal + SOT + off-target shot (int round of 1.5)
 
     assert payload["away"]["formation"] == "4-4-2"
+
+
+def test_compact_lineups_keeps_starters_and_bench_per_side():
+    from eeesoc.live import compact_lineups, fetch_lineup_block
+
+    block = compact_lineups(_lu_summary())
+    assert [p["id"] for p in block["home"]["starters"]] == ["a1", "a2", "a9"]
+    # The bench is everyone who did not start, whether or not he came on.
+    assert [p["id"] for p in block["home"]["bench"]] == ["a27", "a30"]
+    assert block["home"]["starters"][0] == {"id": "a1", "short": "Keeper", "pos": "G"}
+    assert block["away"] == {"starters": [{"id": "a13", "short": "Away Keeper", "pos": "G"}], "bench": []}
+    # No starters filed at all → None, so the archive can tell "none" from "not fetched".
+    assert compact_lineups({}) is None
+    assert compact_lineups({"rosters": [{"homeAway": "home", "roster": [_lu_player("30", "Bench Only", 0, starter=False)]}]}) is None
+
+    urls = []
+
+    def fetcher(url):
+        urls.append(url)
+        return _lu_summary()
+
+    assert fetch_lineup_block("eng.1", "77", fetcher=fetcher) == block
+    assert urls == ["https://site.api.espn.com/apis/site/v2/sports/soccer/eng.1/summary?event=77"]
+
+    def broken(url):
+        raise TimeoutError("slow")
+
+    assert fetch_lineup_block("eng.1", "77", fetcher=broken) is None
 
 
 def test_player_power_bounds():

@@ -712,3 +712,47 @@ def test_lookup_by_id_then_name_and_cache_tracks_archive():
     assert fresh is not board
     assert fresh["archive_total"] == 3
     assert lookup_team(fresh, "eng.1", team_id="30")["games"] == 2
+
+
+def _xi(*ids, bench=()):
+    return {
+        "starters": [{"id": i, "short": f"P{i}", "pos": "M"} for i in ids],
+        "bench": [{"id": i, "short": f"P{i}", "pos": "SUB"} for i in bench],
+    }
+
+
+def test_regular_xi_is_who_starts_sixty_percent_once_three_games_are_in():
+    recs = []
+    # Hot FC start p1..p11 in every game; p12 starts the last two instead of p11; p13 is bench only.
+    for i in range(5):
+        xi = _xi(*[f"p{k}" for k in range(1, 11)], *(["p12"] if i >= 3 else ["p11"]), bench=["p13", "p11" if i >= 3 else "p12"])
+        rec = _rec(f"g{i}", "Hot FC", f"Foe {i}", "1", f"9{i}", [_ev(10, "goal", "home", 0.5)], start=f"2026-08-{i + 1:02d}")
+        rec["lineups"] = {"home": xi, "away": None}
+        recs.append(rec)
+    # A game without a squad does not count toward the share.
+    blank = _rec("g9", "Hot FC", "Foe 9", "1", "99", [_ev(10, "goal", "home", 0.5)], start="2026-08-09")
+    recs.append(blank)
+
+    board = build_clinical_board(recs)
+    assert board["regular_share"] == clinical.REGULAR_SHARE == 0.6
+    assert board["regular_min_games"] == clinical.REGULAR_MIN_GAMES == 3
+    hot = {t["team"]: t for t in board["leagues"]["eng.1"]["teams"]}["Hot FC"]
+    xi = hot["xi"]
+    assert xi["games"] == 5
+    regular_ids = [p["id"] for p in xi["regulars"]]
+    # p1..p10 started 5/5 (ties by name), p11 3/5 (60% → in, last), p12 2/5 (out of the regulars).
+    assert sorted(regular_ids[:10]) == sorted(f"p{k}" for k in range(1, 11))
+    assert regular_ids[-1] == "p11"
+    p11 = next(p for p in xi["regulars"] if p["id"] == "p11")
+    assert p11 == {"id": "p11", "short": "Pp11", "pos": "SUB", "starts": 3, "bench": 2}  # latest position wins
+    assert xi["others"] == [{"id": "p12", "short": "Pp12", "pos": "M", "starts": 2, "bench": 3}]  # bench-only p13 is left out
+
+    # The opponents only ever have the away side's squad → None → no games.
+    foe = next(t for t in board["leagues"]["eng.1"]["teams"] if t["team"] == "Foe 0")
+    assert foe["xi"] == {"games": 0, "regulars": [], "others": []}
+
+    # Two games are not enough to call anyone a regular, but the counts are kept.
+    two = build_clinical_board(recs[:2])["leagues"]["eng.1"]["teams"]
+    hot2 = next(t for t in two if t["team"] == "Hot FC")["xi"]
+    assert hot2["games"] == 2 and hot2["regulars"] == []
+    assert next(p for p in hot2["others"] if p["id"] == "p1")["starts"] == 2

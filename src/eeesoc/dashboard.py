@@ -20,6 +20,7 @@ from eeesoc.live import (
     build_live_situation,
     build_player_events,
     build_pitch_track,
+    fetch_lineup_block,
     fetch_live_board,
 )
 from eeesoc.models import Match, MatchSnapshot
@@ -306,6 +307,11 @@ def make_handler(state: DashboardState):
                                 "home_id": (qs.get("home_id") or [""])[0],
                                 "away_id": (qs.get("away_id") or [""])[0],
                                 "start": (qs.get("start") or [""])[0],
+                                # One summary call at full time keeps the regular-XI table current
+                                # without waiting for the next restart's backfill sweep.
+                                "lineups": fetch_lineup_block(league, event_id)
+                                if not halftime.has_record(league, event_id)
+                                else None,
                             },
                         )
                     except OSError:
@@ -344,6 +350,7 @@ def make_handler(state: DashboardState):
                 league = (qs.get("league") or [""])[0]
                 if league:
                     board = {**board, "leagues": {k: v for k, v in board["leagues"].items() if k == league}}
+                board = {**board, "lineup_backfill": halftime.lineup_backfill_status()}
                 return self._send(200, _json_bytes(board), "application/json")
 
             if path == "/api/live/standings":
@@ -707,6 +714,11 @@ def serve(*, port: int, season: str, host: str = "127.0.0.1") -> None:
         if missing:
             halftime.start_box_backfill_thread()
             print(f"[nogoal] backfilling penalty-box entries for {missing} archived games")
+        # Likewise match-day squads, so the regular-XI table covers the whole archive.
+        missing_lineups = len(halftime.records_missing_lineups())
+        if missing_lineups:
+            halftime.start_lineup_backfill_thread()
+            print(f"[clinical] backfilling starting XIs for {missing_lineups} archived games")
     if nogoal_monitor.monitor_enabled():
         # Scores every live game each poll and posts no-more-goals signals to Discord.
         nogoal_monitor.start_monitor_thread()
