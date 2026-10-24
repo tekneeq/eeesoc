@@ -921,6 +921,23 @@ const cases = [
   ["Paris Saint-Germain", 14, "PSG"],
   ["Atlético Madrid", 14, "Atlético"],
   ["Athletic Bilbao", 14, "Athletic"],
+  // Two-word places: never "New" or "San" on their own.
+  ["New England Revolution", 14, "New England"],
+  ["New England Revolution", 10, "Revolution"],
+  ["San Jose Earthquakes", 14, "San Jose"],
+  ["San Jose Earthquakes", 10, "San Jose"],
+  ["St. Louis City SC", 14, "St. Louis"],
+  ["New York Red Bulls", 14, "NY Red Bulls"],
+  ["New York Red Bulls", 10, "Red Bulls"],
+  ["New York City FC", 14, "New York City"],
+  ["New York City FC", 10, "NYCFC"],
+  ["Inter Miami CF", 14, "Inter Miami"],
+  ["Inter Miami CF", 10, "Miami"],
+  ["Los Angeles FC", 14, "LAFC"],
+  ["LA Galaxy", 10, "LA Galaxy"],
+  ["D.C. United", 10, "DC United"],
+  ["Philadelphia Union", 14, "Philadelphia"],
+  ["Real Salt Lake", 10, "Salt Lake"],
 ];
 let bad = 0;
 for (const [name, max, want] of cases) {
@@ -930,6 +947,8 @@ for (const [name, max, want] of cases) {
 if (shortName("Newcastle United") !== "Newcastle") { console.error("shortName"); bad++; }
 if (shortName("1. FC Union Berlin") !== "Union Berlin") { console.error("shortName Union"); bad++; }
 if (shortName("Borussia Dortmund") !== "Dortmund") { console.error("shortName BVB"); bad++; }
+if (shortName("New England Revolution") !== "New England") { console.error("shortName Revs"); bad++; }
+if (last5OppName("New England Revolution") !== "Revolution") { console.error("last5 Revs"); bad++; }
 if (last5OppName("Newcastle United") !== "Newcastle") { console.error("last5"); bad++; }
 if (last5OppName("Borussia Dortmund") !== "Dortmund") { console.error("last5 BVB"); bad++; }
 if (last5OppName("Newcastle United") === "N. United") { console.error("old last5"); bad++; }
