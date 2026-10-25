@@ -979,6 +979,8 @@
   const TEAM_BRAND = /^(borussia|eintracht|bayer|dynamo|dinamo|lokomotiv|spartak|fortuna|viktoria|deportivo|olympique|racing|real)$/i;
   // Ordinals and founding years: "1." FC Köln, Mainz "05", Hoffenheim "1899".
   const TEAM_NUMBER = /^\d+\.?$/;
+  // Leading words that only make a place with the next one: New England, San Jose, St. Louis.
+  const TEAM_PLACE = /^(new|san|los|las|st\.?|saint|santa|sankt)$/i;
   // Names whose natural short form is wrong or ambiguous. Keyed without accents.
   const TEAM_NICK = {
     "manchester united": ["Man United", "Man Utd"],
@@ -994,6 +996,12 @@
     "olympique lyonnais": ["Lyon"],
     "internazionale": ["Inter"],
     "sporting kansas city": ["Sporting KC"],
+    "new england revolution": ["New England", "Revolution", "Revs"],
+    "new york red bulls": ["NY Red Bulls", "Red Bulls"],
+    "new york city": ["New York City", "NYCFC"],
+    "inter miami": ["Inter Miami", "Miami"],
+    "d.c. united": ["DC United"],
+    "los angeles": ["LAFC"],
   };
 
   function teamNameKey(parts) {
@@ -1039,9 +1047,16 @@
       const rest = words.slice(1).join(" ");
       if (rest.length <= maxLen) return rest;
     }
-    const first = words[0];
-    if (first.length <= maxLen) return first;
-    return `${first.slice(0, maxLen - 1)}…`;
+    // "New", "San", "St." name nothing on their own: the place is two words.
+    const place = words.length > 1 && TEAM_PLACE.test(words[0]);
+    const head = place ? `${words[0]} ${words[1]}` : words[0];
+    if (head.length <= maxLen) return head;
+    if (place) {
+      // New England Revolution at 10 → Revolution, never "New".
+      const tail = words.slice(2).join(" ");
+      if (tail && tail.length <= maxLen) return tail;
+    }
+    return `${head.slice(0, maxLen - 1)}…`;
   }
 
   function shortName(name) {
