@@ -2649,36 +2649,45 @@
     }
   }
 
-  function statPair(label, h, a, title) {
-    return `<span class="mc-stat" title="${escapeHtml(title || `${label} — home vs away`)}"><span class="mc-stat-label">${label}</span><b class="mc-h">${h}</b><span class="mc-stat-sep">–</span><b class="mc-a">${a}</b></span>`;
-  }
-
   // xG divided by a count, so a 30-yard screamer (xG ≈ 0.03) barely moves it the
   // way a goal moves goals-per-shot. "—" until there is something to divide by.
   function xgPer(xg, n) {
     return n > 0 ? (Number(xg || 0) / n).toFixed(2) : "—";
   }
 
-  function chicletStatChips(c, xgHome, xgAway, box) {
+  // One column per stat, one row per period, so every number sits under its label
+  // and above its half-split instead of wrapping wherever the pills happened to break.
+  const STAT_COLS = [
+    { key: "shots", label: "Shots", help: "Shots, including blocked" },
+    { key: "sot", label: "SOT", help: "Shots on target" },
+    { key: "blocked", label: "Blocked", help: "Shots blocked" },
+    { key: "corners", label: "Corners", help: "Corners" },
+    { key: "fouls", label: "Fouls", help: "Fouls committed" },
+    { key: "xg", label: "xG", help: "Expected goals" },
+    { key: "box", label: "Box", help: "Passes and crosses received inside the other box" },
+    { key: "xg_shot", label: "xG/shot", help: "Expected goals per shot — chance quality; a worldie barely moves it" },
+    { key: "xg_box", label: "xG/box", help: "Expected goals per pass into the box — what getting into this defence turns into" },
+  ];
+
+  function chicletStatCells(c, xgHome, xgAway, box) {
     const counts = c || {};
-    const pair = statPair;
     const homeShots = (counts.home_shot || 0) + (counts.home_shot_on || 0) + (counts.home_blocked || 0) + (counts.home_goal || 0);
     const awayShots = (counts.away_shot || 0) + (counts.away_shot_on || 0) + (counts.away_blocked || 0) + (counts.away_goal || 0);
-    const boxHome = box ? box.home : null;
-    const boxAway = box ? box.away : null;
-    return (
-      pair("Shots", homeShots, awayShots) +
-      pair("On target", (counts.home_shot_on || 0) + (counts.home_goal || 0), (counts.away_shot_on || 0) + (counts.away_goal || 0)) +
-      pair("Blocked", counts.home_blocked || 0, counts.away_blocked || 0) +
-      pair("Corners", counts.home_corner || 0, counts.away_corner || 0) +
-      pair("Fouls", counts.home_foul || 0, counts.away_foul || 0) +
-      pair("xG", Number(xgHome || 0).toFixed(2), Number(xgAway || 0).toFixed(2)) +
-      (box
-        ? pair("Box", boxHome, boxAway, "Passes and crosses received inside the other box — home vs away") +
-          pair("xG/shot", xgPer(xgHome, homeShots), xgPer(xgAway, awayShots), "Expected goals per shot — chance quality, a worldie barely moves it — home vs away") +
-          pair("xG/box", xgPer(xgHome, boxHome), xgPer(xgAway, boxAway), "Expected goals per pass into the box — what getting into this defence turns into — home vs away")
-        : "")
-    );
+    const cells = {
+      shots: [homeShots, awayShots],
+      sot: [(counts.home_shot_on || 0) + (counts.home_goal || 0), (counts.away_shot_on || 0) + (counts.away_goal || 0)],
+      blocked: [counts.home_blocked || 0, counts.away_blocked || 0],
+      corners: [counts.home_corner || 0, counts.away_corner || 0],
+      fouls: [counts.home_foul || 0, counts.away_foul || 0],
+      xg: [Number(xgHome || 0).toFixed(2), Number(xgAway || 0).toFixed(2)],
+    };
+    if (box) {
+      cells.box = [box.home, box.away];
+      cells.xg_shot = [xgPer(xgHome, homeShots), xgPer(xgAway, awayShots)];
+      cells.xg_box = [xgPer(xgHome, box.home), xgPer(xgAway, box.away)];
+    }
+    const quiet = homeShots + awayShots + cells.corners[0] + cells.corners[1] + cells.fouls[0] + cells.fouls[1] === 0 && !(box && box.home + box.away);
+    return { cells, quiet };
   }
 
   function boxEntryCounts(tl, half) {
@@ -2688,6 +2697,45 @@
     const halves = half ? [half] : ["1", "2"];
     const count = (side) => halves.reduce((n, h) => n + ((box[h] || {})[side] || []).length, 0);
     return { home: count("home"), away: count("away") };
+  }
+
+  const TONE_CLASS = (t) => (t > 0 ? " tight" : t < 0 ? " loose" : "");
+
+  function gridCellHtml(col, v, cls) {
+    if (!v) return `<span class="mc-grid-cell ${cls}"></span>`;
+    const [h, a, th = 0, ta = 0, detail = ""] = v;
+    const title = `${col.label} — home vs away${detail ? ` · ${detail}` : ""}`;
+    return `<span class="mc-grid-cell ${cls}" title="${escapeHtml(title)}"><b class="mc-h${TONE_CLASS(th)}">${h}</b><span class="mc-stat-sep">–</span><b class="mc-a${TONE_CLASS(ta)}">${a}</b></span>`;
+  }
+
+  // cols: [{key,label,help}]; rows: [{period, help, quiet, cells: {key: [h, a, toneH, toneA, detail]}}]
+  // Rendered twice: stats across / periods down for wide screens, and transposed
+  // (stats down, Game · 1H · 2H across) for phones, where nine columns would not fit.
+  // CSS shows one or the other.
+  function statGridHtml(cols, rows, opts = {}) {
+    const cornerAttr = opts.help ? ` title="${escapeHtml(opts.help)}"` : "";
+    const corner = `<span class="mc-grid-corner"${cornerAttr}>${opts.corner || ""}</span>`;
+    const head = cols.map((c) => `<span class="mc-grid-head" title="${escapeHtml(c.help || c.label)}">${c.label}</span>`).join("");
+    const body = rows
+      .map((r) => {
+        const cls = `mc-grid-row${r.quiet ? " mc-grid-quiet" : ""}`;
+        const period = `<span class="mc-grid-period ${cls}"${r.help ? ` title="${escapeHtml(r.help)}"` : ""}>${r.period}</span>`;
+        return period + cols.map((c) => gridCellHtml(c, r.cells[c.key], cls)).join("");
+      })
+      .join("");
+    const cls = `mc-stat-grid${opts.cls ? ` ${opts.cls}` : ""}`;
+    const wide = `<span class="${cls} mc-grid-wide" style="--cols:${cols.length}">${corner}${head}${body}</span>`;
+    const tallHead = rows
+      .map((r) => `<span class="mc-grid-head${r.quiet ? " mc-grid-quiet" : ""}">${r.period}</span>`)
+      .join("");
+    const tallBody = cols
+      .map((c) => {
+        const label = `<span class="mc-grid-period mc-grid-row" title="${escapeHtml(c.help || c.label)}">${c.label}</span>`;
+        return label + rows.map((r) => gridCellHtml(c, r.cells[c.key], `mc-grid-row${r.quiet ? " mc-grid-quiet" : ""}`)).join("");
+      })
+      .join("");
+    const tall = `<span class="${cls} mc-grid-tall" style="--cols:${rows.length}">${corner}${tallHead}${tallBody}</span>`;
+    return wide + tall;
   }
 
   const POSTURE_HELP =
@@ -2735,43 +2783,44 @@
     return { text: "EVEN", tone: 0 };
   }
 
-  function posturePair(label, home, away, help) {
-    const toneClass = (t) => (t > 0 ? " tight" : t < 0 ? " loose" : "");
-    const title = `${label} — ${help}${home.detail ? ` · home ${home.detail}` : ""}${away.detail ? ` · away ${away.detail}` : ""}`;
-    return `<span class="mc-stat mc-posture-stat" title="${escapeHtml(title)}"><span class="mc-stat-label">${label}</span><b class="mc-h${toneClass(home.tone)}">${home.text}</b><span class="mc-stat-sep">–</span><b class="mc-a${toneClass(away.tone)}">${away.text}</b></span>`;
+  function postureCols(par) {
+    const parText = (v, suffix = "") => (v == null ? "" : ` (league ${v}${suffix})`);
+    const cols = [
+      { key: "duels", label: "Duels", help: `Challenges won in its own half${parText(par?.duel_win_pct, "%")}` },
+      { key: "clears", label: "Clears", help: `Clearances${parText(par?.clearances_per_45, " per 45′")}` },
+      { key: "leak", label: "Leak", help: `Passes into its box per pass into its final third, lower is tighter${parText(par?.porosity)}` },
+      { key: "central", label: "Central", help: `Share of entries conceded that landed in front of goal${parText(par?.central_pct, "%")}` },
+      { key: "inbox", label: "In box", help: `Its own touches inside its own area, more means pinned back${parText(par?.box_actions_per_45, " per 45′")}` },
+    ];
+    if (par) cols.push({ key: "read", label: "Read", help: "Duels, leak and central summed against the league norm" });
+    return cols;
   }
 
-  function posturePills(p, par) {
+  function postureCells(p, par) {
     const home = postureReads(p.home, par);
     const away = postureReads(p.away, par);
-    const parText = (v, suffix = "") => (v == null ? "" : ` (league ${v}${suffix})`);
-    let html =
-      posturePair("Duels", home.duels, away.duels, `challenges won in its own half${parText(par?.duel_win_pct, "%")}`) +
-      posturePair("Clears", home.clears, away.clears, `clearances${parText(par?.clearances_per_45, " per 45′")}`) +
-      posturePair("Leak", home.leak, away.leak, `passes into its box per pass into its final third, lower is tighter${parText(par?.porosity)}`) +
-      posturePair("Central", home.central, away.central, `share of entries conceded that landed in front of goal${parText(par?.central_pct, "%")}`) +
-      posturePair("In box", home.inbox, away.inbox, `its own touches inside its own area, more means pinned back${parText(par?.box_actions_per_45, " per 45′")}`);
+    const cells = {};
+    for (const k of ["duels", "clears", "leak", "central", "inbox"]) {
+      cells[k] = [home[k].text, away[k].text, home[k].tone, away[k].tone, `home ${home[k].detail} · away ${away[k].detail}`];
+    }
     if (par) {
       const vh = postureVerdict(home);
       const va = postureVerdict(away);
-      html += posturePair("Read", { text: vh.text, tone: vh.tone, detail: "" }, { text: va.text, tone: va.tone, detail: "" }, "duels, leak and central summed against the league norm");
+      cells.read = [vh.text, va.text, vh.tone, va.tone];
     }
-    return html;
+    return cells;
   }
 
   function chicletPostureHtml(tl, m) {
     const all = postureTotals(tl, "");
     if (!all) return "";
     const par = state.clinical?.leagues?.[m?.league_slug]?.par_posture || null;
-    const row = (period, chips, title) =>
-      `<span class="mc-stats-row mc-stats-half mc-posture-row"><span class="mc-stat-period"${title ? ` title="${escapeHtml(title)}"` : ""}>${period}</span>${chips}</span>`;
-    const h1 = postureTotals(tl, "1");
-    const h2 = postureTotals(tl, "2");
-    return `<span class="mc-stats-stack mc-posture" title="${escapeHtml(POSTURE_HELP)}">${
-      row("🧱", posturePills(all, par), POSTURE_HELP) +
-      (h1 ? row("1H", posturePills(h1, par)) : "") +
-      (h2 ? row("2H", posturePills(h2, par)) : "")
-    }</span>`;
+    const rows = [{ period: "Game", cells: postureCells(all, par) }];
+    for (const [half, label] of [["1", "1H"], ["2", "2H"]]) {
+      const p = postureTotals(tl, half);
+      if (p) rows.push({ period: label, cells: postureCells(p, par) });
+    }
+    return statGridHtml(postureCols(par), rows, { cls: "mc-posture", corner: "🧱", help: POSTURE_HELP });
   }
 
   function chicletStatsHtml(tl, m) {
@@ -2782,15 +2831,18 @@
     const halves = tl.counts_by_half || {};
     const h1 = halves["1h"] || {};
     const h2 = halves["2h"] || {};
-    const row = (period, chips) =>
-      `<span class="mc-stats-row${period ? " mc-stats-half" : ""}">${
-        period ? `<span class="mc-stat-period">${period}</span>` : ""
-      }${chips}</span>`;
-    return `<span class="mc-stats-stack">${
-      row("", chicletStatChips(tl.counts, xg.home_total, xg.away_total, boxEntryCounts(tl, ""))) +
-      row("1H", chicletStatChips(h1, h1.home_xg, h1.away_xg, boxEntryCounts(tl, "1"))) +
-      row("2H", chicletStatChips(h2, h2.home_xg, h2.away_xg, boxEntryCounts(tl, "2")))
-    }</span>${chicletPostureHtml(tl, m)}`;
+    const box = boxEntryCounts(tl, "");
+    const cols = box ? STAT_COLS : STAT_COLS.filter((c) => !["box", "xg_shot", "xg_box"].includes(c.key));
+    const row = (period, c, xgH, xgA, half) => {
+      const { cells, quiet } = chicletStatCells(c, xgH, xgA, box ? boxEntryCounts(tl, half) : null);
+      return { period, cells, quiet };
+    };
+    const rows = [
+      { ...row("Game", tl.counts, xg.home_total, xg.away_total, ""), quiet: false },
+      row("1H", h1, h1.home_xg, h1.away_xg, "1"),
+      row("2H", h2, h2.home_xg, h2.away_xg, "2"),
+    ];
+    return statGridHtml(cols, rows, { cls: "mc-stat-grid-counts" }) + chicletPostureHtml(tl, m);
   }
 
   function buildMatchChicletButton(m, selected, onSelect, withTimeline) {
