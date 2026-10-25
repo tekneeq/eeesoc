@@ -17,8 +17,10 @@ from eeesoc.clinical import (
     build_clinical_board,
     clinical_board,
     lookup_team,
+    posture_summary,
     team_key,
 )
+from eeesoc.live import BOX_VERSION
 
 
 @pytest.fixture(autouse=True)
@@ -640,6 +642,7 @@ def test_box_touches_per_goal_uses_season_and_last_five():
         rec = _rec(eid, "Sharp FC", "Blunt Town", "10", "20", events, start=start)
         if box:
             rec["box_entries"] = _box_entries(home_box, away_box)
+            rec["box_version"] = BOX_VERSION
         return rec
 
     records = [
@@ -756,3 +759,49 @@ def test_regular_xi_is_who_starts_sixty_percent_once_three_games_are_in():
     hot2 = next(t for t in two if t["team"] == "Hot FC")["xi"]
     assert hot2["games"] == 2 and hot2["regulars"] == []
     assert next(p for p in hot2["others"] if p["id"] == "p1")["starts"] == 2
+
+
+def _posture_block(**over):
+    base = {"duels_won": 6, "duels_lost": 4, "clearances": 10, "box_actions": 20, "entries_allowed": 8, "central_allowed": 4, "f3_allowed": 16, "minutes": 45}
+    return {**base, **over}
+
+
+def test_posture_rolls_up_per_club_and_league_par():
+    def game(eid, start, home_post, away_post, *, version=BOX_VERSION):
+        rec = _rec(eid, "Wall FC", "Sieve Town", "10", "20", [_ev(12, "shot", "home"), _ev(60, "goal", "away", 0.3)], start=start)
+        rec["box_entries"] = {"1": {"home": [12], "away": []}, "2": {"home": [], "away": [60]}}
+        rec["box_version"] = version
+        rec["posture"] = {"1": {"home": home_post, "away": away_post}, "2": {"home": home_post, "away": away_post}}
+        return rec
+
+    tight = _posture_block(duels_won=8, duels_lost=2, entries_allowed=4, central_allowed=1, f3_allowed=16, clearances=6, box_actions=12)
+    loose = _posture_block(duels_won=4, duels_lost=6, entries_allowed=12, central_allowed=9, f3_allowed=16, clearances=18, box_actions=36)
+    records = [
+        game("a", "2026-02-01T12:00:00Z", tight, loose),
+        game("b", "2026-03-01T12:00:00Z", tight, loose),
+        # Counted under the old box definition: its posture block is left out until the backfill re-counts it.
+        game("old", "2026-01-01T12:00:00Z", loose, tight, version=1),
+    ]
+    league = build_clinical_board(records)["leagues"]["eng.1"]
+    by = {t["team"]: t for t in league["teams"]}
+    wall = by["Wall FC"]["posture"]
+    assert wall["games"] == 2 and wall["minutes"] == 180
+    assert wall["duel_win_pct"] == 80 and wall["duels"] == 40
+    assert wall["clearances_per_45"] == 6.0 and wall["box_actions_per_45"] == 12.0
+    assert wall["porosity"] == 0.25 and wall["central_pct"] == 25 and wall["entries_allowed_per_45"] == 4.0
+    sieve = by["Sieve Town"]["posture"]
+    assert sieve["duel_win_pct"] == 40 and sieve["porosity"] == 0.75 and sieve["central_pct"] == 75
+    assert sieve["clearances_per_45"] == 18.0 and sieve["box_actions_per_45"] == 36.0
+    assert by["Wall FC"]["recent_posture"]["games"] == 2
+    # League par: every side of every measured game — here the two games, both sides.
+    par = league["par_posture"]
+    assert par["games"] == 4 and par["duel_win_pct"] == 60 and par["porosity"] == 0.5
+    assert par["central_pct"] == 62  # entry-weighted: (1 + 9) of (4 + 12)
+    assert par["clearances_per_45"] == 12.0 and par["box_actions_per_45"] == 24.0
+    # The stale game's box touches sit out of the per-goal table too.
+    assert by["Wall FC"]["box_games"] == 2
+
+    assert posture_summary([]) == {
+        "games": 0, "minutes": 0, "duel_win_pct": None, "duels": 0, "clearances_per_45": None, "box_actions_per_45": None,
+        "entries_allowed_per_45": None, "porosity": None, "f3_allowed": 0, "central_pct": None,
+    }

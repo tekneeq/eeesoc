@@ -1246,6 +1246,7 @@ BLOCKED_TYPES = {"shot-blocked"}
 SHOT_OFF_TYPES = {
     "shot",
     "shot-off-target",
+    "shot-hit-woodwork",
     "miss",
     "woodwork",
 }
@@ -1262,18 +1263,148 @@ def _is_final_clock(clock: str) -> bool:
     return any(tok in c for tok in _FINAL_CLOCK_TOKENS)
 
 
-# A completed pass received inside the penalty area, in the passer's attacking
+# A pass or cross that *arrives* inside the penalty area, in the passer's attacking
 # frame (ESPN normalises fieldPositionX so 100 is always the goal being attacked).
+# ESPN files the start of a pass as fieldPositionX/Y and where it ended as
+# fieldPosition2X/Y; an entry is judged on where the ball got to.
 BOX_X_MIN = 83.0
 BOX_Y_MIN, BOX_Y_MAX = 21.0, 79.0
+# Width of the goal area, roughly: an entry landing here is in front of goal, not a cut-back lane.
+CENTRAL_Y_MIN, CENTRAL_Y_MAX = 37.0, 63.0
+FINAL_THIRD_X = 200.0 / 3.0
+# Bump when the definition of a box entry changes so archived records are re-counted
+# (see ``halftime.records_missing_box_entries``) and never mixed with the old reading.
+#   1 — passes *made from* inside the box (start point)
+#   2 — passes and crosses *received* inside the box (end point)
+BOX_VERSION = 2
+BOX_ENTRY_TYPES = {"pass", "cross", "through-ball", "assists-shot"}
+
+
+def _pass_end(play: dict[str, Any]) -> tuple[float, float] | None:
+    ex = _coord(play, "fieldPosition2X")
+    ey = _coord(play, "fieldPosition2Y")
+    if ex is None or ey is None:
+        return None
+    return ex, ey
+
+
+def _in_box(x: float, y: float) -> bool:
+    return x >= BOX_X_MIN and BOX_Y_MIN <= y <= BOX_Y_MAX
 
 
 def _is_box_entry(ptype: str, play: dict[str, Any]) -> bool:
-    if ptype != "pass":
+    if ptype not in BOX_ENTRY_TYPES:
         return False
-    px = _coord(play, "fieldPositionX")
-    py = _coord(play, "fieldPositionY")
-    return px is not None and py is not None and px >= BOX_X_MIN and BOX_Y_MIN <= py <= BOX_Y_MAX
+    end = _pass_end(play)
+    return end is not None and _in_box(*end)
+
+
+def _is_final_third_entry(ptype: str, play: dict[str, Any]) -> bool:
+    """A pass that starts outside the final third and ends inside it."""
+    if ptype not in BOX_ENTRY_TYPES:
+        return False
+    end = _pass_end(play)
+    sx = _coord(play, "fieldPositionX")
+    return end is not None and sx is not None and sx < FINAL_THIRD_X <= end[0]
+
+
+# Defending-side reading of the play-by-play. ESPN credits a won challenge as
+# ``tackle`` / ``interception`` / ``blocked-pass`` and a lost one as ``attempted-tackle``.
+DUEL_WON_TYPES = {"tackle", "interception", "blocked-pass"}
+DUEL_LOST_TYPES = {"attempted-tackle"}
+CLEARANCE_TYPES = {"clear", "clearance"}
+POSTURE_KEYS = (
+    "duels_won",
+    "duels_lost",
+    "clearances",
+    "box_actions",
+    "entries_allowed",
+    "central_allowed",
+    "f3_allowed",
+)
+
+
+def _empty_posture() -> dict[str, Any]:
+    out: dict[str, Any] = {k: 0 for k in POSTURE_KEYS}
+    out["minutes"] = 0
+    return out
+
+
+def defence_from_plays(
+    plays: list[dict[str, Any]],
+    *,
+    home_id: str = "",
+    away_id: str = "",
+    home: str = "",
+    away: str = "",
+) -> dict[str, dict[str, dict[str, Any]]]:
+    """
+    How each side defended, per half: ``{"1": {"home": {...}, "away": {...}}, "2": {...}}``.
+
+    Every block is that side's *defending* view —
+    ``duels_won`` / ``duels_lost``: challenges in its own half,
+    ``clearances``: balls hoofed clear,
+    ``box_actions``: its on-ball events inside its own penalty area,
+    ``entries_allowed``: opponent passes received in its box (same reading as
+    ``box_entries``), ``central_allowed`` those landing in front of goal,
+    ``f3_allowed``: opponent passes that carried the ball into its final third,
+    ``minutes``: how much of the half has been played (for per-45′ rates).
+    There is no tracking data, so compactness is read from where the defending
+    side's actions happen and what gets past them.
+    """
+    out = {
+        "1": {"home": _empty_posture(), "away": _empty_posture()},
+        "2": {"home": _empty_posture(), "away": _empty_posture()},
+    }
+    latest_s = {1: None, 2: None}
+    for play in plays:
+        pmin = _play_minute(play)
+        if pmin is None:
+            continue
+        period = _play_period(play)
+        if period is None:
+            period = 1 if pmin <= 45 else 2
+        if period not in (1, 2):
+            continue
+        secs = _play_elapsed_seconds(play)
+        if secs is not None:
+            latest_s[period] = secs if latest_s[period] is None else max(latest_s[period], secs)
+        ptype = _play_type(play)
+        side = _side_for_team(
+            _team_id_from_play(play), home_id=home_id, away_id=away_id, home=home, away=away, play=play
+        )
+        if side not in {"home", "away"}:
+            continue
+        other = "away" if side == "home" else "home"
+        mine = out[str(period)][side]
+        theirs = out[str(period)][other]
+        sx = _coord(play, "fieldPositionX")
+        sy = _coord(play, "fieldPositionY")
+        own_half = sx is not None and sx < 50.0
+        if ptype in DUEL_WON_TYPES and own_half:
+            mine["duels_won"] += 1
+        elif ptype in DUEL_LOST_TYPES and own_half:
+            mine["duels_lost"] += 1
+        if ptype in CLEARANCE_TYPES:
+            mine["clearances"] += 1
+        if sx is not None and sy is not None and (sx or sy) and _in_box(100.0 - sx, sy):
+            mine["box_actions"] += 1
+        if _is_box_entry(ptype, play):
+            theirs["entries_allowed"] += 1
+            end = _pass_end(play)
+            if end is not None and CENTRAL_Y_MIN <= end[1] <= CENTRAL_Y_MAX:
+                theirs["central_allowed"] += 1
+        if _is_final_third_entry(ptype, play):
+            theirs["f3_allowed"] += 1
+    for period, secs in latest_s.items():
+        if secs is None:
+            continue
+        # ESPN's clock runs through the match, so the second half starts at 45:00.
+        played = secs / 60.0 - (45.0 if period == 2 else 0.0)
+        minutes = int(max(1, min(60, round(played))))
+        for side in ("home", "away"):
+            out[str(period)][side]["minutes"] = minutes
+    return out
 
 
 def box_entries_from_plays(
@@ -2557,6 +2688,8 @@ def build_event_timeline(
             tilt=_DUEL_TILT,
         ),
         "box_entries": box_entries_from_plays(plays, home_id=home_id, away_id=away_id, home=home, away=away),
+        "box_version": BOX_VERSION,
+        "posture": defence_from_plays(plays, home_id=home_id, away_id=away_id, home=home, away=away),
         "xg": {
             "home": home_series,
             "away": away_series,
