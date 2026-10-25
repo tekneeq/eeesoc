@@ -846,6 +846,65 @@ def test_chiclet_stats_keep_full_row_and_add_halves():
     assert ".mc-stat-period" in css
 
 
+def test_chiclet_stats_add_box_pills_and_posture_row():
+    import subprocess
+
+    js = Path("src/eeesoc/static/app.js").read_text(encoding="utf-8")
+    css = Path("src/eeesoc/static/app.css").read_text(encoding="utf-8")
+    html = Path("src/eeesoc/static/index.html").read_text(encoding="utf-8")
+    assert "chicletStatsHtml(tl, m)" in js and "chicletStatsHtml(cached, m)" in js
+    assert ".mc-posture-stat .mc-h.tight" in css and ".mc-posture-stat .mc-a.loose" in css
+    assert "🧱 posture" in html and "xG/box" in html and "COMPACT / LEAKY / EVEN" in html
+    start = js.index("  function statPair")
+    end = js.index("  function buildMatchChicletButton")
+    src = js[start:end]
+    script = """
+const escapeHtml = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;");
+const state = { clinical: { leagues: { "esp.1": { par_posture: { duel_win_pct: 60, clearances_per_45: 10, box_actions_per_45: 28, porosity: 0.52, central_pct: 50 } } } } };
+""" + src + """
+const half = (h) => ({ duels_won: 9, duels_lost: 4, clearances: 21, box_actions: 44, entries_allowed: 21, central_allowed: 13, f3_allowed: 38, minutes: 45 });
+const tl = {
+  counts: { home_shot: 3, home_shot_on: 2, home_blocked: 1, home_goal: 1, away_shot: 2, away_shot_on: 0, away_blocked: 0, away_goal: 0 },
+  counts_by_half: { "1h": { home_shot: 3, home_shot_on: 2, home_blocked: 1, home_goal: 1, home_xg: 0.7, away_shot: 2, away_xg: 0.1 }, "2h": {} },
+  xg: { home_total: 0.7, away_total: 0.1 },
+  box_entries: { "1": { home: [3, 8, 9, 20, 30, 40, 41], away: [12, 33] }, "2": { home: [], away: [] } },
+  posture: { "1": { home: { duels_won: 11, duels_lost: 2, clearances: 4, box_actions: 26, entries_allowed: 2, central_allowed: 1, f3_allowed: 15, minutes: 45 }, away: half(1) }, "2": { home: {}, away: {} } },
+};
+const m = { league_slug: "esp.1", event_id: "1" };
+const out = chicletStatsHtml(tl, m);
+let bad = 0;
+const need = (s, why) => { if (!out.includes(s)) { console.error("missing", why, s); bad++; } };
+need('<span class="mc-stat-label">Box</span><b class="mc-h">7</b><span class="mc-stat-sep">–</span><b class="mc-a">2</b>', "box pill");
+need('<span class="mc-stat-label">xG/shot</span><b class="mc-h">0.10</b><span class="mc-stat-sep">–</span><b class="mc-a">0.05</b>', "xG per shot (7 home shots, 2 away)");
+need('<span class="mc-stat-label">xG/box</span><b class="mc-h">0.10</b><span class="mc-stat-sep">–</span><b class="mc-a">0.05</b>', "xG per box entry");
+// Second half has nothing yet: the divisions stay blank instead of 0.00.
+need('<span class="mc-stat-label">xG/shot</span><b class="mc-h">—</b>', "empty half");
+need('class="mc-stats-stack mc-posture"', "posture stack");
+need('<span class="mc-stat-period" title="', "posture help on the row label");
+// Duels: home 11/13 = 85% (tight vs 60), away 9/13 = 69% (also 10%+ above par → tight).
+need('<span class="mc-stat-label">Duels</span><b class="mc-h tight">85%</b><span class="mc-stat-sep">–</span><b class="mc-a tight">69%</b>', "duel pill");
+// Leak: home 2/15 = 0.13 (tight vs 0.52), away 21/38 = 0.55 (within 10% → even).
+need('<span class="mc-stat-label">Leak</span><b class="mc-h tight">0.13</b><span class="mc-stat-sep">–</span><b class="mc-a">0.55</b>', "leak pill");
+// Central: home 1 of 2 entries is under the sample floor → no tone; away 13/21 = 62% → loose.
+need('<span class="mc-stat-label">Central</span><b class="mc-h">50%</b><span class="mc-stat-sep">–</span><b class="mc-a loose">62%</b>', "central pill");
+need('<span class="mc-stat-label">In box</span><b class="mc-h">26</b><span class="mc-stat-sep">–</span><b class="mc-a loose">44</b>', "in-box pill (44 per 45′ vs 28)");
+need('<span class="mc-stat-label">Clears</span><b class="mc-h">4</b><span class="mc-stat-sep">–</span><b class="mc-a">21</b>', "clearances stay untoned");
+need('<span class="mc-stat-label">Read</span><b class="mc-h tight">COMPACT</b><span class="mc-stat-sep">–</span><b class="mc-a">EVEN</b>', "verdict: away duels +1, central -1");
+if ((out.match(/mc-posture-row/g) || []).length !== 2) { console.error("expected the whole-game and 1H posture rows only"); bad++; }
+// No league par yet: pills still render, nothing is toned and there is no verdict.
+state.clinical = null;
+const bare = chicletStatsHtml(tl, m);
+if (/class="mc-[ha] (tight|loose)"/.test(bare) || bare.includes(">Read<")) { console.error("toned without a par"); bad++; }
+if (!bare.includes(">Duels<")) { console.error("posture row gone without par"); bad++; }
+// A timeline from before posture shipped just shows the pills.
+const old = chicletStatsHtml({ counts: {}, counts_by_half: {}, xg: {} }, m);
+if (old.includes("mc-posture") || old.includes(">Box<")) { console.error("posture/box without data"); bad++; }
+process.exit(bad ? 1 : 0);
+"""
+    r = subprocess.run(["node", "-e", script], capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr or r.stdout
+
+
 def test_live_chiclets_show_last5_games_with_halves():
     js = Path("src/eeesoc/static/app.js").read_text(encoding="utf-8")
     css = Path("src/eeesoc/static/app.css").read_text(encoding="utf-8")

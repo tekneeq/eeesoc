@@ -2649,23 +2649,134 @@
     }
   }
 
-  function chicletStatChips(c, xgHome, xgAway) {
+  function statPair(label, h, a, title) {
+    return `<span class="mc-stat" title="${escapeHtml(title || `${label} — home vs away`)}"><span class="mc-stat-label">${label}</span><b class="mc-h">${h}</b><span class="mc-stat-sep">–</span><b class="mc-a">${a}</b></span>`;
+  }
+
+  // xG divided by a count, so a 30-yard screamer (xG ≈ 0.03) barely moves it the
+  // way a goal moves goals-per-shot. "—" until there is something to divide by.
+  function xgPer(xg, n) {
+    return n > 0 ? (Number(xg || 0) / n).toFixed(2) : "—";
+  }
+
+  function chicletStatChips(c, xgHome, xgAway, box) {
     const counts = c || {};
-    const pair = (label, h, a) =>
-      `<span class="mc-stat" title="${label} — home vs away"><span class="mc-stat-label">${label}</span><b class="mc-h">${h}</b><span class="mc-stat-sep">–</span><b class="mc-a">${a}</b></span>`;
+    const pair = statPair;
+    const homeShots = (counts.home_shot || 0) + (counts.home_shot_on || 0) + (counts.home_blocked || 0) + (counts.home_goal || 0);
+    const awayShots = (counts.away_shot || 0) + (counts.away_shot_on || 0) + (counts.away_blocked || 0) + (counts.away_goal || 0);
+    const boxHome = box ? box.home : null;
+    const boxAway = box ? box.away : null;
     return (
-      pair("Shots", (counts.home_shot || 0) + (counts.home_shot_on || 0) + (counts.home_blocked || 0) + (counts.home_goal || 0), (counts.away_shot || 0) + (counts.away_shot_on || 0) + (counts.away_blocked || 0) + (counts.away_goal || 0)) +
+      pair("Shots", homeShots, awayShots) +
       pair("On target", (counts.home_shot_on || 0) + (counts.home_goal || 0), (counts.away_shot_on || 0) + (counts.away_goal || 0)) +
       pair("Blocked", counts.home_blocked || 0, counts.away_blocked || 0) +
       pair("Corners", counts.home_corner || 0, counts.away_corner || 0) +
       pair("Fouls", counts.home_foul || 0, counts.away_foul || 0) +
-      pair("xG", Number(xgHome || 0).toFixed(2), Number(xgAway || 0).toFixed(2))
+      pair("xG", Number(xgHome || 0).toFixed(2), Number(xgAway || 0).toFixed(2)) +
+      (box
+        ? pair("Box", boxHome, boxAway, "Passes and crosses received inside the other box — home vs away") +
+          pair("xG/shot", xgPer(xgHome, homeShots), xgPer(xgAway, awayShots), "Expected goals per shot — chance quality, a worldie barely moves it — home vs away") +
+          pair("xG/box", xgPer(xgHome, boxHome), xgPer(xgAway, boxAway), "Expected goals per pass into the box — what getting into this defence turns into — home vs away")
+        : "")
     );
   }
 
-  function chicletStatsHtml(tl) {
+  function boxEntryCounts(tl, half) {
+    // half: "1" | "2" | "" for the whole game. null when the feed kept no box entries.
+    const box = tl?.box_entries;
+    if (!box || typeof box !== "object") return null;
+    const halves = half ? [half] : ["1", "2"];
+    const count = (side) => halves.reduce((n, h) => n + ((box[h] || {})[side] || []).length, 0);
+    return { home: count("home"), away: count("away") };
+  }
+
+  const POSTURE_HELP =
+    "🧱 posture — how each side is defending, read from the play-by-play (no tracking data). Duels: challenges won in its own half. Clears: clearances. Leak: opponent passes received in its box per pass that reached its final third — lower is tighter. Central: share of those entries landing in front of goal. In box: its own touches inside its own area — more means pinned back. Green is 10%+ tighter than the league’s norm, amber 10%+ looser. COMPACT / LEAKY sums those reads; EVEN when they split.";
+
+  function postureTotals(tl, half) {
+    const post = tl?.posture;
+    if (!post || typeof post !== "object") return null;
+    const halves = half ? [half] : ["1", "2"];
+    const keys = ["duels_won", "duels_lost", "clearances", "box_actions", "entries_allowed", "central_allowed", "f3_allowed", "minutes"];
+    const out = { home: {}, away: {} };
+    for (const side of ["home", "away"]) {
+      for (const k of keys) out[side][k] = halves.reduce((n, h) => n + Number(((post[h] || {})[side] || {})[k] || 0), 0);
+    }
+    return out.home.minutes || out.away.minutes ? out : null;
+  }
+
+  // One defending side's reads with a tone against the league par: 1 compact, -1 leaky, 0 even / no sample.
+  function postureReads(p, par) {
+    const duels = p.duels_won + p.duels_lost;
+    const pct = duels ? Math.round((100 * p.duels_won) / duels) : null;
+    const leak = p.f3_allowed ? p.entries_allowed / p.f3_allowed : null;
+    const central = p.entries_allowed ? Math.round((100 * p.central_allowed) / p.entries_allowed) : null;
+    const per45 = (n) => (p.minutes ? (45 * n) / p.minutes : null);
+    const tone = (value, norm, higherIsTight, sample, minSample) => {
+      if (value == null || norm == null || !norm || sample < minSample) return 0;
+      const rel = value / norm;
+      if (rel >= 1.1) return higherIsTight ? 1 : -1;
+      if (rel <= 0.9) return higherIsTight ? -1 : 1;
+      return 0;
+    };
+    return {
+      duels: { text: pct == null ? "—" : `${pct}%`, tone: tone(pct, par?.duel_win_pct, true, duels, 4), detail: `${p.duels_won} won, ${p.duels_lost} lost` },
+      clears: { text: String(p.clearances), tone: 0, detail: per45(p.clearances) == null ? "" : `${per45(p.clearances).toFixed(1)} per 45′` },
+      leak: { text: leak == null ? "—" : leak.toFixed(2), tone: tone(leak, par?.porosity, false, p.f3_allowed, 4), detail: `${p.entries_allowed} into the box from ${p.f3_allowed} into the final third` },
+      central: { text: central == null ? "—" : `${central}%`, tone: tone(central, par?.central_pct, false, p.entries_allowed, 3), detail: `${p.central_allowed} of ${p.entries_allowed} entries in front of goal` },
+      inbox: { text: String(p.box_actions), tone: tone(per45(p.box_actions), par?.box_actions_per_45, false, p.minutes, 10), detail: per45(p.box_actions) == null ? "" : `${per45(p.box_actions).toFixed(1)} per 45′` },
+    };
+  }
+
+  function postureVerdict(reads) {
+    const score = reads.duels.tone + reads.leak.tone + reads.central.tone;
+    if (score >= 1) return { text: "COMPACT", tone: 1 };
+    if (score <= -1) return { text: "LEAKY", tone: -1 };
+    return { text: "EVEN", tone: 0 };
+  }
+
+  function posturePair(label, home, away, help) {
+    const toneClass = (t) => (t > 0 ? " tight" : t < 0 ? " loose" : "");
+    const title = `${label} — ${help}${home.detail ? ` · home ${home.detail}` : ""}${away.detail ? ` · away ${away.detail}` : ""}`;
+    return `<span class="mc-stat mc-posture-stat" title="${escapeHtml(title)}"><span class="mc-stat-label">${label}</span><b class="mc-h${toneClass(home.tone)}">${home.text}</b><span class="mc-stat-sep">–</span><b class="mc-a${toneClass(away.tone)}">${away.text}</b></span>`;
+  }
+
+  function posturePills(p, par) {
+    const home = postureReads(p.home, par);
+    const away = postureReads(p.away, par);
+    const parText = (v, suffix = "") => (v == null ? "" : ` (league ${v}${suffix})`);
+    let html =
+      posturePair("Duels", home.duels, away.duels, `challenges won in its own half${parText(par?.duel_win_pct, "%")}`) +
+      posturePair("Clears", home.clears, away.clears, `clearances${parText(par?.clearances_per_45, " per 45′")}`) +
+      posturePair("Leak", home.leak, away.leak, `passes into its box per pass into its final third, lower is tighter${parText(par?.porosity)}`) +
+      posturePair("Central", home.central, away.central, `share of entries conceded that landed in front of goal${parText(par?.central_pct, "%")}`) +
+      posturePair("In box", home.inbox, away.inbox, `its own touches inside its own area, more means pinned back${parText(par?.box_actions_per_45, " per 45′")}`);
+    if (par) {
+      const vh = postureVerdict(home);
+      const va = postureVerdict(away);
+      html += posturePair("Read", { text: vh.text, tone: vh.tone, detail: "" }, { text: va.text, tone: va.tone, detail: "" }, "duels, leak and central summed against the league norm");
+    }
+    return html;
+  }
+
+  function chicletPostureHtml(tl, m) {
+    const all = postureTotals(tl, "");
+    if (!all) return "";
+    const par = state.clinical?.leagues?.[m?.league_slug]?.par_posture || null;
+    const row = (period, chips, title) =>
+      `<span class="mc-stats-row mc-stats-half mc-posture-row"><span class="mc-stat-period"${title ? ` title="${escapeHtml(title)}"` : ""}>${period}</span>${chips}</span>`;
+    const h1 = postureTotals(tl, "1");
+    const h2 = postureTotals(tl, "2");
+    return `<span class="mc-stats-stack mc-posture" title="${escapeHtml(POSTURE_HELP)}">${
+      row("🧱", posturePills(all, par), POSTURE_HELP) +
+      (h1 ? row("1H", posturePills(h1, par)) : "") +
+      (h2 ? row("2H", posturePills(h2, par)) : "")
+    }</span>`;
+  }
+
+  function chicletStatsHtml(tl, m) {
     if (!tl) {
-      return `<span class="mc-stat mc-stat-empty">shots · on target · blocked · corners · xG</span>`;
+      return `<span class="mc-stat mc-stat-empty">shots · on target · blocked · corners · xG · box</span>`;
     }
     const xg = tl.xg || {};
     const halves = tl.counts_by_half || {};
@@ -2676,10 +2787,10 @@
         period ? `<span class="mc-stat-period">${period}</span>` : ""
       }${chips}</span>`;
     return `<span class="mc-stats-stack">${
-      row("", chicletStatChips(tl.counts, xg.home_total, xg.away_total)) +
-      row("1H", chicletStatChips(h1, h1.home_xg, h1.away_xg)) +
-      row("2H", chicletStatChips(h2, h2.home_xg, h2.away_xg))
-    }</span>`;
+      row("", chicletStatChips(tl.counts, xg.home_total, xg.away_total, boxEntryCounts(tl, ""))) +
+      row("1H", chicletStatChips(h1, h1.home_xg, h1.away_xg, boxEntryCounts(tl, "1"))) +
+      row("2H", chicletStatChips(h2, h2.home_xg, h2.away_xg, boxEntryCounts(tl, "2")))
+    }</span>${chicletPostureHtml(tl, m)}`;
   }
 
   function buildMatchChicletButton(m, selected, onSelect, withTimeline) {
@@ -2708,7 +2819,7 @@
     const chartPlaceholder = upcoming
       ? `<span class="mc-stats" data-stats-for="${escapeHtml(m.event_id)}"><span class="mc-stat mc-stat-empty">waiting for kickoff</span></span>`
       : withTimeline
-        ? `<span class="mc-stats" data-stats-for="${escapeHtml(m.event_id)}">${chicletStatsHtml(cached)}</span>
+        ? `<span class="mc-stats" data-stats-for="${escapeHtml(m.event_id)}">${chicletStatsHtml(cached, m)}</span>
             <div class="mc-charts">
               <span class="mc-timeline" data-tl-for="${escapeHtml(m.event_id)}" aria-label="Match event timeline">${
                 cached ? timelineSvg(cached) : `<span class="mc-timeline-loading">timeline…</span>`
@@ -3816,7 +3927,7 @@
       const e2e = root.querySelector(`.mc-e2e[data-e2e-for="${eid}"]`);
       if (e2e) e2e.innerHTML = endToEndHtml(tl, m);
       const stats = root.querySelector(`.mc-stats[data-stats-for="${eid}"]`);
-      if (stats) stats.innerHTML = chicletStatsHtml(tl);
+      if (stats) stats.innerHTML = chicletStatsHtml(tl, m);
       const board = root.querySelector(`.mc-bulletin[data-bulletin-for="${eid}"]`);
       if (board) board.innerHTML = chicletBulletinHtml(tl);
       const terr = root.querySelector(`.mc-territory[data-terr-for="${eid}"]`);
