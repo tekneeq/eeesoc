@@ -837,25 +837,26 @@ def test_live_pitch_panel_sits_above_the_chiclet_grid():
 def test_chiclet_stats_keep_full_row_and_add_halves():
     js = Path("src/eeesoc/static/app.js").read_text(encoding="utf-8")
     css = Path("src/eeesoc/static/app.css").read_text(encoding="utf-8")
-    assert "function chicletStatChips" in js
+    assert "function chicletStatCells" in js
     assert 'row("1H"' in js and 'row("2H"' in js
     assert "counts_by_half" in js
-    assert 'pair("Blocked"' in js
+    assert 'key: "blocked", label: "Blocked"' in js
     assert "htStatPair(\"Blocked\"" in js
-    assert ".mc-stats-half" in css
-    assert ".mc-stat-period" in css
+    assert ".mc-stat-grid" in css
+    assert ".mc-grid-period" in css
 
 
-def test_chiclet_stats_add_box_pills_and_posture_row():
+def test_chiclet_stats_grid_adds_box_columns_and_posture_table():
     import subprocess
 
     js = Path("src/eeesoc/static/app.js").read_text(encoding="utf-8")
     css = Path("src/eeesoc/static/app.css").read_text(encoding="utf-8")
     html = Path("src/eeesoc/static/index.html").read_text(encoding="utf-8")
     assert "chicletStatsHtml(tl, m)" in js and "chicletStatsHtml(cached, m)" in js
-    assert ".mc-posture-stat .mc-h.tight" in css and ".mc-posture-stat .mc-a.loose" in css
+    assert ".mc-posture .mc-grid-cell .mc-h.tight" in css and ".mc-posture .mc-grid-cell .mc-a.loose" in css
+    assert ".mc-stat-grid.mc-posture" in css and ".mc-grid-tall" in css and "overflow-x: auto" in css
     assert "🧱 posture" in html and "xG/box" in html and "COMPACT / LEAKY / EVEN" in html
-    start = js.index("  function statPair")
+    start = js.index("  // xG divided by a count")
     end = js.index("  function buildMatchChicletButton")
     src = js[start:end]
     script = """
@@ -874,31 +875,40 @@ const m = { league_slug: "esp.1", event_id: "1" };
 const out = chicletStatsHtml(tl, m);
 let bad = 0;
 const need = (s, why) => { if (!out.includes(s)) { console.error("missing", why, s); bad++; } };
-need('<span class="mc-stat-label">Box</span><b class="mc-h">7</b><span class="mc-stat-sep">–</span><b class="mc-a">2</b>', "box pill");
-need('<span class="mc-stat-label">xG/shot</span><b class="mc-h">0.10</b><span class="mc-stat-sep">–</span><b class="mc-a">0.05</b>', "xG per shot (7 home shots, 2 away)");
-need('<span class="mc-stat-label">xG/box</span><b class="mc-h">0.10</b><span class="mc-stat-sep">–</span><b class="mc-a">0.05</b>', "xG per box entry");
-// Second half has nothing yet: the divisions stay blank instead of 0.00.
-need('<span class="mc-stat-label">xG/shot</span><b class="mc-h">—</b>', "empty half");
-need('class="mc-stats-stack mc-posture"', "posture stack");
-need('<span class="mc-stat-period" title="', "posture help on the row label");
+const cell = (h, a, th = "", ta = "") => `<b class="mc-h${th}">${h}</b><span class="mc-stat-sep">–</span><b class="mc-a${ta}">${a}</b>`;
+// Two tables: the counts with 9 columns, the posture with 6 (5 reads + the verdict).
+need('class="mc-stat-grid mc-stat-grid-counts mc-grid-wide" style="--cols:9"', "counts grid");
+need('class="mc-stat-grid mc-posture mc-grid-wide" style="--cols:6"', "posture grid");
+// Phone form: the same cells transposed, Game · 1H · 2H across (the posture one has no 2H yet).
+need('class="mc-stat-grid mc-stat-grid-counts mc-grid-tall" style="--cols:3"', "tall counts grid");
+need('class="mc-stat-grid mc-posture mc-grid-tall" style="--cols:2"', "tall posture grid");
+if ((out.match(/mc-grid-head/g) || []).length !== 15 + 3 + 2) { console.error("expected 9 + 6 wide headers and 3 + 2 tall ones"); bad++; }
+need('<span class="mc-grid-period mc-grid-row" title="Shots on target">SOT</span>', "tall row label");
+need('<span class="mc-grid-head" title="Shots on target">SOT</span>', "header with help");
+need('<span class="mc-grid-period mc-grid-row">Game</span>', "game row");
+need(cell(7, 2), "box column (7 home entries, 2 away)");
+need(cell("0.10", "0.05"), "xG per shot / per box entry");
+// Second half has nothing yet: the divisions stay blank and the row is dimmed.
+need('<span class="mc-grid-period mc-grid-row mc-grid-quiet">2H</span>', "quiet 2H row");
+need(cell("—", "—"), "empty half");
+need('<span class="mc-grid-corner" title="', "posture help on the corner");
 // Duels: home 11/13 = 85% (tight vs 60), away 9/13 = 69% (also 10%+ above par → tight).
-need('<span class="mc-stat-label">Duels</span><b class="mc-h tight">85%</b><span class="mc-stat-sep">–</span><b class="mc-a tight">69%</b>', "duel pill");
+need(cell("85%", "69%", " tight", " tight"), "duel cell");
 // Leak: home 2/15 = 0.13 (tight vs 0.52), away 21/38 = 0.55 (within 10% → even).
-need('<span class="mc-stat-label">Leak</span><b class="mc-h tight">0.13</b><span class="mc-stat-sep">–</span><b class="mc-a">0.55</b>', "leak pill");
+need(cell("0.13", "0.55", " tight", ""), "leak cell");
 // Central: home 1 of 2 entries is under the sample floor → no tone; away 13/21 = 62% → loose.
-need('<span class="mc-stat-label">Central</span><b class="mc-h">50%</b><span class="mc-stat-sep">–</span><b class="mc-a loose">62%</b>', "central pill");
-need('<span class="mc-stat-label">In box</span><b class="mc-h">26</b><span class="mc-stat-sep">–</span><b class="mc-a loose">44</b>', "in-box pill (44 per 45′ vs 28)");
-need('<span class="mc-stat-label">Clears</span><b class="mc-h">4</b><span class="mc-stat-sep">–</span><b class="mc-a">21</b>', "clearances stay untoned");
-need('<span class="mc-stat-label">Read</span><b class="mc-h tight">COMPACT</b><span class="mc-stat-sep">–</span><b class="mc-a">EVEN</b>', "verdict: away duels +1, central -1");
-if ((out.match(/mc-posture-row/g) || []).length !== 2) { console.error("expected the whole-game and 1H posture rows only"); bad++; }
-// No league par yet: pills still render, nothing is toned and there is no verdict.
+need(cell("50%", "62%", "", " loose"), "central cell");
+need(cell(26, 44, "", " loose"), "in-box cell (44 per 45′ vs 28)");
+need(cell(4, 21), "clearances stay untoned");
+need(cell("COMPACT", "EVEN", " tight", ""), "verdict: away duels +1, central -1");
+if ((out.match(/>1H</g) || []).length !== 4 || (out.match(/>2H</g) || []).length !== 2) { console.error("posture should have Game and 1H rows only"); bad++; }
+// No league par yet: cells still render, nothing is toned and there is no verdict column.
 state.clinical = null;
 const bare = chicletStatsHtml(tl, m);
-if (/class="mc-[ha] (tight|loose)"/.test(bare) || bare.includes(">Read<")) { console.error("toned without a par"); bad++; }
-if (!bare.includes(">Duels<")) { console.error("posture row gone without par"); bad++; }
-// A timeline from before posture shipped just shows the pills.
+if (/class="mc-[ha] (tight|loose)"/.test(bare) || bare.includes(">Read<") || !bare.includes('mc-posture mc-grid-wide" style="--cols:5"')) { console.error("toned or verdict without a par"); bad++; }
+// A timeline from before posture shipped just shows the six core columns.
 const old = chicletStatsHtml({ counts: {}, counts_by_half: {}, xg: {} }, m);
-if (old.includes("mc-posture") || old.includes(">Box<")) { console.error("posture/box without data"); bad++; }
+if (old.includes("mc-posture") || old.includes(">Box<") || !old.includes('mc-grid-wide" style="--cols:6"')) { console.error("posture/box without data"); bad++; }
 process.exit(bad ? 1 : 0);
 """
     r = subprocess.run(["node", "-e", script], capture_output=True, text=True)

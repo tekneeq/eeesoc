@@ -2156,30 +2156,120 @@ main {
   border-style: dashed;
 }
 
-/* 🧱 posture: the defending read, coloured against the league's norm */
-.mc-posture {
-  margin-top: 0.1rem;
-  padding-top: 0.18rem;
+/* Stat table: one column per stat, one row per period (Game / 1H / 2H) */
+.mc-stat-grid {
+  display: grid;
+  grid-template-columns: max-content repeat(var(--cols, 6), max-content);
+  gap: 0;
+  align-items: baseline;
+  max-width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.7rem;
+  color: var(--text);
+  padding-bottom: 0.1rem;
+}
+
+.mc-grid-tall {
+  display: none;
+}
+
+.mc-stat-grid.mc-posture {
+  margin-top: 0.3rem;
+  padding-top: 0.2rem;
   border-top: 1px dashed var(--line);
 }
 
-.mc-posture-row .mc-stat-period {
-  text-transform: none;
+.mc-grid-tall .mc-grid-period {
+  text-transform: uppercase;
 }
 
-.mc-posture-stat .mc-h,
-.mc-posture-stat .mc-a {
-  color: var(--text);
+.mc-grid-tall .mc-grid-cell {
+  padding-right: 1rem;
 }
 
-.mc-posture-stat .mc-h.tight,
-.mc-posture-stat .mc-a.tight {
+@media (max-width: 520px) {
+  .mc-grid-wide {
+    display: none;
+  }
+
+  .mc-grid-tall {
+    display: grid;
+  }
+}
+
+.mc-grid-head,
+.mc-grid-cell {
+  padding-right: 0.85rem;
+}
+
+.mc-grid-head:last-child,
+.mc-grid-cell:last-child {
+  padding-right: 0;
+}
+
+.mc-grid-corner,
+.mc-grid-head {
+  font-size: 0.58rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--muted);
+  padding-bottom: 0.12rem;
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+
+.mc-grid-period {
+  padding-right: 0.3rem;
+  font-size: 0.6rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.mc-grid-cell,
+.mc-grid-period {
+  padding-top: 0.16rem;
+  white-space: nowrap;
+}
+
+.mc-grid-cell .mc-h {
   color: var(--accent);
 }
 
-.mc-posture-stat .mc-h.loose,
-.mc-posture-stat .mc-a.loose {
+.mc-grid-cell .mc-a {
+  color: rgba(125, 200, 255, 0.95);
+}
+
+.mc-grid-cell .mc-stat-sep {
+  margin: 0 0.22rem;
+  opacity: 0.5;
+}
+
+.mc-grid-quiet {
+  opacity: 0.45;
+}
+
+/* 🧱 posture: the defending read, coloured against the league's norm */
+.mc-posture .mc-grid-cell .mc-h,
+.mc-posture .mc-grid-cell .mc-a {
+  color: var(--text);
+}
+
+.mc-posture .mc-grid-cell .mc-h.tight,
+.mc-posture .mc-grid-cell .mc-a.tight {
+  color: var(--accent);
+}
+
+.mc-posture .mc-grid-cell .mc-h.loose,
+.mc-posture .mc-grid-cell .mc-a.loose {
   color: var(--warn);
+}
+
+.mc-posture .mc-grid-corner {
+  font-size: 0.72rem;
+  border-bottom-color: transparent;
 }
 
 .empty-live {
