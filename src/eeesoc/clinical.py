@@ -81,6 +81,16 @@ at least ``REGULAR_SHARE`` of them (once ``REGULAR_MIN_GAMES`` are in) with
 their ``starts`` and ``bench`` counts and latest position, most starts first,
 and ``others`` everyone else who has started at least once. The chiclet
 checks today's XI against ``regulars`` to flag who is out or on the bench.
+
+``posture`` is how the club has defended, read from the play-by-play of every
+archived game that carries a posture block (``eeesoc.live.defence_from_plays``):
+``duel_win_pct`` of challenges in its own half, ``clearances_per_45``,
+``box_actions_per_45`` (its own touches inside its own area), ``porosity``
+(opponent passes received in its box per pass that reached its final third),
+``central_pct`` (share of those entries that landed in front of goal) and
+``entries_allowed_per_45``. ``recent_posture`` is the same over the last
+``FORM_GAMES``; the league publishes ``par_posture`` over every side of every
+measured game so a live reading can be coloured against the norm.
 """
 
 from __future__ import annotations
@@ -90,8 +100,8 @@ import threading
 import time
 from typing import Any
 
-from eeesoc.halftime import _record_has_xg, load_records
-from eeesoc.live import LEAGUES
+from eeesoc.halftime import _record_has_xg, has_current_box, load_records
+from eeesoc.live import LEAGUES, POSTURE_KEYS
 
 MIN_GAMES = 2
 # Prior weight in xG (or SOT for the fallback) that pulls thin samples to par.
@@ -135,9 +145,13 @@ def team_key(name: str) -> str:
 
 
 def box_touches_for(rec: dict[str, Any], side: str) -> int | None:
-    """Completed passes this side received in the opponent's penalty area, or None if unmeasured."""
+    """
+    Passes this side received in the opponent's penalty area, or None if unmeasured.
+    Records counted under an older ``BOX_VERSION`` read as unmeasured until the
+    backfill re-counts them, so one table never mixes two definitions.
+    """
     box = rec.get("box_entries")
-    if not isinstance(box, dict):
+    if not isinstance(box, dict) or not has_current_box(rec):
         return None
     total = 0
     seen = False
@@ -150,6 +164,45 @@ def box_touches_for(rec: dict[str, Any], side: str) -> int | None:
             seen = True
             total += len(minutes)
     return total if seen else None
+
+
+def posture_for(rec: dict[str, Any], side: str) -> dict[str, int] | None:
+    """This side's defending counts summed over both halves, or None when the record has no posture block."""
+    post = rec.get("posture")
+    if not isinstance(post, dict) or not has_current_box(rec):
+        return None
+    total = {k: 0 for k in (*POSTURE_KEYS, "minutes")}
+    seen = False
+    for half in ("1", "2"):
+        half_map = post.get(half)
+        block = half_map.get(side) if isinstance(half_map, dict) else None
+        if not isinstance(block, dict):
+            continue
+        seen = True
+        for k in total:
+            total[k] += int(block.get(k) or 0)
+    return total if seen and total["minutes"] else None
+
+
+def posture_summary(games: list[dict[str, Any]]) -> dict[str, Any]:
+    """Rates over the games with a posture block: duel win %, per-45′ volumes, porosity, central share."""
+    blocks = [g["posture"] for g in games if isinstance(g.get("posture"), dict)]
+    sums = {k: sum(int(b.get(k) or 0) for b in blocks) for k in (*POSTURE_KEYS, "minutes")}
+    duels = sums["duels_won"] + sums["duels_lost"]
+    minutes = sums["minutes"]
+    entries = sums["entries_allowed"]
+    return {
+        "games": len(blocks),
+        "minutes": minutes,
+        "duel_win_pct": int(round(100.0 * sums["duels_won"] / duels)) if duels else None,
+        "duels": duels,
+        "clearances_per_45": round(45.0 * sums["clearances"] / minutes, 1) if minutes else None,
+        "box_actions_per_45": round(45.0 * sums["box_actions"] / minutes, 1) if minutes else None,
+        "entries_allowed_per_45": round(45.0 * entries / minutes, 1) if minutes else None,
+        "porosity": round(entries / sums["f3_allowed"], 2) if sums["f3_allowed"] else None,
+        "f3_allowed": sums["f3_allowed"],
+        "central_pct": int(round(100.0 * sums["central_allowed"] / entries)) if entries else None,
+    }
 
 
 def _per_goal(touches: int, goals: int) -> float | None:
@@ -301,6 +354,7 @@ def _team_totals(records: list[dict[str, Any]]) -> dict[str, dict[str, dict[str,
                     "letter": "W" if pts == 3 else ("D" if pts == 1 else "L"),
                     "box_touches": box_touches_for(rec, side),
                     "box_touches_against": box_touches_for(rec, other),
+                    "posture": posture_for(rec, side),
                     "lineup": _side_lineup(rec, side),
                     **game,
                 }
@@ -527,6 +581,8 @@ def _league_table(slug: str, teams: dict[str, dict[str, Any]], label: str) -> di
             "half_goals": half_goals(r["results"]),
             "recent_half_goals": half_goals(recent),
             "xi": regular_xi(r["results"]),
+            "posture": posture_summary(r["results"]),
+            "recent_posture": posture_summary(recent),
             "xg": round(r["xg"], 2),
             "xg_against": round(r["xg_against"], 2),
             "power": int(round(power)),
@@ -623,6 +679,8 @@ def _league_table(slug: str, teams: dict[str, dict[str, Any]], label: str) -> di
         "par_power": PAR_POWER,
         "par_box_per_goal": _per_goal(par_box_touches, par_box_goals),
         "box_rank_n": box_rank_n,
+        # Every side of every measured game: the league's typical defensive reading.
+        "par_posture": posture_summary([g for r in rows for g in r["results"]]),
         "teams": out_rows,
     }
 

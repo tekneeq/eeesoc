@@ -2156,6 +2156,32 @@ main {
   border-style: dashed;
 }
 
+/* 🧱 posture: the defending read, coloured against the league's norm */
+.mc-posture {
+  margin-top: 0.1rem;
+  padding-top: 0.18rem;
+  border-top: 1px dashed var(--line);
+}
+
+.mc-posture-row .mc-stat-period {
+  text-transform: none;
+}
+
+.mc-posture-stat .mc-h,
+.mc-posture-stat .mc-a {
+  color: var(--text);
+}
+
+.mc-posture-stat .mc-h.tight,
+.mc-posture-stat .mc-a.tight {
+  color: var(--accent);
+}
+
+.mc-posture-stat .mc-h.loose,
+.mc-posture-stat .mc-a.loose {
+  color: var(--warn);
+}
+
 .empty-live {
   margin-top: 0.5rem;
 }

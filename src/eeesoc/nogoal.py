@@ -38,7 +38,7 @@ import threading
 import time
 from typing import Any, Iterable
 
-from eeesoc.halftime import load_records
+from eeesoc.halftime import has_current_box, load_records
 
 GOAL_KINDS = {"goal", "own_goal"}
 HALF_END = {1: 45, 2: 90}
@@ -251,8 +251,13 @@ def _box_totals(rec: dict[str, Any], period: int) -> tuple[int, int]:
 
 
 def has_box_data(rec: dict[str, Any]) -> bool:
-    """Box entries were kept *and* the feed carried pitch coordinates (a whole game with none is missing data)."""
-    if not rec.get("box_entries"):
+    """
+    Box entries were counted under the current definition *and* the feed carried
+    pitch coordinates (a whole game with none is missing data). Records still on an
+    older ``BOX_VERSION`` sit out until the backfill re-counts them, so start-point
+    and end-point readings are never fitted together.
+    """
+    if not rec.get("box_entries") or not has_current_box(rec):
         return False
     return any(sum(_box_totals(rec, p)) for p in (1, 2))
 
@@ -954,8 +959,8 @@ def nogoal_model(*, use_cache: bool = True, with_backtest: bool = False) -> tupl
     """Cached (model, backtest); refit when the archive grows or the TTL lapses."""
     global _cache
     records = load_records()
-    # Refit when the archive grows or when the box-entry backfill enriches existing records.
-    key = (len(records), sum(1 for r in records if r.get("box_entries")))
+    # Refit when the archive grows or when the box-entry backfill re-counts existing records.
+    key = (len(records), sum(1 for r in records if has_current_box(r)))
     cached_model: dict[str, Any] | None = None
     with _lock:
         if use_cache and _cache is not None:

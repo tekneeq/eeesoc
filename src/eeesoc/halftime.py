@@ -29,10 +29,12 @@ from eeesoc.live import (
     SITE_SCOREBOARD,
     LiveMatch,
     _fetch_json,
+    BOX_VERSION,
     INTENSITY_PRIOR_MEAN,
     box_entries_from_plays,
     build_event_timeline,
     compact_intensity,
+    defence_from_plays,
     fetch_all_plays,
     fetch_lineup_block,
     parse_scoreboard,
@@ -243,6 +245,8 @@ def record_from_timeline(tl: dict[str, Any], meta: dict[str, Any] | None = None)
         "second_half_goals": _second_half_goals(events),
         "events": trimmed_events,
         "box_entries": tl.get("box_entries") or None,
+        "box_version": int(tl.get("box_version") or BOX_VERSION) if tl.get("box_entries") else None,
+        "posture": tl.get("posture") or None,
         "intensity": compact_intensity(tl.get("intensity") if isinstance(tl.get("intensity"), dict) else None),
         "xg": {
             "home": list(xg.get("home") or []),
@@ -1137,8 +1141,22 @@ _box_lock = threading.Lock()
 _box_state: dict[str, Any] = {"running": False, "todo": 0, "done": 0, "failed": 0, "started_at": None, "finished_at": None}
 
 
+def has_current_box(rec: dict[str, Any]) -> bool:
+    """Box entries on this record were counted with the current definition (``BOX_VERSION``)."""
+    if "box_entries" not in rec:
+        return False
+    try:
+        return int(rec.get("box_version") or 1) >= BOX_VERSION
+    except (TypeError, ValueError):
+        return False
+
+
 def records_missing_box_entries(records: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
-    return [r for r in (load_records() if records is None else records) if "box_entries" not in r]
+    """Records never counted, counted under an older ``BOX_VERSION``, or without a posture block."""
+    return [
+        r for r in (load_records() if records is None else records)
+        if not has_current_box(r) or "posture" not in r
+    ]
 
 
 def enrich_box_entries(
@@ -1146,7 +1164,7 @@ def enrich_box_entries(
     *,
     fetcher: Callable[[str], dict[str, Any]] | None = None,
 ) -> dict[str, Any] | None:
-    """Fetch the play-by-play once more and store the box-entry minutes on the record."""
+    """Fetch the play-by-play once more and store box-entry minutes and the defensive posture on the record."""
     league, event_id = str(rec.get("league_slug") or ""), str(rec.get("event_id") or "")
     if not league or not event_id:
         return None
@@ -1154,13 +1172,15 @@ def enrich_box_entries(
     if not plays:
         return None
     rec = dict(rec)
-    rec["box_entries"] = box_entries_from_plays(
-        plays,
-        home_id=str(rec.get("home_id") or ""),
-        away_id=str(rec.get("away_id") or ""),
-        home=str(rec.get("home") or ""),
-        away=str(rec.get("away") or ""),
-    )
+    sides = {
+        "home_id": str(rec.get("home_id") or ""),
+        "away_id": str(rec.get("away_id") or ""),
+        "home": str(rec.get("home") or ""),
+        "away": str(rec.get("away") or ""),
+    }
+    rec["box_entries"] = box_entries_from_plays(plays, **sides)
+    rec["box_version"] = BOX_VERSION
+    rec["posture"] = defence_from_plays(plays, **sides)
     path = record_path(league, event_id)
     write_json(path, rec)
     with _records_lock:
@@ -1174,7 +1194,7 @@ def backfill_box_entries(
     pause_s: float = 0.3,
     limit: int | None = None,
 ) -> dict[str, Any]:
-    """Add box entries to every archived record that predates them (one pass, rate-limited)."""
+    """Re-count box entries (and posture) on every record behind ``BOX_VERSION`` (one pass, rate-limited)."""
     with _box_lock:
         if _box_state["running"]:
             return {**_box_state, "busy": True}

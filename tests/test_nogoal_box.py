@@ -8,7 +8,7 @@ import random
 import pytest
 
 from eeesoc import halftime, nogoal, nogoal_monitor
-from eeesoc.live import box_entries_from_plays, build_event_timeline
+from eeesoc.live import BOX_VERSION, box_entries_from_plays, build_event_timeline, defence_from_plays
 from eeesoc.nogoal import (
     MIN_BOX_RECORDS,
     box_so_far,
@@ -21,7 +21,16 @@ from eeesoc.nogoal import (
 )
 
 
-def _play(ptype: str, minute: int, team: str, x: float | None, y: float | None, period: int | None = 1) -> dict:
+def _play(
+    ptype: str,
+    minute: int,
+    team: str,
+    x: float | None,
+    y: float | None,
+    period: int | None = 1,
+    *,
+    end: tuple[float, float] | None = None,
+) -> dict:
     p = {
         "type": {"type": ptype, "text": ptype},
         "clock": {"displayValue": f"{minute}'", "value": minute * 60},
@@ -33,37 +42,80 @@ def _play(ptype: str, minute: int, team: str, x: float | None, y: float | None, 
         p["fieldPositionX"] = x
     if y is not None:
         p["fieldPositionY"] = y
+    if end is not None:
+        p["fieldPosition2X"], p["fieldPosition2Y"] = end
     return p
+
+
+def _pass(minute: int, team: str, start: tuple[float, float], end: tuple[float, float], period: int | None = 1, ptype: str = "pass") -> dict:
+    return _play(ptype, minute, team, start[0], start[1], period, end=end)
 
 
 def test_box_entries_from_plays_filters_and_sides():
     plays = [
-        _play("pass", 3, "10", 90.0, 50.0),  # home, in the box
-        _play("pass", 5, "20", 84.0, 21.0),  # away, corner of the box (inclusive)
-        _play("pass", 6, "10", 82.9, 50.0),  # just short of the box
-        _play("pass", 7, "10", 95.0, 80.0),  # too wide
-        _play("cross", 8, "10", 95.0, 50.0),  # crosses are a different play type
-        _play("shot-on-target", 9, "10", 95.0, 50.0),  # shots are not entries
+        _pass(3, "10", (60.0, 50.0), (90.0, 50.0)),  # home, received in the box
+        _pass(5, "20", (70.0, 30.0), (84.0, 21.0)),  # away, corner of the box (inclusive)
+        _pass(6, "10", (70.0, 50.0), (82.9, 50.0)),  # just short of the box
+        _pass(7, "10", (70.0, 50.0), (95.0, 80.0)),  # too wide
+        _pass(8, "10", (85.0, 10.0), (92.0, 50.0), ptype="cross"),  # a cross into the box counts
+        _pass(9, "10", (70.0, 50.0), (90.0, 50.0), ptype="through-ball"),
+        _play("pass", 10, "10", 90.0, 50.0),  # made from inside the box, no end point: not an entry
+        _play("shot-on-target", 11, "10", 95.0, 50.0, end=(100.0, 50.0)),  # shots are not entries
         _play("pass", 12, "10", None, None),  # no coordinates
-        _play("pass", 50, "20", 90.0, 40.0, period=2),
-        _play("pass", 47, "10", 90.0, 40.0, period=None),  # period inferred from the minute
-        _play("pass", 30, "99", 90.0, 40.0),  # unknown team
+        _pass(50, "20", (60.0, 40.0), (90.0, 40.0), period=2),
+        _pass(47, "10", (60.0, 40.0), (90.0, 40.0), period=None),  # period inferred from the minute
+        _pass(30, "99", (60.0, 40.0), (90.0, 40.0)),  # unknown team
     ]
     out = box_entries_from_plays(plays, home_id="10", away_id="20")
-    assert out == {"1": {"home": [3], "away": [5]}, "2": {"home": [47], "away": [50]}}
+    assert out == {"1": {"home": [3, 8, 9], "away": [5]}, "2": {"home": [47], "away": [50]}}
+
+
+def test_defence_from_plays_reads_each_side_defending():
+    plays = [
+        # Getafe-style half for the away side: home drives into the box, away clears under pressure.
+        _pass(3, "10", (60.0, 50.0), (90.0, 50.0)),  # home entry, central
+        _pass(4, "10", (60.0, 50.0), (88.0, 25.0)),  # home entry, wide
+        _pass(5, "10", (50.0, 50.0), (70.0, 50.0)),  # home into the final third only
+        _pass(6, "10", (70.0, 50.0), (75.0, 50.0)),  # already in the final third: not an entry
+        _play("tackle", 7, "20", 30.0, 50.0),  # away wins a duel in its own half
+        _play("attempted-tackle", 8, "20", 40.0, 50.0),  # away loses one
+        _play("attempted-tackle", 9, "20", 60.0, 50.0),  # in the other half: not a defending duel
+        _play("interception", 10, "10", 15.0, 50.0),  # home wins one in its own half, inside its box
+        _play("clear", 11, "20", 10.0, 50.0),  # away clearance, inside its own box
+        _play("clear", 12, "20", 30.0, 50.0),  # away clearance, outside the box
+        _play("pass", 13, "20", 12.0, 60.0, end=(40.0, 60.0)),  # away touch inside its own box
+        _play("pass", 14, "20", 12.0, 10.0, end=(40.0, 60.0)),  # too wide for the box
+        _pass(50, "20", (60.0, 50.0), (90.0, 45.0), period=2),  # away entry in the second half
+        _play("aerial", 52, "10", 10.0, 50.0, period=2),
+    ]
+    plays[-1]["clock"] = {"displayValue": "52'", "value": 52 * 60}
+    out = defence_from_plays(plays, home_id="10", away_id="20")
+    assert out["1"]["away"] == {
+        "duels_won": 1, "duels_lost": 1, "clearances": 2, "box_actions": 2,
+        "entries_allowed": 2, "central_allowed": 1, "f3_allowed": 3, "minutes": 14,
+    }
+    assert out["1"]["home"] == {
+        "duels_won": 1, "duels_lost": 0, "clearances": 0, "box_actions": 1,
+        "entries_allowed": 0, "central_allowed": 0, "f3_allowed": 0, "minutes": 14,
+    }
+    assert out["2"]["home"]["entries_allowed"] == 1 and out["2"]["home"]["central_allowed"] == 1
+    assert out["2"]["home"]["f3_allowed"] == 1
+    assert out["2"]["home"]["minutes"] == out["2"]["away"]["minutes"] == 7
+    # aerials are not in the duel set (ESPN only files the winner), so nothing moves
+    assert out["2"]["home"]["duels_won"] == 0 and out["2"]["home"]["box_actions"] == 1
 
 
 def test_timeline_and_record_carry_box_entries(monkeypatch, tmp_path):
     monkeypatch.setenv("EEESOC_CACHE", str(tmp_path))
     plays = [
-        _play("pass", 3, "10", 90.0, 50.0),
+        _pass(3, "10", (60.0, 50.0), (90.0, 50.0)),
         _play("shot-on-target", 9, "10", 95.0, 50.0),
         _play("shot-off-target", 20, "20", 85.0, 50.0),
         _play("corner-awarded", 22, "20", None, None),
         _play("shot-blocked", 30, "10", 88.0, 50.0),
         _play("shot-on-target", 40, "20", 90.0, 50.0),
-        _play("shot-off-target", 44, "10", 80.0, 50.0),
-        _play("pass", 60, "20", 90.0, 40.0, period=2),
+        _play("shot-hit-woodwork", 44, "10", 80.0, 50.0),
+        _pass(60, "20", (60.0, 40.0), (90.0, 40.0), period=2),
         _play("goal", 70, "20", 95.0, 50.0, period=2),
     ]
     plays[-1]["scoringPlay"] = True
@@ -73,39 +125,54 @@ def test_timeline_and_record_carry_box_entries(monkeypatch, tmp_path):
 
     tl = build_event_timeline("t.1", "1", home="A", away="B", home_id="10", away_id="20", clock="FT", fetcher=fetcher, use_cache=False)
     assert tl["box_entries"] == {"1": {"home": [3], "away": []}, "2": {"home": [], "away": [60]}}
+    assert tl["box_version"] == BOX_VERSION
+    assert tl["posture"]["1"]["away"]["entries_allowed"] == 1 and tl["posture"]["2"]["home"]["entries_allowed"] == 1
+    assert [e["kind"] for e in tl["events"] if e["minute"] == 44] == ["shot"]  # the woodwork is a shot off target
     rec = halftime.record_from_timeline(tl, {"start": "2026-08-01T18:00Z", "home_id": "10", "away_id": "20"})
     assert rec is not None
     assert rec["box_entries"] == tl["box_entries"]
+    assert rec["box_version"] == BOX_VERSION and rec["posture"] == tl["posture"]
     assert has_box_data(rec)
+    assert halftime.records_missing_box_entries([rec]) == []
 
 
-def test_box_backfill_enriches_old_records(monkeypatch, tmp_path):
+def test_box_backfill_recounts_records_behind_the_current_version(monkeypatch, tmp_path):
     monkeypatch.setenv("EEESOC_CACHE", str(tmp_path))
     halftime.clear_record_cache()
-    old = {
-        "event_id": "77", "league_slug": "t.1", "home": "A", "away": "B", "home_id": "10", "away_id": "20",
+    base = {
+        "league_slug": "t.1", "home": "A", "away": "B", "home_id": "10", "away_id": "20",
         "date": "2026-08-01", "start": "2026-08-01T18:00Z", "ft_home": 0, "ft_away": 0, "ht_home": 0, "ht_away": 0,
         "events": [{"minute": 10, "kind": "shot", "team": "home", "period": 1, "xg": None}] * 6, "has_xg": False,
     }
-    path = halftime.record_path("t.1", "77")
-    path.parent.mkdir(parents=True)
-    path.write_text(json.dumps(old))
-    assert [r["event_id"] for r in halftime.records_missing_box_entries()] == ["77"]
+    v1_box = {"1": {"home": [3], "away": []}, "2": {"home": [], "away": []}}
+    never = halftime.record_path("t.1", "77")
+    never.parent.mkdir(parents=True)
+    never.write_text(json.dumps({**base, "event_id": "77"}))
+    # Counted under the start-point definition: must be re-counted, and sits out of the model meanwhile.
+    stale = halftime.record_path("t.1", "78")
+    stale.write_text(json.dumps({**base, "event_id": "78", "box_entries": v1_box}))
+    current = halftime.record_path("t.1", "79")
+    current.write_text(json.dumps({**base, "event_id": "79", "box_entries": v1_box, "box_version": BOX_VERSION, "posture": {}}))
+    assert sorted(r["event_id"] for r in halftime.records_missing_box_entries()) == ["77", "78"]
+    assert not has_box_data(json.loads(stale.read_text()))
+    assert has_box_data(json.loads(current.read_text()))
 
     urls = []
 
     def fetcher(url):
         urls.append(url)
-        return {"items": [_play("pass", 3, "10", 90.0, 50.0), _play("pass", 50, "20", 90.0, 50.0, period=2)], "pageCount": 1}
+        return {"items": [_pass(3, "10", (60.0, 50.0), (90.0, 50.0)), _pass(50, "20", (60.0, 50.0), (90.0, 50.0), period=2)], "pageCount": 1}
 
     status = halftime.backfill_box_entries(fetcher=fetcher, pause_s=0)
-    assert status["todo"] == 1 and status["done"] == 1 and status["failed"] == 0
+    assert status["todo"] == 2 and status["done"] == 2 and status["failed"] == 0
     assert "limit=1000" in urls[0]
     assert halftime.records_missing_box_entries() == []
-    stored = json.loads(path.read_text())
+    stored = json.loads(stale.read_text())
     assert stored["box_entries"] == {"1": {"home": [3], "away": []}, "2": {"home": [], "away": [50]}}
+    assert stored["box_version"] == BOX_VERSION
+    assert stored["posture"]["1"]["away"]["entries_allowed"] == 1 and stored["posture"]["2"]["home"]["entries_allowed"] == 1
     # a feed without coordinates is stored as empty, and treated as missing data by the model
-    assert not has_box_data({"box_entries": {"1": {"home": [], "away": []}, "2": {"home": [], "away": []}}})
+    assert not has_box_data({"box_entries": {"1": {"home": [], "away": []}, "2": {"home": [], "away": []}}, "box_version": BOX_VERSION})
 
 
 def _roster_entry(pid: str, name: str, *, starter: bool, pos: str = "M") -> dict:
@@ -206,7 +273,7 @@ def _box_records(seed: int = 7) -> list[dict]:
         recs.append(
             {
                 "event_id": str(1000 + n), "league_slug": "one.1", "home_id": home, "away_id": away, "home": home, "away": away,
-                "events": events, "box_entries": box,
+                "events": events, "box_entries": box, "box_version": BOX_VERSION,
                 "ft_home": sum(1 for e in events if e["kind"] == "goal" and e["team"] == "home"),
                 "ft_away": sum(1 for e in events if e["kind"] == "goal" and e["team"] == "away"),
                 "ht_home": sum(1 for e in g1h if e["team"] == "home"), "ht_away": sum(1 for e in g1h if e["team"] == "away"),
