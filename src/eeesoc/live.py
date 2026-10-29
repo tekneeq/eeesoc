@@ -240,27 +240,37 @@ def parse_scoreboard(payload: dict[str, Any], league_slug: str, chiclet: str) ->
     return out
 
 
-def _scoreboard_dates(now: datetime | None = None, *, days_back: int = 0) -> str:
-    """UTC date range: reach back for late finishes, ahead for tonight's remaining kickoffs."""
+def _scoreboard_days(now: datetime | None = None, *, days_back: int = 0) -> list[str]:
+    """
+    The ESPN scoreboard days (``YYYYMMDD``) that cover right now: back a day for
+    late finishes, ahead a day for tonight's remaining kickoffs.
+
+    ESPN files a game under its US-Eastern date, so a 7:30 PM Pacific MLS kickoff
+    (02:30 UTC) sits on the *previous* UTC day and is still in play after
+    midnight Eastern; reaching back before 08:00 UTC keeps it on the board.
+    Each day is its own request: the soccer scoreboard answers ``dates=A-B``
+    ranges with no events at all.
+    """
     now = now or datetime.now(timezone.utc)
     back = max(int(days_back), 1 if now.hour < 8 else 0)
-    start = now - timedelta(days=back)
     # After 20:00 UTC, or whenever we already widened the window for Finished,
     # include tomorrow so evening-local "today" games are not dropped.
     ahead = 1 if now.hour >= 20 or int(days_back) > 0 else 0
-    end = now + timedelta(days=ahead)
-    if start.date() == end.date():
-        return start.strftime("%Y%m%d")
-    return f"{start.strftime('%Y%m%d')}-{end.strftime('%Y%m%d')}"
+    start = (now - timedelta(days=back)).date()
+    return [(start + timedelta(days=i)).strftime("%Y%m%d") for i in range(back + ahead + 1)]
 
 
-def _scoreboard_urls(league_slug: str, *, days_back: int = 0) -> list[str]:
+def _scoreboard_urls(league_slug: str, *, days_back: int = 0) -> tuple[list[str], str]:
+    """(one site-API URL per day, CDN fallback URL)."""
     quoted = urllib.parse.quote(league_slug, safe=".")
-    dates = _scoreboard_dates(days_back=days_back)
-    return [
-        f"{SITE_SCOREBOARD.format(league=quoted)}?dates={dates}",
+    site = SITE_SCOREBOARD.format(league=quoted)
+    return (
+        [f"{site}?dates={day}" for day in _scoreboard_days(days_back=days_back)],
         CDN_SCOREBOARD.format(league=quoted),
-    ]
+    )
+
+
+_FETCH_ERRORS = (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, json.JSONDecodeError, OSError)
 
 
 def fetch_league(
@@ -270,16 +280,26 @@ def fetch_league(
     days_back: int = 0,
     fetcher: Callable[[str], dict[str, Any]] | None = None,
 ) -> list[LiveMatch]:
+    """Every game on the league's scoreboard days, merged by event; the CDN board only when ESPN's API is down."""
     fetch = fetcher or _fetch_json
-    for url in _scoreboard_urls(league_slug, days_back=days_back):
+    site_urls, cdn_url = _scoreboard_urls(league_slug, days_back=days_back)
+    merged: dict[str, LiveMatch] = {}
+    answered = False
+    for url in site_urls:
         try:
             payload = fetch(url)
-        except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, json.JSONDecodeError, OSError):
+        except _FETCH_ERRORS:
             continue
-        matches = parse_scoreboard(payload, league_slug, chiclet)
-        if matches or fetcher is not None:
-            return matches
-    return []
+        answered = True
+        for match in parse_scoreboard(payload, league_slug, chiclet):
+            merged.setdefault(match.event_id, match)
+    if merged or (answered and fetcher is not None):
+        return list(merged.values())
+    try:
+        payload = fetch(cdn_url)
+    except _FETCH_ERRORS:
+        return []
+    return parse_scoreboard(payload, league_slug, chiclet)
 
 
 def fetch_live_board(

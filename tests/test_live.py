@@ -379,20 +379,98 @@ def test_fetch_live_board_keeps_finished_games_when_not_live_only():
     assert board["chiclets"][0]["pre_count"] == 1
     states = {m["home"]: m["state"] for m in board["leagues"][0]["matches"]}
     assert states == {"Udinese": "post", "A": "in", "Roma": "pre"}
-    # days_back widens the scoreboard window to a range
-    assert any("dates=" in u and "-" in u.split("dates=")[-1] for u in seen_urls[-2:])
+    # days_back widens the scoreboard window: one request per day, never a dates=A-B range
+    # (ESPN's soccer scoreboard answers ranges with no events at all).
+    day_urls = [u for u in seen_urls if "dates=" in u]
+    assert len(day_urls) >= 3
+    assert all("-" not in u.split("dates=")[-1] for u in day_urls)
 
 
-def test_scoreboard_dates_days_back():
-    from eeesoc.live import _scoreboard_dates
+def test_scoreboard_days_days_back():
+    from eeesoc.live import _scoreboard_days
 
     noon = datetime(2026, 9, 7, 12, 0, tzinfo=timezone.utc)
-    assert _scoreboard_dates(noon) == "20260907"
+    assert _scoreboard_days(noon) == ["20260907"]
     # days_back also reaches one day ahead so tonight's remaining kickoffs stay on the board
-    assert _scoreboard_dates(noon, days_back=1) == "20260906-20260908"
+    assert _scoreboard_days(noon, days_back=1) == ["20260906", "20260907", "20260908"]
     late = datetime(2026, 9, 7, 21, 0, tzinfo=timezone.utc)
-    assert _scoreboard_dates(late) == "20260907-20260908"
-    assert _scoreboard_dates(late, days_back=1) == "20260906-20260908"
+    assert _scoreboard_days(late) == ["20260907", "20260908"]
+    assert _scoreboard_days(late, days_back=1) == ["20260906", "20260907", "20260908"]
+    # 00:22 Eastern: ESPN still files tonight's West Coast games under yesterday's (Eastern) date.
+    small_hours = datetime(2026, 10, 29, 4, 22, tzinfo=timezone.utc)
+    assert _scoreboard_days(small_hours) == ["20261028", "20261029"]
+
+
+def _sb_event(eid: str, date: str, home: str, away: str, state: str = "in", clock: str = "83'") -> dict:
+    return {
+        "id": eid,
+        "date": date,
+        "competitions": [
+            {
+                "status": {"type": {"state": state, "detail": clock, "shortDetail": clock}, "displayClock": clock},
+                "competitors": [
+                    {"homeAway": "home", "score": "0", "team": {"displayName": home, "id": f"h{eid}"}},
+                    {"homeAway": "away", "score": "0", "team": {"displayName": away, "id": f"a{eid}"}},
+                ],
+            }
+        ],
+    }
+
+
+def test_fetch_league_merges_each_scoreboard_day_and_skips_the_cdn():
+    """A 7:30 PM Pacific MLS game at 00:22 Eastern lives on ESPN's *yesterday*; one request per day finds it."""
+    from unittest.mock import patch
+
+    from eeesoc.live import fetch_league
+
+    now = datetime(2026, 10, 29, 4, 22, tzinfo=timezone.utc)
+    seen: list[str] = []
+
+    def fake_fetch(url: str):
+        seen.append(url)
+        if "dates=20261028-" in url or "-20261029" in url:
+            return {"events": []}  # what ESPN does with a range
+        if "dates=20261028" in url:
+            return {"events": [
+                _sb_event("1", "2026-10-28T23:30Z", "Inter Miami CF", "FC Cincinnati", "post", "FT"),
+                _sb_event("2", "2026-10-29T02:30Z", "Seattle Sounders FC", "Houston Dynamo FC"),
+            ]}
+        if "dates=20261029" in url:
+            return {"events": [_sb_event("2", "2026-10-29T02:30Z", "Seattle Sounders FC", "Houston Dynamo FC")]}
+        raise AssertionError(f"CDN fallback should not be used: {url}")
+
+    with patch("eeesoc.live.datetime") as fake_dt:
+        fake_dt.now.return_value = now
+        fake_dt.side_effect = lambda *a, **k: datetime(*a, **k)
+        fake_dt.fromisoformat = datetime.fromisoformat
+        matches = fetch_league("usa.1", "MLS", fetcher=fake_fetch)
+    assert [u.split("dates=")[-1] for u in seen] == ["20261028", "20261029"]
+    assert sorted(m.event_id for m in matches) == ["1", "2"]  # the same game on two days is one row
+    seattle = next(m for m in matches if m.event_id == "2")
+    assert seattle.state == "in" and seattle.clock == "83'"
+
+
+def test_fetch_league_falls_back_to_the_cdn_only_when_the_api_is_down():
+    import urllib.error
+
+    from eeesoc.live import fetch_league
+
+    cdn_payload = {"content": {"sbData": {"events": [_sb_event("9", "2026-10-29T02:30Z", "A", "B")]}}}
+
+    def down(url: str):
+        if "cdn.espn.com" in url:
+            return cdn_payload
+        raise urllib.error.URLError("down")
+
+    assert [m.event_id for m in fetch_league("usa.1", "MLS", fetcher=down)] == ["9"]
+
+    # The API answering with an empty day is an answer, not an outage.
+    def quiet(url: str):
+        if "cdn.espn.com" in url:
+            raise AssertionError("CDN used after the API answered")
+        return {"events": []}
+
+    assert fetch_league("usa.1", "MLS", fetcher=quiet) == []
 
 
 def test_timeline_marks_final_and_caches_longer():
