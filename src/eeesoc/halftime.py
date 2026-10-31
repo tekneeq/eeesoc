@@ -30,6 +30,7 @@ from eeesoc.live import (
     LiveMatch,
     _fetch_json,
     BOX_VERSION,
+    GOAL_TAG_VERSION,
     INTENSITY_PRIOR_MEAN,
     box_entries_from_plays,
     build_event_timeline,
@@ -37,6 +38,7 @@ from eeesoc.live import (
     defence_from_plays,
     fetch_all_plays,
     fetch_lineup_block,
+    goal_tags_from_plays,
     parse_scoreboard,
     parse_start,
 )
@@ -215,6 +217,7 @@ def record_from_timeline(tl: dict[str, Any], meta: dict[str, Any] | None = None)
             "clock": ev.get("clock"),
             "period": ev.get("period"),
             "text": ev.get("text"),
+            **({"category": ev["category"], "reason": ev.get("reason") or ""} if ev.get("category") else {}),
         }
         for ev in events
     ]
@@ -247,6 +250,7 @@ def record_from_timeline(tl: dict[str, Any], meta: dict[str, Any] | None = None)
         "box_entries": tl.get("box_entries") or None,
         "box_version": int(tl.get("box_version") or BOX_VERSION) if tl.get("box_entries") else None,
         "posture": tl.get("posture") or None,
+        "goal_tags": int(tl.get("goal_tags") or GOAL_TAG_VERSION),
         "intensity": compact_intensity(tl.get("intensity") if isinstance(tl.get("intensity"), dict) else None),
         "xg": {
             "home": list(xg.get("home") or []),
@@ -1151,12 +1155,60 @@ def has_current_box(rec: dict[str, Any]) -> bool:
         return False
 
 
+def has_current_goal_tags(rec: dict[str, Any]) -> bool:
+    """Goal events on this record carry categories from the current classifier (``GOAL_TAG_VERSION``)."""
+    try:
+        return int(rec.get("goal_tags") or 0) >= GOAL_TAG_VERSION
+    except (TypeError, ValueError):
+        return False
+
+
 def records_missing_box_entries(records: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
-    """Records never counted, counted under an older ``BOX_VERSION``, or without a posture block."""
+    """Records never counted, counted under an older ``BOX_VERSION``, without a posture block, or with untagged goals."""
     return [
         r for r in (load_records() if records is None else records)
-        if not has_current_box(r) or "posture" not in r
+        if not has_current_box(r) or "posture" not in r or not has_current_goal_tags(r)
     ]
+
+
+def stamp_goal_tags(events: list[dict[str, Any]], tags: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """
+    Copy categories from ``goal_tags_from_plays`` onto the stored goal events.
+
+    Goals are matched in order within the same period and minute — the archive
+    keeps one event per scoring play, so the nth goal at 36' is the nth tag at 36'.
+    Falls back to order alone when the stored events have no period.
+    """
+    out = [dict(ev) for ev in events]
+    goals = [ev for ev in out if ev.get("kind") in {"goal", "own_goal"}]
+    if not goals or not tags:
+        return out
+
+    def _stamp(ev: dict[str, Any], tag: dict[str, Any]) -> None:
+        ev["category"] = tag["category"]
+        ev["reason"] = tag.get("reason") or ""
+
+    pool = list(tags)
+    unmatched: list[dict[str, Any]] = []
+    for ev in goals:
+        j = next(
+            (
+                j
+                for j, tag in enumerate(pool)
+                if tag.get("minute") == ev.get("minute")
+                and (ev.get("period") is None or tag.get("period") is None or tag.get("period") == ev.get("period"))
+            ),
+            None,
+        )
+        if j is None:
+            unmatched.append(ev)
+            continue
+        _stamp(ev, pool.pop(j))
+    # Whatever did not line up by minute pairs off in order when the counts agree.
+    if unmatched and len(unmatched) == len(pool):
+        for ev, tag in zip(unmatched, pool):
+            _stamp(ev, tag)
+    return out
 
 
 def enrich_box_entries(
@@ -1164,7 +1216,7 @@ def enrich_box_entries(
     *,
     fetcher: Callable[[str], dict[str, Any]] | None = None,
 ) -> dict[str, Any] | None:
-    """Fetch the play-by-play once more and store box-entry minutes and the defensive posture on the record."""
+    """Fetch the play-by-play once more and store box-entry minutes, the defensive posture and goal categories on the record."""
     league, event_id = str(rec.get("league_slug") or ""), str(rec.get("event_id") or "")
     if not league or not event_id:
         return None
@@ -1181,6 +1233,8 @@ def enrich_box_entries(
     rec["box_entries"] = box_entries_from_plays(plays, **sides)
     rec["box_version"] = BOX_VERSION
     rec["posture"] = defence_from_plays(plays, **sides)
+    rec["events"] = stamp_goal_tags(list(rec.get("events") or []), goal_tags_from_plays(plays))
+    rec["goal_tags"] = GOAL_TAG_VERSION
     path = record_path(league, event_id)
     write_json(path, rec)
     with _records_lock:

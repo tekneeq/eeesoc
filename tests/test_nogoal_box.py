@@ -8,7 +8,7 @@ import random
 import pytest
 
 from eeesoc import halftime, nogoal, nogoal_monitor
-from eeesoc.live import BOX_VERSION, box_entries_from_plays, build_event_timeline, defence_from_plays
+from eeesoc.live import BOX_VERSION, GOAL_TAG_VERSION, box_entries_from_plays, build_event_timeline, defence_from_plays
 from eeesoc.nogoal import (
     MIN_BOX_RECORDS,
     box_so_far,
@@ -152,8 +152,13 @@ def test_box_backfill_recounts_records_behind_the_current_version(monkeypatch, t
     stale = halftime.record_path("t.1", "78")
     stale.write_text(json.dumps({**base, "event_id": "78", "box_entries": v1_box}))
     current = halftime.record_path("t.1", "79")
-    current.write_text(json.dumps({**base, "event_id": "79", "box_entries": v1_box, "box_version": BOX_VERSION, "posture": {}}))
-    assert sorted(r["event_id"] for r in halftime.records_missing_box_entries()) == ["77", "78"]
+    current.write_text(
+        json.dumps({**base, "event_id": "79", "box_entries": v1_box, "box_version": BOX_VERSION, "posture": {}, "goal_tags": GOAL_TAG_VERSION})
+    )
+    # Current box count and posture, but its goals were archived before categories existed.
+    untagged = halftime.record_path("t.1", "80")
+    untagged.write_text(json.dumps({**base, "event_id": "80", "box_entries": v1_box, "box_version": BOX_VERSION, "posture": {}}))
+    assert sorted(r["event_id"] for r in halftime.records_missing_box_entries()) == ["77", "78", "80"]
     assert not has_box_data(json.loads(stale.read_text()))
     assert has_box_data(json.loads(current.read_text()))
 
@@ -164,9 +169,10 @@ def test_box_backfill_recounts_records_behind_the_current_version(monkeypatch, t
         return {"items": [_pass(3, "10", (60.0, 50.0), (90.0, 50.0)), _pass(50, "20", (60.0, 50.0), (90.0, 50.0), period=2)], "pageCount": 1}
 
     status = halftime.backfill_box_entries(fetcher=fetcher, pause_s=0)
-    assert status["todo"] == 2 and status["done"] == 2 and status["failed"] == 0
+    assert status["todo"] == 3 and status["done"] == 3 and status["failed"] == 0
     assert "limit=1000" in urls[0]
     assert halftime.records_missing_box_entries() == []
+    assert json.loads(untagged.read_text())["goal_tags"] == GOAL_TAG_VERSION
     stored = json.loads(stale.read_text())
     assert stored["box_entries"] == {"1": {"home": [3], "away": []}, "2": {"home": [], "away": [50]}}
     assert stored["box_version"] == BOX_VERSION

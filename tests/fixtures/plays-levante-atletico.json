@@ -1,0 +1,476 @@
+[
+ {
+  "type": {
+   "id": "118",
+   "text": "Pass",
+   "type": "pass"
+  },
+  "clock": {
+   "value": 2068.0,
+   "displayValue": "35'"
+  },
+  "period": {
+   "number": 1
+  },
+  "team": {
+   "$ref": "http://sports.core.api.espn.com/v2/sports/soccer/leagues/esp.1/seasons/2026/teams/1068?lang=en&region=us"
+  },
+  "text": "Dávid Hancko (Atlético Madrid) Pass at 35'",
+  "shortText": "Dávid Hancko Pass",
+  "fieldPositionX": 59.9,
+  "fieldPositionY": 53.7,
+  "fieldPosition2X": 60.4,
+  "fieldPosition2Y": 38.9,
+  "statYardage": 0,
+  "scoringPlay": false,
+  "ownGoal": false,
+  "penaltyKick": false,
+  "participants": [
+   {
+    "athlete": {
+     "$ref": "http://sports.core.api.espn.com/v2/sports/soccer/leagues/esp.1/seasons/2026/athletes/257786?lang=en&region=us"
+    }
+   }
+  ]
+ },
+ {
+  "type": {
+   "id": "118",
+   "text": "Pass",
+   "type": "pass"
+  },
+  "clock": {
+   "value": 2073.0,
+   "displayValue": "35'"
+  },
+  "period": {
+   "number": 1
+  },
+  "team": {
+   "$ref": "http://sports.core.api.espn.com/v2/sports/soccer/leagues/esp.1/seasons/2026/teams/1068?lang=en&region=us"
+  },
+  "text": "Marc Pubill (Atlético Madrid) Pass at 35'",
+  "shortText": "Marc Pubill Pass",
+  "fieldPositionX": 63.3,
+  "fieldPositionY": 36.4,
+  "fieldPosition2X": 67.8,
+  "fieldPosition2Y": 9.1,
+  "statYardage": 0,
+  "scoringPlay": false,
+  "ownGoal": false,
+  "penaltyKick": false,
+  "participants": [
+   {
+    "athlete": {
+     "$ref": "http://sports.core.api.espn.com/v2/sports/soccer/leagues/esp.1/seasons/2026/athletes/332613?lang=en&region=us"
+    }
+   }
+  ]
+ },
+ {
+  "type": {
+   "id": "118",
+   "text": "Pass",
+   "type": "pass"
+  },
+  "clock": {
+   "value": 2077.0,
+   "displayValue": "35'"
+  },
+  "period": {
+   "number": 1
+  },
+  "team": {
+   "$ref": "http://sports.core.api.espn.com/v2/sports/soccer/leagues/esp.1/seasons/2026/teams/1068?lang=en&region=us"
+  },
+  "text": "Giuliano Simeone (Atlético Madrid) Pass at 35'",
+  "shortText": "Giuliano Simeone Pass",
+  "fieldPositionX": 67.7,
+  "fieldPositionY": 11.8,
+  "fieldPosition2X": 76.4,
+  "fieldPosition2Y": 7.1,
+  "statYardage": 0,
+  "scoringPlay": false,
+  "ownGoal": false,
+  "penaltyKick": false,
+  "participants": [
+   {
+    "athlete": {
+     "$ref": "http://sports.core.api.espn.com/v2/sports/soccer/leagues/esp.1/seasons/2026/athletes/323838?lang=en&region=us"
+    }
+   }
+  ]
+ },
+ {
+  "type": {
+   "id": "118",
+   "text": "Pass",
+   "type": "pass"
+  },
+  "clock": {
+   "value": 2078.0,
+   "displayValue": "35'"
+  },
+  "period": {
+   "number": 1
+  },
+  "team": {
+   "$ref": "http://sports.core.api.espn.com/v2/sports/soccer/leagues/esp.1/seasons/2026/teams/1068?lang=en&region=us"
+  },
+  "text": "Marcos Llorente (Atlético Madrid) Pass at 35'",
+  "shortText": "Marcos Llorente Pass",
+  "fieldPositionX": 76.4,
+  "fieldPositionY": 7.4,
+  "fieldPosition2X": 86.6,
+  "fieldPosition2Y": 11.9,
+  "statYardage": 0,
+  "scoringPlay": false,
+  "ownGoal": false,
+  "penaltyKick": false,
+  "participants": [
+   {
+    "athlete": {
+     "$ref": "http://sports.core.api.espn.com/v2/sports/soccer/leagues/esp.1/seasons/2026/athletes/206474?lang=en&region=us"
+    }
+   }
+  ]
+ },
+ {
+  "type": {
+   "id": "178",
+   "text": "Take On",
+   "type": "take-on"
+  },
+  "clock": {
+   "value": 2083.0,
+   "displayValue": "35'"
+  },
+  "period": {
+   "number": 1
+  },
+  "team": {
+   "$ref": "http://sports.core.api.espn.com/v2/sports/soccer/leagues/esp.1/seasons/2026/teams/1068?lang=en&region=us"
+  },
+  "text": "Lee Kang-In (Atlético Madrid) Take On at 35'",
+  "shortText": "Lee Kang-In Take On",
+  "fieldPositionX": 89.3,
+  "fieldPositionY": 14.3,
+  "statYardage": 0,
+  "scoringPlay": false,
+  "ownGoal": false,
+  "penaltyKick": false,
+  "participants": [
+   {
+    "athlete": {
+     "$ref": "http://sports.core.api.espn.com/v2/sports/soccer/leagues/esp.1/seasons/2026/athletes/274197?lang=en&region=us"
+    }
+   }
+  ]
+ },
+ {
+  "type": {
+   "id": "148",
+   "text": "Tackle",
+   "type": "tackle"
+  },
+  "clock": {
+   "value": 2083.0,
+   "displayValue": "35'"
+  },
+  "period": {
+   "number": 1
+  },
+  "team": {
+   "$ref": "http://sports.core.api.espn.com/v2/sports/soccer/leagues/esp.1/seasons/2026/teams/1538?lang=en&region=us"
+  },
+  "text": "Ifeanyi Ndukwe (Levante) Tackle at 35'",
+  "shortText": "Ifeanyi Ndukwe Tackle",
+  "fieldPositionX": 10.0,
+  "fieldPositionY": 84.7,
+  "statYardage": 0,
+  "scoringPlay": false,
+  "ownGoal": false,
+  "penaltyKick": false,
+  "participants": [
+   {
+    "athlete": {
+     "$ref": "http://sports.core.api.espn.com/v2/sports/soccer/leagues/esp.1/seasons/2026/athletes/407397?lang=en&region=us"
+    }
+   }
+  ]
+ },
+ {
+  "type": {
+   "id": "118",
+   "text": "Pass",
+   "type": "pass"
+  },
+  "clock": {
+   "value": 2086.0,
+   "displayValue": "35'"
+  },
+  "period": {
+   "number": 1
+  },
+  "team": {
+   "$ref": "http://sports.core.api.espn.com/v2/sports/soccer/leagues/esp.1/seasons/2026/teams/1538?lang=en&region=us"
+  },
+  "text": "Dani Requena (Levante) Pass at 35'",
+  "shortText": "Dani Requena Pass",
+  "fieldPositionX": 9.8,
+  "fieldPositionY": 84.4,
+  "fieldPosition2X": 26.6,
+  "fieldPosition2Y": 100.0,
+  "statYardage": 0,
+  "scoringPlay": false,
+  "ownGoal": false,
+  "penaltyKick": false,
+  "participants": [
+   {
+    "athlete": {
+     "$ref": "http://sports.core.api.espn.com/v2/sports/soccer/leagues/esp.1/seasons/2026/athletes/362752?lang=en&region=us"
+    }
+   }
+  ]
+ },
+ {
+  "type": {
+   "id": "176",
+   "text": "Out",
+   "type": "out"
+  },
+  "clock": {
+   "value": 2087.0,
+   "displayValue": "35'"
+  },
+  "period": {
+   "number": 1
+  },
+  "team": {
+   "$ref": "http://sports.core.api.espn.com/v2/sports/soccer/leagues/esp.1/seasons/2026/teams/1538?lang=en&region=us"
+  },
+  "text": "Dani Requena (Levante) Out at 35'",
+  "shortText": "Dani Requena Out",
+  "fieldPositionX": 26.8,
+  "fieldPositionY": 101.6,
+  "statYardage": 0,
+  "scoringPlay": false,
+  "ownGoal": false,
+  "penaltyKick": false,
+  "participants": [
+   {
+    "athlete": {
+     "$ref": "http://sports.core.api.espn.com/v2/sports/soccer/leagues/esp.1/seasons/2026/athletes/362752?lang=en&region=us"
+    }
+   }
+  ]
+ },
+ {
+  "type": {
+   "id": "124",
+   "text": "Throw In",
+   "type": "throw-in"
+  },
+  "clock": {
+   "value": 2090.0,
+   "displayValue": "35'"
+  },
+  "period": {
+   "number": 1
+  },
+  "team": {
+   "$ref": "http://sports.core.api.espn.com/v2/sports/soccer/leagues/esp.1/seasons/2026/teams/1068?lang=en&region=us"
+  },
+  "text": "Marcos Llorente (Atlético Madrid) Throw In at 35'",
+  "shortText": "Marcos Llorente Throw In",
+  "fieldPositionX": 73.0,
+  "fieldPositionY": 0.0,
+  "fieldPosition2X": 58.3,
+  "fieldPosition2Y": 12.1,
+  "statYardage": 0,
+  "scoringPlay": false,
+  "ownGoal": false,
+  "penaltyKick": false,
+  "participants": [
+   {
+    "athlete": {
+     "$ref": "http://sports.core.api.espn.com/v2/sports/soccer/leagues/esp.1/seasons/2026/athletes/206474?lang=en&region=us"
+    }
+   }
+  ]
+ },
+ {
+  "type": {
+   "id": "118",
+   "text": "Pass",
+   "type": "pass"
+  },
+  "clock": {
+   "value": 2094.0,
+   "displayValue": "35'"
+  },
+  "period": {
+   "number": 1
+  },
+  "team": {
+   "$ref": "http://sports.core.api.espn.com/v2/sports/soccer/leagues/esp.1/seasons/2026/teams/1068?lang=en&region=us"
+  },
+  "text": "Marc Pubill (Atlético Madrid) Pass at 35'",
+  "shortText": "Marc Pubill Pass",
+  "fieldPositionX": 60.1,
+  "fieldPositionY": 17.6,
+  "fieldPosition2X": 56.6,
+  "fieldPosition2Y": 56.0,
+  "statYardage": 0,
+  "scoringPlay": false,
+  "ownGoal": false,
+  "penaltyKick": false,
+  "participants": [
+   {
+    "athlete": {
+     "$ref": "http://sports.core.api.espn.com/v2/sports/soccer/leagues/esp.1/seasons/2026/athletes/332613?lang=en&region=us"
+    }
+   }
+  ]
+ },
+ {
+  "type": {
+   "id": "118",
+   "text": "Pass",
+   "type": "pass"
+  },
+  "clock": {
+   "value": 2099.0,
+   "displayValue": "35'"
+  },
+  "period": {
+   "number": 1
+  },
+  "team": {
+   "$ref": "http://sports.core.api.espn.com/v2/sports/soccer/leagues/esp.1/seasons/2026/teams/1068?lang=en&region=us"
+  },
+  "text": "Dávid Hancko (Atlético Madrid) Pass at 35'",
+  "shortText": "Dávid Hancko Pass",
+  "fieldPositionX": 63.6,
+  "fieldPositionY": 64.4,
+  "fieldPosition2X": 71.5,
+  "fieldPosition2Y": 93.9,
+  "statYardage": 0,
+  "scoringPlay": false,
+  "ownGoal": false,
+  "penaltyKick": false,
+  "participants": [
+   {
+    "athlete": {
+     "$ref": "http://sports.core.api.espn.com/v2/sports/soccer/leagues/esp.1/seasons/2026/athletes/257786?lang=en&region=us"
+    }
+   }
+  ]
+ },
+ {
+  "type": {
+   "id": "118",
+   "text": "Pass",
+   "type": "pass"
+  },
+  "clock": {
+   "value": 2101.0,
+   "displayValue": "36'"
+  },
+  "period": {
+   "number": 1
+  },
+  "team": {
+   "$ref": "http://sports.core.api.espn.com/v2/sports/soccer/leagues/esp.1/seasons/2026/teams/1068?lang=en&region=us"
+  },
+  "text": "Álex Baena (Atlético Madrid) Pass at 36'",
+  "shortText": "Álex Baena Pass",
+  "fieldPositionX": 71.5,
+  "fieldPositionY": 93.9,
+  "fieldPosition2X": 84.5,
+  "fieldPosition2Y": 73.5,
+  "statYardage": 0,
+  "scoringPlay": false,
+  "ownGoal": false,
+  "penaltyKick": false,
+  "participants": [
+   {
+    "athlete": {
+     "$ref": "http://sports.core.api.espn.com/v2/sports/soccer/leagues/esp.1/seasons/2026/athletes/297373?lang=en&region=us"
+    }
+   }
+  ]
+ },
+ {
+  "type": {
+   "id": "177",
+   "text": "Ball touch",
+   "type": "ball-touch"
+  },
+  "clock": {
+   "value": 2103.0,
+   "displayValue": "36'"
+  },
+  "period": {
+   "number": 1
+  },
+  "team": {
+   "$ref": "http://sports.core.api.espn.com/v2/sports/soccer/leagues/esp.1/seasons/2026/teams/1538?lang=en&region=us"
+  },
+  "text": "Jon Ander Olasagasti (Levante) Ball touch at 36'",
+  "shortText": "Jon Ander Olasagasti Ball touch",
+  "fieldPositionX": 24.3,
+  "fieldPositionY": 26.2,
+  "statYardage": 0,
+  "scoringPlay": false,
+  "ownGoal": false,
+  "penaltyKick": false,
+  "participants": [
+   {
+    "athlete": {
+     "$ref": "http://sports.core.api.espn.com/v2/sports/soccer/leagues/esp.1/seasons/2026/athletes/317784?lang=en&region=us"
+    }
+   }
+  ]
+ },
+ {
+  "type": {
+   "id": "70",
+   "text": "Goal",
+   "type": "goal"
+  },
+  "clock": {
+   "value": 2105.0,
+   "displayValue": "36'"
+  },
+  "period": {
+   "number": 1
+  },
+  "team": {
+   "$ref": "http://sports.core.api.espn.com/v2/sports/soccer/leagues/esp.1/seasons/2026/teams/1068?lang=en&region=us"
+  },
+  "text": "Goal! Levante 0, Atletico Madrid 1. Alejandro Grimaldo (Atletico Madrid) left footed shot from the left side of the box to the top left corner.",
+  "shortText": "Alejandro Grimaldo Goal",
+  "fieldPositionX": 93.5,
+  "fieldPositionY": 68.0,
+  "fieldPosition2X": 100.0,
+  "fieldPosition2Y": 53.9,
+  "shotInfo": {
+   "id": "22",
+   "text": "Regular Play",
+   "description": "Shot during open play as opposed to from a set play. Note: Fast Breaks are not included."
+  },
+  "statYardage": 15,
+  "expectedGoals": 0.11,
+  "scoringPlay": true,
+  "ownGoal": false,
+  "penaltyKick": false,
+  "participants": [
+   {
+    "athlete": {
+     "$ref": "http://sports.core.api.espn.com/v2/sports/soccer/leagues/esp.1/seasons/2026/athletes/166396?lang=en&region=us"
+    }
+   }
+  ]
+ }
+]
