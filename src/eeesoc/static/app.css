@@ -2088,6 +2088,32 @@ main {
 .cat-own_goal { --cat: var(--danger); }
 .cat-scramble { --cat: var(--muted); }
 
+.mc-bl-who.mc-bl-goal {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.3rem;
+  min-width: 0;
+}
+
+.mc-bl-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mc-bl-goal .mc-bl-tag,
+.mc-bl-goal .mc-bl-rare {
+  flex: none;
+}
+
+@media (max-width: 520px) {
+  /* The "⚽ how" line under the stats still carries the odds. */
+  .mc-bl-goal .mc-bl-rare {
+    display: none;
+  }
+}
+
 .mc-bl-tag.cat {
   color: var(--cat, var(--muted));
   border: 1px solid currentColor;

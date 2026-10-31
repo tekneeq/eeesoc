@@ -189,7 +189,7 @@ def test_chiclet_tags_goals_with_category_rarity_and_club_mix():
     assert "chicletBulletinHtml(cached, m)" in js and "chicletBulletinHtml(tl, m)" in js
     assert "paintGoalRarity();" in js
     assert "+ chicletGoalMixHtml(tl, m) + chicletPostureHtml(tl, m)" in js
-    assert ".mc-bl-tag.cat" in css and ".cat-mistake" in css and ".mc-gm-g" in css and ".mc-goalmix" in css
+    assert ".mc-bl-tag.cat" in css and ".cat-mistake" in css and ".mc-bl-name" in css and ".mc-gm-g" in css and ".mc-goalmix" in css
     assert "<b>🎁 gift</b>" in html and "<b>⚽ goals</b>" in html and "1 in 4 games" in html
 
     script = (
@@ -230,6 +230,8 @@ const board = chicletBulletinHtml(tl, m);
 if (!board.includes('<span class="mc-bl-tag cat cat-mistake" title="defensive mistake: Olasagasti miscontrol in his own third, straight to the shot · the defending side lost the ball in its own third and the shot came within a pass · 18% of La Liga goals, seen in 38% of games (1 in 3 games, 40 archived)">🎁 gift</span> <span class="mc-bl-rare">1 in 3 games</span>')) process.exit(6);
 if (!board.includes('cat-screamer"') || !board.includes("🚀 screamer</span> <span class=\"mc-bl-rare\">1 in 4 games</span>")) process.exit(7);
 if (!board.includes("⚪ pen</span>") || board.includes('mc-bl-tag pen"')) process.exit(8);
+// The name sits in its own span so it ellipsizes before the tag does.
+if (!board.includes('<span class="mc-bl-who mc-bl-goal"><span class="mc-bl-name">Grimaldo</span> <span class="mc-bl-tag cat cat-mistake"')) process.exit(25);
 // Untagged own goal (archived before categories) keeps the old OG mark.
 if (!board.includes('<span class="mc-bl-tag og">OG</span>')) process.exit(9);
 // Penalty without a league archive: no rarity suffix.

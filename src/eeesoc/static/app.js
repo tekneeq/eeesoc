@@ -1707,7 +1707,8 @@
           : r.penalty
             ? ` <span class="mc-bl-tag pen">P</span>`
             : "";
-      return `<div class="mc-bl-row ${r.kind === "own_goal" ? "og" : "goal"}"><span class="mc-bl-min">${clock}</span><span class="mc-bl-who">${name}${tag}</span></div>`;
+      // The name gives way first on a narrow card; the tag stays in view.
+      return `<div class="mc-bl-row ${r.kind === "own_goal" ? "og" : "goal"}"><span class="mc-bl-min">${clock}</span><span class="mc-bl-who mc-bl-goal"><span class="mc-bl-name">${name}</span>${tag}</span></div>`;
     };
     const col = (side) => {
       const items = rows.filter((r) => r.team === side);
