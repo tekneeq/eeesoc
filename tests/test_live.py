@@ -940,6 +940,7 @@ def test_chiclet_stats_grid_adds_box_columns_and_posture_table():
     script = """
 const escapeHtml = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;");
 const state = { clinical: { leagues: { "esp.1": { par_posture: { duel_win_pct: 60, clearances_per_45: 10, box_actions_per_45: 28, porosity: 0.52, central_pct: 50 } } } } };
+const chicletGoalMixHtml = () => "";
 """ + src + """
 const half = (h) => ({ duels_won: 9, duels_lost: 4, clearances: 21, box_actions: 44, entries_allowed: 21, central_allowed: 13, f3_allowed: 38, minutes: 45 });
 const tl = {

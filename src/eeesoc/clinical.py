@@ -91,6 +91,16 @@ archived game that carries a posture block (``eeesoc.live.defence_from_plays``):
 ``entries_allowed_per_45``. ``recent_posture`` is the same over the last
 ``FORM_GAMES``; the league publishes ``par_posture`` over every side of every
 measured game so a live reading can be coloured against the norm.
+
+``goal_mix`` is how the club's goals came about, from the category the live
+timeline stamps on every scoring play (``eeesoc.live.classify_goal``: team
+move, defensive mistake, solo run, screamer, set piece, free kick, counter,
+penalty, own goal, scramble): ``scored`` and ``conceded`` are category counts
+over the ``games`` whose goals are tagged, ``recent_goal_mix`` the same over
+the last ``FORM_GAMES``. The league's ``goal_mix`` counts each archived game
+once and gives, per category, the share of all goals and ``game_pct`` — the
+share of games that saw at least one — which is where the chiclet's
+"screamer · 1 in 4 games" rarity line comes from.
 """
 
 from __future__ import annotations
@@ -100,8 +110,10 @@ import threading
 import time
 from typing import Any
 
-from eeesoc.halftime import _record_has_xg, has_current_box, load_records
-from eeesoc.live import LEAGUES, POSTURE_KEYS
+from collections import Counter
+
+from eeesoc.halftime import _record_has_xg, has_current_box, has_current_goal_tags, load_records
+from eeesoc.live import GOAL_CATEGORIES, LEAGUES, POSTURE_KEYS
 
 MIN_GAMES = 2
 # Prior weight in xG (or SOT for the fallback) that pulls thin samples to par.
@@ -202,6 +214,80 @@ def posture_summary(games: list[dict[str, Any]]) -> dict[str, Any]:
         "porosity": round(entries / sums["f3_allowed"], 2) if sums["f3_allowed"] else None,
         "f3_allowed": sums["f3_allowed"],
         "central_pct": int(round(100.0 * sums["central_allowed"] / entries)) if entries else None,
+    }
+
+
+def goal_mix_for(rec: dict[str, Any], side: str, other: str) -> dict[str, dict[str, int]] | None:
+    """
+    How this side's goals were scored and conceded in one archived game, as
+    ``{"scored": {category: n}, "conceded": {category: n}}`` (sparse: only
+    categories that happened). None when the record's goals are not tagged yet.
+    An own goal sits with the side it counted for, as everywhere else in the archive.
+    """
+    if not has_current_goal_tags(rec):
+        return None
+    scored: Counter[str] = Counter()
+    conceded: Counter[str] = Counter()
+    for ev in rec.get("events") or []:
+        kind = ev.get("kind")
+        if kind not in {"goal", "own_goal"}:
+            continue
+        cat = str(ev.get("category") or ("own_goal" if kind == "own_goal" else "") or "")
+        if cat not in GOAL_CATEGORIES:
+            continue
+        if ev.get("team") == side:
+            scored[cat] += 1
+        elif ev.get("team") == other:
+            conceded[cat] += 1
+    return {"scored": dict(scored), "conceded": dict(conceded)}
+
+
+def goal_mix_summary(games: list[dict[str, Any]]) -> dict[str, Any]:
+    """Category counts scored / conceded over the games whose goals are tagged."""
+    tagged = [g["goal_mix"] for g in games if isinstance(g.get("goal_mix"), dict)]
+    scored: Counter[str] = Counter()
+    conceded: Counter[str] = Counter()
+    for mix in tagged:
+        scored.update(mix.get("scored") or {})
+        conceded.update(mix.get("conceded") or {})
+    return {
+        "games": len(tagged),
+        "scored": {cat: scored[cat] for cat in GOAL_CATEGORIES if scored[cat]},
+        "conceded": {cat: conceded[cat] for cat in GOAL_CATEGORIES if conceded[cat]},
+        "scored_total": sum(scored.values()),
+        "conceded_total": sum(conceded.values()),
+    }
+
+
+def league_goal_mix(games: list[dict[str, Any]]) -> dict[str, Any]:
+    """
+    How rare each kind of goal is across the league, from each archived game once
+    (pass the home side's results): per category the number of goals, its share
+    of all goals, goals per game, and ``game_pct`` — the share of games that saw
+    at least one, which is what "1 in 4 games" on the chiclet is read from.
+    """
+    tagged = [g["goal_mix"] for g in games if isinstance(g.get("goal_mix"), dict)]
+    totals: Counter[str] = Counter()
+    games_with: Counter[str] = Counter()
+    for mix in tagged:
+        both = Counter(mix.get("scored") or {}) + Counter(mix.get("conceded") or {})
+        totals.update(both)
+        games_with.update(set(both))
+    n = len(tagged)
+    goals = sum(totals.values())
+    return {
+        "games": n,
+        "goals": goals,
+        "categories": {
+            cat: {
+                "goals": totals[cat],
+                "share_pct": int(round(100.0 * totals[cat] / goals)) if goals else 0,
+                "per_game": round(totals[cat] / n, 2) if n else 0.0,
+                "game_pct": int(round(100.0 * games_with[cat] / n)) if n else 0,
+            }
+            for cat in GOAL_CATEGORIES
+            if totals[cat]
+        },
     }
 
 
@@ -355,6 +441,7 @@ def _team_totals(records: list[dict[str, Any]]) -> dict[str, dict[str, dict[str,
                     "box_touches": box_touches_for(rec, side),
                     "box_touches_against": box_touches_for(rec, other),
                     "posture": posture_for(rec, side),
+                    "goal_mix": goal_mix_for(rec, side, other),
                     "lineup": _side_lineup(rec, side),
                     **game,
                 }
@@ -583,6 +670,8 @@ def _league_table(slug: str, teams: dict[str, dict[str, Any]], label: str) -> di
             "xi": regular_xi(r["results"]),
             "posture": posture_summary(r["results"]),
             "recent_posture": posture_summary(recent),
+            "goal_mix": goal_mix_summary(r["results"]),
+            "recent_goal_mix": goal_mix_summary(recent),
             "xg": round(r["xg"], 2),
             "xg_against": round(r["xg_against"], 2),
             "power": int(round(power)),
@@ -681,6 +770,9 @@ def _league_table(slug: str, teams: dict[str, dict[str, Any]], label: str) -> di
         "box_rank_n": box_rank_n,
         # Every side of every measured game: the league's typical defensive reading.
         "par_posture": posture_summary([g for r in rows for g in r["results"]]),
+        # Each archived game once: how common each kind of goal is in this league.
+        "goal_mix": league_goal_mix([g for r in rows for g in r["results"] if g["venue"] == "home"]),
+        "goal_categories": list(GOAL_CATEGORIES),
         "teams": out_rows,
     }
 

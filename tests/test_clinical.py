@@ -16,11 +16,13 @@ from eeesoc.clinical import (
     _publish_power,
     build_clinical_board,
     clinical_board,
+    goal_mix_for,
+    goal_mix_summary,
     lookup_team,
     posture_summary,
     team_key,
 )
-from eeesoc.live import BOX_VERSION
+from eeesoc.live import BOX_VERSION, GOAL_TAG_VERSION
 
 
 @pytest.fixture(autouse=True)
@@ -805,3 +807,45 @@ def test_posture_rolls_up_per_club_and_league_par():
         "games": 0, "minutes": 0, "duel_win_pct": None, "duels": 0, "clearances_per_45": None, "box_actions_per_45": None,
         "entries_allowed_per_45": None, "porosity": None, "f3_allowed": 0, "central_pct": None,
     }
+
+
+def test_goal_mix_rolls_up_per_club_and_league_rarity():
+    def game(eid, start, events, *, tagged=True):
+        rec = _rec(eid, "Gift FC", "Rocket Town", "10", "20", events, start=start)
+        if tagged:
+            rec["goal_tags"] = GOAL_TAG_VERSION
+        return rec
+
+    def goal(minute, team, category, reason=""):
+        return {**_ev(minute, "goal", team, 0.2), "category": category, "reason": reason}
+
+    records = [
+        # Gift FC concede two gifts and a screamer; score a team goal.
+        game("a", "2026-02-01T12:00:00Z", [goal(10, "away", "mistake", "Keeper spill"), goal(40, "away", "mistake"), goal(70, "home", "team"), goal(80, "away", "screamer")]),
+        # Second game: a gift conceded again, a penalty scored; an own goal counts for the beneficiary.
+        game("b", "2026-03-01T12:00:00Z", [goal(5, "away", "mistake"), goal(50, "home", "penalty"), {**_ev(60, "own_goal", "home"), "category": "own_goal", "reason": "own goal"}]),
+        # Archived before goals were categorised: its goals sit out of the mix until the backfill stamps them.
+        game("old", "2026-01-01T12:00:00Z", [goal(30, "home", "solo")], tagged=False),
+    ]
+    league = build_clinical_board(records)["leagues"]["eng.1"]
+    by = {t["team"]: t for t in league["teams"]}
+    gift = by["Gift FC"]["goal_mix"]
+    assert gift["games"] == 2
+    assert gift["scored"] == {"team": 1, "penalty": 1, "own_goal": 1} and gift["scored_total"] == 3
+    assert gift["conceded"] == {"mistake": 3, "screamer": 1} and gift["conceded_total"] == 4
+    rocket = by["Rocket Town"]["goal_mix"]
+    assert rocket["scored"] == {"mistake": 3, "screamer": 1} and rocket["conceded"] == {"team": 1, "penalty": 1, "own_goal": 1}
+    assert by["Gift FC"]["recent_goal_mix"]["games"] == 2
+    # League: each game once, 7 tagged goals; gifts in both games, the screamer in one.
+    mix = league["goal_mix"]
+    assert mix["games"] == 2 and mix["goals"] == 7
+    assert mix["categories"]["mistake"] == {"goals": 3, "share_pct": 43, "per_game": 1.5, "game_pct": 100}
+    assert mix["categories"]["screamer"] == {"goals": 1, "share_pct": 14, "per_game": 0.5, "game_pct": 50}
+    assert "solo" not in mix["categories"]
+    assert league["goal_categories"][:3] == ["team", "mistake", "solo"]
+
+    # A record with the marker but an untagged goal event just drops that goal from the mix.
+    untagged = {**records[0], "events": [_ev(10, "goal", "away")]}
+    assert goal_mix_for(untagged, "home", "away") == {"scored": {}, "conceded": {}}
+    assert goal_mix_for(records[2], "home", "away") is None
+    assert goal_mix_summary([]) == {"games": 0, "scored": {}, "conceded": {}, "scored_total": 0, "conceded_total": 0}

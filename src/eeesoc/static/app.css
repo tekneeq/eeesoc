@@ -2075,6 +2075,150 @@ main {
   color: var(--danger);
 }
 
+/* Goal categories: one colour per kind, shared by the bulletin chip, the
+   "how" line under the stats and the ⚽ goals power row. */
+.cat-team { --cat: var(--text); }
+.cat-mistake { --cat: var(--warn); }
+.cat-solo { --cat: #c7a4ff; }
+.cat-screamer { --cat: #ff9f6b; }
+.cat-set_piece { --cat: #8fd3ff; }
+.cat-free_kick { --cat: #8fd3ff; }
+.cat-counter { --cat: var(--accent); }
+.cat-penalty { --cat: var(--muted); }
+.cat-own_goal { --cat: var(--danger); }
+.cat-scramble { --cat: var(--muted); }
+
+.mc-bl-who.mc-bl-goal {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.3rem;
+  min-width: 0;
+}
+
+.mc-bl-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mc-bl-goal .mc-bl-tag,
+.mc-bl-goal .mc-bl-rare {
+  flex: none;
+}
+
+@media (max-width: 520px) {
+  /* The "⚽ how" line under the stats still carries the odds. */
+  .mc-bl-goal .mc-bl-rare {
+    display: none;
+  }
+}
+
+.mc-bl-tag.cat {
+  color: var(--cat, var(--muted));
+  border: 1px solid currentColor;
+  border-radius: 0.2rem;
+  padding: 0 0.22rem;
+  white-space: nowrap;
+  opacity: 0.9;
+}
+
+.mc-bl-rare {
+  font-size: 0.54rem;
+  color: var(--muted);
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+/* How this game's goals came: one chip per kind, rarity beside the uncommon ones. */
+.mc-goalmix {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.2rem 0.3rem;
+  max-width: 100%;
+  font-size: 0.6rem;
+}
+
+.mc-gm-label {
+  color: var(--muted);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  font-size: 0.54rem;
+}
+
+.mc-gm-item {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.25rem;
+  padding: 0.02rem 0.3rem;
+  border: 1px solid var(--cat, var(--line));
+  border-radius: 0.22rem;
+  color: var(--cat, var(--text));
+  white-space: nowrap;
+}
+
+.mc-gm-item i {
+  font-style: normal;
+  font-size: 0.52rem;
+  color: var(--muted);
+}
+
+/* ⚽ goals row: scored / conceded chips with the top kinds, and the standout tag. */
+.mc-gm-side {
+  align-items: center;
+  gap: 0.25rem;
+  flex-wrap: wrap;
+}
+
+.mc-gm-g {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 3.4rem;
+  padding: 0.08rem 0.22rem 0.12rem;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 0.22rem;
+  line-height: 1.12;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+
+.mc-gm-g em {
+  font-style: normal;
+  font-size: 0.48rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.mc-gm-g b {
+  display: inline-flex;
+  gap: 0.22rem;
+  font-size: 0.58rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.mc-gm-g b > span {
+  color: var(--cat, var(--text));
+}
+
+.mc-gm-g.conceded {
+  border-color: rgba(255, 200, 87, 0.28);
+}
+
+.mc-gm-more {
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.mc-gm-side .mc-power-tag {
+  color: var(--cat, var(--text));
+  text-transform: none;
+  letter-spacing: 0.03em;
+}
+
 .mc-league {
   font-family: var(--mono);
   font-size: 0.62rem;

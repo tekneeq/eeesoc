@@ -1467,6 +1467,184 @@ def box_entries_from_plays(
     return out
 
 
+# —— Goal categories ——
+#
+# ESPN labels set pieces, counters, penalties and own goals on the goal play
+# itself (``shotInfo``) and gives the distance (``statYardage``). The two reads
+# it does not make — a defensive mistake and a piece of individual brilliance —
+# come from the plays in the seconds before the shot.
+GOAL_CATEGORIES = ("team", "mistake", "solo", "screamer", "set_piece", "free_kick", "counter", "penalty", "own_goal", "scramble")
+GOAL_TAG_VERSION = 1
+GOAL_SEQUENCE_S = 25.0  # how far back the attacking sequence is read
+SCREAMER_YARDS = 25
+SCREAMER_XG = 0.04
+SOLO_CARRY = 25.0  # pitch units (x runs 0–100 over ~105 m) the scorer carried the ball
+GIFT_X_MAX = 35.0  # the defender's own third, in his attacking frame
+GIFT_GAP_S = 12.0
+CLEAR_GAP_S = 5.0
+SPILL_GAP_S = 6.0
+_GIFT_TYPES = {"dispossessed", "ball-touch", "attempted-tackle", "pass", "blocked-pass", "take-on"}
+_SPILL_TYPES = {"save", "punch", "claim"}
+_GIFT_VERBS = {
+    "ball-touch": "miscontrol",
+    "dispossessed": "dispossessed",
+    "attempted-tackle": "missed tackle",
+    "pass": "pass cut out",
+    "blocked-pass": "pass blocked",
+    "take-on": "lost the ball",
+    "clear": "clearance straight back",
+    "save": "keeper spill",
+    "punch": "keeper punch",
+    "claim": "keeper drop",
+}
+_ATHLETE_ID_RE = re.compile(r"/athletes/(\d+)")
+_PLAY_ACTOR_RE = re.compile(r"^(.+?)\s*\(")
+_SET_PIECE_INFO = {"from corner": "corner", "set piece": "set piece", "throw-in set piece": "throw-in"}
+
+
+def _play_athlete(play: dict[str, Any]) -> str | None:
+    for part in play.get("participants") or []:
+        m = _ATHLETE_ID_RE.search(str((part.get("athlete") or {}).get("$ref") or ""))
+        if m:
+            return m.group(1)
+    return None
+
+
+def _play_seconds(play: dict[str, Any]) -> float | None:
+    clock = play.get("clock") or {}
+    if not isinstance(clock, dict) or clock.get("value") is None:
+        return None
+    try:
+        return float(clock["value"])
+    except (TypeError, ValueError):
+        return None
+
+
+def _play_actor(play: dict[str, Any]) -> str:
+    """'Jon Ander Olasagasti (Levante) Ball touch at 36'' → 'Jon Ander Olasagasti'."""
+    m = _PLAY_ACTOR_RE.match(str(play.get("text") or play.get("alternativeText") or ""))
+    return m.group(1).strip() if m else ""
+
+
+def _carry_distance(play: dict[str, Any], goal: dict[str, Any]) -> float | None:
+    x, y = _coord(play, "fieldPositionX"), _coord(play, "fieldPositionY")
+    gx, gy = _coord(goal, "fieldPositionX"), _coord(goal, "fieldPositionY")
+    if None in (x, y, gx, gy):
+        return None
+    # y runs 0–100 over ~68 m against x's ~105 m: scale so the carry is in x-units.
+    return ((gx - x) ** 2 + ((gy - y) * 0.68) ** 2) ** 0.5
+
+
+def classify_goal(plays: list[dict[str, Any]], index: int) -> dict[str, Any]:
+    """
+    Category and a one-line reason for the goal at ``plays[index]``.
+
+    ``team`` a passing move (3+ passes after winning the ball, or an assist with no
+    gift), ``mistake`` the defending side lost it in its own third and the attackers
+    needed at most one pass, ``solo`` the scorer beat a man or carried the ball
+    ``SOLO_CARRY`` to the shot, ``screamer`` ``SCREAMER_YARDS``+ out or a tiny-xG
+    shot from outside the box, ``set_piece`` / ``free_kick`` / ``counter`` /
+    ``penalty`` / ``own_goal`` straight from ESPN's ``shotInfo``, and ``scramble``
+    for a loose ball in the box with no read either way.
+    """
+    goal = plays[index]
+    team = _team_id_from_play(goal)
+    scorer = _play_athlete(goal)
+    text = str(goal.get("text") or "").lower()
+    info = str((goal.get("shotInfo") or {}).get("text") or "").lower()
+    yards = _safe_int(goal.get("statYardage"), 0)
+    xg = _safe_float(goal.get("expectedGoals"))
+    t0 = _play_seconds(goal)
+    out: dict[str, Any] = {"category": "team", "reason": "", "yards": yards or None, "shot_info": info or None}
+
+    def done(category: str, reason: str) -> dict[str, Any]:
+        out.update(category=category, reason=reason)
+        return out
+
+    if info == "own goal" or goal.get("ownGoal") or _is_own_goal(_play_type(goal), goal):
+        return done("own_goal", "own goal")
+    if info == "penalty" or goal.get("penaltyKick") or _is_penalty_goal(_play_type(goal), goal):
+        return done("penalty", "penalty")
+    if info == "free kick":
+        return done("free_kick", f"direct free kick{f', {yards} yards' if yards else ''}")
+    if info in _SET_PIECE_INFO:
+        return done("set_piece", f"from a {_SET_PIECE_INFO[info]}" + (" · header" if "header" in text else ""))
+
+    window = [
+        p
+        for p in plays[:index]
+        if t0 is None or ((s := _play_seconds(p)) is not None and 0 <= t0 - s <= GOAL_SEQUENCE_S)
+    ]
+    # The attacking sequence starts after the defending side's last touch.
+    cut = max((j for j, p in enumerate(window) if (tid := _team_id_from_play(p)) and tid != team), default=-1)
+    last_theirs = window[cut] if cut >= 0 else None
+    seq = window[cut + 1 :]
+    passes = [p for p in seq if _play_type(p) in {"pass", "cross", "through-ball"}]
+    take_ons = [p for p in seq if _play_type(p) == "take-on" and scorer and _play_athlete(p) == scorer]
+    carry = None
+    for p in reversed(seq):
+        if scorer and _play_athlete(p) == scorer and _play_type(p) in {"pass", "ball-touch", "take-on", "interception", "tackle"}:
+            carry = _carry_distance(p, goal)
+            break
+
+    if yards >= SCREAMER_YARDS or (xg is not None and xg < SCREAMER_XG and "outside the box" in text):
+        bits = [f"{yards} yards out" if yards else "from outside the box"]
+        if xg is not None:
+            bits.append(f"xG {xg:.2f}")
+        return done("screamer", ", ".join(bits))
+    if take_ons or (carry is not None and carry >= SOLO_CARRY):
+        if take_ons:
+            n = len(take_ons)
+            return done("solo", f"beat {n} defender{'s' if n > 1 else ''} on the way to the shot")
+        return done("solo", f"carried the ball {carry * 1.05:.0f}m to the shot")
+
+    if last_theirs is not None:
+        lt = _play_type(last_theirs)
+        lx = _coord(last_theirs, "fieldPositionX")
+        ts = _play_seconds(last_theirs)
+        gap = (t0 - ts) if (t0 is not None and ts is not None) else None
+        who = _play_actor(last_theirs)
+        crossed = "with a cross" in text
+        gift = lt in _GIFT_TYPES and lx is not None and lx < GIFT_X_MAX and (gap is None or gap <= GIFT_GAP_S) and len(passes) <= 1 and not crossed
+        clear_back = lt == "clear" and lx is not None and lx < GIFT_X_MAX and gap is not None and gap <= CLEAR_GAP_S and not passes
+        spill = lt in _SPILL_TYPES and gap is not None and gap <= SPILL_GAP_S
+        if gift or clear_back or spill:
+            verb = _GIFT_VERBS.get(lt, "lost the ball")
+            where = "" if spill else (" in his own box" if lx is not None and lx < 100 - BOX_X_MIN else " in his own third")
+            follow = "straight to the shot" if not passes else "one pass later"
+            return done("mistake", f"{who + ' ' if who else ''}{verb}{where}, {follow}")
+
+    if info == "fast break":
+        return done("counter", f"fast break, {len(passes)} pass{'es' if len(passes) != 1 else ''}")
+    if len(passes) >= 3:
+        return done("team", f"{len(passes)}-pass move" + (" · header" if "header" in text else ""))
+    if "assisted by" in text:
+        return done("team", "assisted" + (" from a cross" if "with a cross" in text else "") + (" · header" if "header" in text else ""))
+    return done("scramble", "loose ball in the box")
+
+
+def goal_tags_from_plays(plays: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Every scoring play, in order, with its category — the shape the archive backfill stamps onto records."""
+    tags = []
+    for i, play in enumerate(plays):
+        ptype = _normalize_play_type(_play_type(play))
+        if play.get("shootout"):
+            continue
+        if not (play.get("scoringPlay") or ptype in GOAL_TYPES or _is_own_goal(ptype, play)):
+            continue
+        tag = classify_goal(plays, i)
+        tags.append(
+            {
+                "minute": _play_minute(play),
+                "period": _play_period(play),
+                "text": str(play.get("shortText") or play.get("text") or ""),
+                "category": tag["category"],
+                "reason": tag["reason"],
+            }
+        )
+    return tags
+
+
 def _normalize_play_type(ptype: str) -> str:
     if _is_own_goal(ptype):
         return "own-goal"
@@ -2518,7 +2696,7 @@ def build_event_timeline(
     duel_pts: list[tuple[int, str]] = []
     bulletin: list[dict[str, Any]] = []
 
-    for play in plays:
+    for play_index, play in enumerate(plays):
         ptype = _normalize_play_type(_play_type(play))
         own = _is_own_goal(ptype, play)
         if own:
@@ -2614,7 +2792,9 @@ def build_event_timeline(
         if not kind or pmin is None:
             continue
         text = str(play.get("shortText") or play.get("text") or kind)
-        player = _player_name_from_goal(play, own=own) if kind in {"goal", "own_goal"} else None
+        is_goal = kind in {"goal", "own_goal"}
+        player = _player_name_from_goal(play, own=own) if is_goal else None
+        tag = classify_goal(plays, play_index) if is_goal else None
         events.append(
             {
                 "minute": pmin,
@@ -2626,9 +2806,10 @@ def build_event_timeline(
                 "xg": xg,
                 "player": player,
                 "period": period,
+                **({"category": tag["category"], "reason": tag["reason"]} if tag else {}),
             }
         )
-        if kind in {"goal", "own_goal"} and side in {"home", "away"}:
+        if is_goal and side in {"home", "away"}:
             bulletin.append(
                 {
                     "minute": pmin,
@@ -2640,6 +2821,8 @@ def build_event_timeline(
                     "player_on": None,
                     "player_off": None,
                     "penalty": _is_penalty_goal(ptype, play),
+                    "category": tag["category"] if tag else None,
+                    "reason": tag["reason"] if tag else "",
                     "text": text,
                 }
             )
@@ -2709,6 +2892,7 @@ def build_event_timeline(
         ),
         "box_entries": box_entries_from_plays(plays, home_id=home_id, away_id=away_id, home=home, away=away),
         "box_version": BOX_VERSION,
+        "goal_tags": GOAL_TAG_VERSION,
         "posture": defence_from_plays(plays, home_id=home_id, away_id=away_id, home=home, away=away),
         "xg": {
             "home": home_series,
