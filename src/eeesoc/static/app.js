@@ -1534,9 +1534,153 @@
     });
   }
 
-  function chicletBulletinHtml(tl) {
+  // —— Goal categories ——
+  //
+  // Every goal in the timeline carries a category from the play-by-play
+  // (server: classify_goal) and a one-line reason. The archive gives each
+  // league how rare each kind is — the share of games that saw one.
+
+  const GOAL_CATS = {
+    team: { icon: "🎯", label: "team goal", short: "team", help: "a passing move, or a plain assist with nothing given away" },
+    mistake: { icon: "🎁", label: "defensive mistake", short: "gift", help: "the defending side lost the ball in its own third and the shot came within a pass" },
+    solo: { icon: "⚡", label: "solo goal", short: "solo", help: "the scorer beat a man or carried the ball 25m+ to the shot" },
+    screamer: { icon: "🚀", label: "screamer", short: "screamer", help: "from 25+ yards, or a long-range strike worth almost no xG" },
+    set_piece: { icon: "📐", label: "set piece", short: "set piece", help: "from a corner, a throw-in or a worked free kick" },
+    free_kick: { icon: "🦵", label: "direct free kick", short: "free kick", help: "struck straight in from a free kick" },
+    counter: { icon: "🏃", label: "counter-attack", short: "counter", help: "a fast break the other way" },
+    penalty: { icon: "⚪", label: "penalty", short: "pen", help: "from the spot" },
+    own_goal: { icon: "🙈", label: "own goal", short: "OG", help: "put into his own net" },
+    scramble: { icon: "🌪", label: "scramble", short: "scramble", help: "a loose ball in the box, no clear read" },
+  };
+  const GOAL_CAT_ORDER = Object.keys(GOAL_CATS);
+  // Rarity needs this many archived games in the league before it is quoted.
+  const GOAL_MIX_MIN_GAMES = 10;
+  const GOALS_HELP =
+    "⚽ goals — how each club's goals have come about this season, from the play-by-play of every archived game: scored on the left of each side, conceded on the right. 🎯 team move · 🎁 defensive mistake · ⚡ solo · 🚀 screamer · 📐 set piece · 🦵 direct free kick · 🏃 counter · ⚪ penalty · 🙈 own goal · 🌪 scramble. The tag is the kind that stands out most against the league's mix (needs 2+ goals of it).";
+
+  function goalCat(cat) {
+    return GOAL_CATS[cat] || { icon: "⚽", label: String(cat || "goal"), short: String(cat || "goal"), help: "" };
+  }
+
+  // How often this league sees a goal of this kind, or null when the archive is thin.
+  function goalRarity(cat, leagueSlug) {
+    const league = state.clinical?.leagues?.[leagueSlug];
+    const mix = league?.goal_mix;
+    if (!mix || !(Number(mix.games) >= GOAL_MIX_MIN_GAMES)) return null;
+    const c = mix.categories?.[cat];
+    const games = Number(mix.games);
+    const label = league.label || leagueSlug;
+    if (!c || !c.goals) {
+      return { pct: 0, share: 0, games, rare: true, text: `first in ${games} ${label} games`, long: `the first of its kind in ${games} archived ${label} games` };
+    }
+    const pct = Number(c.game_pct) || 0;
+    const oneIn = pct > 0 ? Math.max(2, Math.round(100 / pct)) : null;
+    const text = pct >= 50 ? `${pct}% of games` : oneIn ? `1 in ${oneIn} games` : `${pct}% of games`;
+    return {
+      pct,
+      share: Number(c.share_pct) || 0,
+      games,
+      rare: pct < 50,
+      text,
+      long: `${c.share_pct}% of ${label} goals, seen in ${pct}% of games (${text}, ${games} archived)`,
+    };
+  }
+
+  function goalTagTitle(r, leagueSlug) {
+    const cat = goalCat(r.category);
+    const bits = [`${cat.label}${r.reason ? `: ${r.reason}` : ""}`];
+    if (cat.help) bits.push(cat.help);
+    const rarity = goalRarity(r.category, leagueSlug);
+    if (rarity) bits.push(rarity.long);
+    return bits.join(" · ");
+  }
+
+  // The category chip after a scorer's name, with the rarity when the kind is uncommon.
+  function goalTagHtml(r, leagueSlug) {
+    if (!r?.category) return "";
+    const cat = goalCat(r.category);
+    const rarity = goalRarity(r.category, leagueSlug);
+    const rare = rarity && rarity.rare ? ` <span class="mc-bl-rare">${escapeHtml(rarity.text)}</span>` : "";
+    return ` <span class="mc-bl-tag cat cat-${escapeHtml(r.category)}" title="${escapeHtml(goalTagTitle(r, leagueSlug))}">${cat.icon} ${escapeHtml(cat.short)}</span>${rare}`;
+  }
+
+  // "how this game's goals came": each kind once with its count and the league rarity.
+  function chicletGoalMixHtml(tl, m) {
+    const goals = (tl?.bulletin || []).filter((r) => r.category && (r.kind === "goal" || r.kind === "own_goal"));
+    if (!goals.length) return "";
+    const counts = {};
+    for (const g of goals) counts[g.category] = (counts[g.category] || 0) + 1;
+    const items = GOAL_CAT_ORDER.filter((c) => counts[c]).map((c) => {
+      const cat = goalCat(c);
+      const rarity = goalRarity(c, m?.league_slug);
+      const who = goals
+        .filter((g) => g.category === c)
+        .map((g) => `${g.minute}' ${g.player || cat.label}${g.reason ? ` — ${g.reason}` : ""}`)
+        .join("; ");
+      const title = `${cat.label} ×${counts[c]}: ${who}${rarity ? ` · ${rarity.long}` : ""}`;
+      const rare = rarity && rarity.rare ? `<i>${escapeHtml(rarity.text)}</i>` : "";
+      return `<span class="mc-gm-item cat-${escapeHtml(c)}" title="${escapeHtml(title)}">${cat.icon} ${escapeHtml(cat.short)}${counts[c] > 1 ? ` ×${counts[c]}` : ""}${rare}</span>`;
+    });
+    return `<span class="mc-goalmix"><span class="mc-gm-label" title="${escapeHtml(GOALS_HELP)}">⚽ how</span>${items.join("")}</span>`;
+  }
+
+  // One club's season mix, scored and conceded, as compact chips with the standout kind tagged.
+  function goalMixSideHtml(m, side) {
+    const name = side === "home" ? m.home : m.away;
+    const row = clinicalFor(m.league_slug, side === "home" ? m.home_id : m.away_id, name);
+    const mix = row?.goal_mix;
+    const leagueMix = row?._league?.goal_mix;
+    const tagged = Number(mix?.games) || 0;
+    if (!row || !tagged || (!mix.scored_total && !mix.conceded_total)) {
+      const why = !row
+        ? `${name}: no finished games archived yet`
+        : !tagged
+          ? `${name}: the archived goals are not categorised yet — the backfill is reading the play-by-play`
+          : `${name}: no goals either way in ${tagged} tagged game${tagged === 1 ? "" : "s"}`;
+      return `<span class="mc-power-side mc-gm-side ${side} none" title="${escapeHtml(why)}"><b class="mc-power-num">—</b></span>`;
+    }
+    const describe = (counts, total) =>
+      GOAL_CAT_ORDER.filter((c) => counts[c])
+        .sort((a, b) => counts[b] - counts[a])
+        .map((c) => `${counts[c]} ${goalCat(c).label}${counts[c] === 1 ? "" : "s"}`)
+        .join(", ") || `none in ${total} goals`;
+    const chip = (dir, counts, total) => {
+      const top = GOAL_CAT_ORDER.filter((c) => counts[c]).sort((a, b) => counts[b] - counts[a] || GOAL_CAT_ORDER.indexOf(a) - GOAL_CAT_ORDER.indexOf(b));
+      const parts = top.slice(0, 3).map((c) => `<span class="cat-${escapeHtml(c)}" title="${escapeHtml(`${counts[c]} of ${total} ${dir}: ${goalCat(c).label}`)}">${goalCat(c).icon}${counts[c]}</span>`);
+      const more = top.length > 3 ? `<span class="mc-gm-more">+${top.slice(3).reduce((n, c) => n + counts[c], 0)}</span>` : "";
+      return `<span class="mc-gm-g ${dir}"><em>${dir} ${total}</em><b>${parts.join("")}${more}</b></span>`;
+    };
+    // The tag: the kind whose share here beats the league's by the most, with at least two goals of it.
+    let best = null;
+    for (const [dir, counts, total] of [["scored", mix.scored, mix.scored_total], ["conceded", mix.conceded, mix.conceded_total]]) {
+      if (!total) continue;
+      for (const c of GOAL_CAT_ORDER) {
+        const n = counts[c] || 0;
+        if (n < 2) continue;
+        const share = (100 * n) / total;
+        const par = Number(leagueMix?.categories?.[c]?.share_pct) || 0;
+        const gap = share - par;
+        if (gap > 0 && (!best || gap > best.gap)) best = { dir, cat: c, n, total, share: Math.round(share), par, gap };
+      }
+    }
+    const tagHtml = best
+      ? `<span class="mc-power-tag cat-${escapeHtml(best.cat)}" title="${escapeHtml(`${best.n} of ${best.total} ${best.dir} were ${goalCat(best.cat).label}s (${best.share}%; league ${best.par}%)`)}">${goalCat(best.cat).icon} ${escapeHtml(goalCat(best.cat).short)} ${best.share}% ${best.dir === "scored" ? "GF" : "GA"}</span>`
+      : "";
+    const title =
+      `${name} over ${tagged} tagged game${tagged === 1 ? "" : "s"}: scored ${mix.scored_total} — ${describe(mix.scored, mix.scored_total)}; ` +
+      `conceded ${mix.conceded_total} — ${describe(mix.conceded, mix.conceded_total)}.` +
+      (best ? ` Stands out: ${best.n} of ${best.total} ${best.dir} were ${goalCat(best.cat).label}s, ${best.share}% against the league's ${best.par}%.` : "");
+    return `<span class="mc-power-side mc-gm-side ${side}${best ? ` ${best.dir}-${escapeHtml(best.cat)}` : ""}" title="${escapeHtml(title)}">${chip("scored", mix.scored, mix.scored_total)}${chip("conceded", mix.conceded, mix.conceded_total)}${tagHtml}</span>`;
+  }
+
+  function goalMixRowHtml(m) {
+    return `${goalMixSideHtml(m, "home")}<span class="mc-power-label" title="${escapeHtml(GOALS_HELP)}">⚽ goals</span>${goalMixSideHtml(m, "away")}`;
+  }
+
+  function chicletBulletinHtml(tl, m) {
     const rows = tl?.bulletin || [];
     if (!rows.length) return "";
+    const leagueSlug = m?.league_slug || tl?.league_slug;
     const line = (r) => {
       const clock = escapeHtml(r.clock || `${r.minute}'`);
       if (r.kind === "sub") {
@@ -1554,8 +1698,11 @@
         return `<div class="mc-bl-row red"><span class="mc-bl-min">${clock}</span><span class="mc-bl-who">${name}${tag}</span></div>`;
       }
       const name = escapeHtml(r.player || (r.kind === "own_goal" ? "Own goal" : "Goal"));
-      const tag =
-        r.kind === "own_goal"
+      // The category chip covers own goals and penalties too; the old OG / P marks
+      // stay for timelines archived before goals were categorised.
+      const tag = r.category
+        ? goalTagHtml(r, leagueSlug)
+        : r.kind === "own_goal"
           ? ` <span class="mc-bl-tag og">OG</span>`
           : r.penalty
             ? ` <span class="mc-bl-tag pen">P</span>`
@@ -2473,6 +2620,11 @@
       const expected = expectedGoalsRowsHtml(m);
       if (afterDefence >= 0) rows.splice(afterDefence + 1, 0, ...expected);
       else rows.push(...expected);
+      // How the goals came about sits under the clean sheets it explains.
+      const afterClean = rows.findIndex((html) => html.includes("🧤 clean sheets"));
+      const goalMix = goalMixRowHtml(m);
+      if (afterClean >= 0) rows.splice(afterClean + 1, 0, goalMix);
+      else rows.push(goalMix);
       // Who is missing comes first: it frames every power number below it.
       rows.unshift(...startersRowHtml(m));
     }
@@ -2497,6 +2649,7 @@
     document.querySelectorAll(".mc-power[data-power-for]").forEach((el) => paintPowerRow(el.closest(".match-chiclet")));
     document.querySelectorAll(".mc-teams").forEach((el) => paintTeamStandings(el.closest(".match-chiclet")));
     paintBoxRates();
+    paintGoalRarity();
   }
 
   function boxRateText(value) {
@@ -2615,6 +2768,21 @@
   function boxRateRowHtml(m, tl) {
     if (!m) return "";
     return `<span class="mc-box-rate" data-box-rate-for="${escapeHtml(m.event_id || "")}">${boxRateRowInner(m, tl)}</span>`;
+  }
+
+  // The rarity beside each goal's category comes from the clinical board, so the
+  // bulletin is redrawn when that lands — a cached timeline may have painted first.
+  function paintGoalRarity() {
+    document.querySelectorAll(".mc-bulletin[data-bulletin-for]").forEach((el) => {
+      const card = el.closest(".match-chiclet");
+      const m = card?.__match;
+      const tl = m && state.timelines?.[m.event_id];
+      if (!tl) return;
+      const html = chicletBulletinHtml(tl, m);
+      if (el.__html === html) return;
+      el.__html = html;
+      el.innerHTML = html;
+    });
   }
 
   function paintBoxRates() {
@@ -2842,7 +3010,7 @@
       row("1H", h1, h1.home_xg, h1.away_xg, "1"),
       row("2H", h2, h2.home_xg, h2.away_xg, "2"),
     ];
-    return statGridHtml(cols, rows, { cls: "mc-stat-grid-counts" }) + chicletPostureHtml(tl, m);
+    return statGridHtml(cols, rows, { cls: "mc-stat-grid-counts" }) + chicletGoalMixHtml(tl, m) + chicletPostureHtml(tl, m);
   }
 
   function buildMatchChicletButton(m, selected, onSelect, withTimeline) {
@@ -2914,7 +3082,7 @@
         <span class="mc-away"><i class="mc-key mc-key-away" title="Away — blue in charts"></i>${chicletRedHtml(reds.away)}<span class="mc-name">${escapeHtml(shortName(m.away))}</span>${teamStandingHtml(m, "away")}</span>
       </span>
       <span class="mc-power" data-power-for="${escapeHtml(m.event_id)}">${clinicalRowHtml(m)}</span>
-      ${withTimeline && !upcoming ? `<div class="mc-bulletin" data-bulletin-for="${escapeHtml(m.event_id)}">${cached ? chicletBulletinHtml(cached) : ""}</div>` : ""}
+      ${withTimeline && !upcoming ? `<div class="mc-bulletin" data-bulletin-for="${escapeHtml(m.event_id)}">${cached ? chicletBulletinHtml(cached, m) : ""}</div>` : ""}
       ${chartPlaceholder}
     `;
     btn.addEventListener("click", () => {
@@ -3981,7 +4149,7 @@
       const stats = root.querySelector(`.mc-stats[data-stats-for="${eid}"]`);
       if (stats) stats.innerHTML = chicletStatsHtml(tl, m);
       const board = root.querySelector(`.mc-bulletin[data-bulletin-for="${eid}"]`);
-      if (board) board.innerHTML = chicletBulletinHtml(tl);
+      if (board) board.innerHTML = chicletBulletinHtml(tl, m);
       const terr = root.querySelector(`.mc-territory[data-terr-for="${eid}"]`);
       if (terr) terr.innerHTML = territorySvg(tl);
       const press = root.querySelector(`.mc-pressure-wrap[data-press-for="${eid}"]`);
