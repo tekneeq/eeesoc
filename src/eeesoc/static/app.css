@@ -4563,6 +4563,17 @@ main {
   white-space: nowrap;
 }
 
+/* League place of the plain stat beside a power: 1.5 scored/g #3. */
+.mc-stat-rank {
+  margin-left: 0.22rem;
+  font-style: normal;
+  font-size: 0.54rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--warn);
+  opacity: 0.92;
+}
+
 .mc-power-tag {
   font-size: 0.56rem;
   letter-spacing: 0.06em;

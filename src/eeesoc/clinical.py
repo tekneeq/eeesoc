@@ -56,7 +56,10 @@ when results outrun them, otherwise ``steady``.  The two halves of
 scored per game over the league's, shrunk, ``PAR_POWER`` = par) and
 ``stopping_power`` (the league's goals per game over the club's goals
 conceded), each ranked (``scoring_rank`` / ``stopping_rank``), so the chiclet
-can read expected goals from results as well as from chances.
+can read expected goals from results as well as from chances. The plain
+``scored_per_game`` and ``conceded_per_game`` printed beside the offence and
+defence powers carry their own league places, ``scored_rank`` (most first)
+and ``conceded_rank`` (fewest first), unshrunk.
 
 Clean sheets are counted from the final score: ``clean_sheets`` over every
 archived game, ``recent_clean_sheets`` over the last ``FORM_GAMES``, and
@@ -780,6 +783,8 @@ def _league_table(slug: str, teams: dict[str, dict[str, Any]], label: str) -> di
             "defense_rank": None,
             "scoring_rank": None,
             "stopping_rank": None,
+            "scored_rank": None,
+            "conceded_rank": None,
             "momentum_rank": None,
             "potential_rank": None,
             "clean_sheet_rank": None,
@@ -802,6 +807,13 @@ def _league_table(slug: str, teams: dict[str, dict[str, Any]], label: str) -> di
     by_stopping = sorted(ranked, key=lambda r: (-r["stopping_power"], r["conceded"], r["team"]))
     for i, r in enumerate(by_stopping, start=1):
         r["stopping_rank"] = i
+    # Plain goals per game, as printed beside the offence / defence power: most scored first, fewest allowed first.
+    by_scored = sorted(ranked, key=lambda r: (-r["scored_per_game"], -r["scored"], r["team"]))
+    for i, r in enumerate(by_scored, start=1):
+        r["scored_rank"] = i
+    by_conceded = sorted(ranked, key=lambda r: (r["conceded_per_game"], r["conceded"], r["team"]))
+    for i, r in enumerate(by_conceded, start=1):
+        r["conceded_rank"] = i
     by_momentum = sorted(ranked, key=lambda r: (-r["momentum"], -r["recent_points"], r["recent_allowed"] - r["recent_scored"], r["team"]))
     for i, r in enumerate(by_momentum, start=1):
         r["momentum_rank"] = i

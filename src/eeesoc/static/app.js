@@ -1868,8 +1868,8 @@
     return `${row.team}: clinical power ${row.power} — ${basis} over ${row.games} game${row.games === 1 ? "" : "s"} · ${row.conversion_pct}% of shots on target scored · ${rank}. 100 = scores exactly what the chances were worth; above 100 is clinical, below is wasteful.`;
   }
 
-  // One side (home or away) of a power row: number · rank · optional stat · tag.
-  // spec: { title(row, name), num(row), rank(row), tag(row) → {cls, text}, stat(row) → text|"" }
+  // One side (home or away) of a power row: number · rank · optional stat (with its own league place) · tag.
+  // spec: { title(row, name), num(row), rank(row), tag(row) → {cls, text}, stat(row) → text|"", statRank(row) → n|null }
   function powerSideHtml(m, side, spec) {
     const name = side === "home" ? m.home : m.away;
     const row = clinicalFor(m.league_slug, side === "home" ? m.home_id : m.away_id, name);
@@ -1881,7 +1881,9 @@
     const rank = rankNo ? `#${rankNo}/${row._league?.teams_ranked || "?"}` : `${row.games} game${row.games === 1 ? "" : "s"} · n/r`;
     const tag = spec.tag(row);
     const stat = spec.stat ? spec.stat(row) : "";
-    const statHtml = stat ? `<span class="mc-power-stat">${escapeHtml(stat)}</span>` : "";
+    const statRank = spec.statRank ? spec.statRank(row) : null;
+    const statRankHtml = stat && statRank ? `<i class="mc-stat-rank">#${statRank}</i>` : "";
+    const statHtml = stat ? `<span class="mc-power-stat">${escapeHtml(stat)}${statRankHtml}</span>` : "";
     return `<span class="mc-power-side ${side} ${tag.cls}" title="${title}"><b class="mc-power-num">${spec.num(row)}</b><span class="mc-power-rank">${rank}</span>${statHtml}<span class="mc-power-tag">${escapeHtml(tag.text)}</span></span>`;
   }
 
@@ -1902,10 +1904,12 @@
     parts.push(`${pg(row.sot_per_game)} on target (league ${pg(par.sot)})`);
     parts.push(`${pg(row.corners_per_game)} corners (league ${pg(par.corners)})`);
     parts.push(`${pg(row.goals_per_game, 2)} goals (league ${pg(par.goals, 2)})`);
+    const n = row._league?.teams_ranked || 0;
     const rank = row.offense_rank
-      ? `#${row.offense_rank} of ${row._league?.teams_ranked || 0} in ${row._league?.label || row.league_chiclet}`
+      ? `#${row.offense_rank} of ${n} in ${row._league?.label || row.league_chiclet}`
       : `unranked until ${state.clinical?.min_games || 2} games`;
-    return `${row.team}: offence power ${row.offense_power} — ${parts.join(" · ")} over ${row.games} game${row.games === 1 ? "" : "s"} · ${rank}. Blend of chance creation, shot volume, pressure (corners) and goals vs the league; 50 = a league-typical attack, above 50 is potent, below is blunt.`;
+    const scored = `${pg(row.scored_per_game, 2)} goals scored per game${row.scored_rank ? ` — #${row.scored_rank} of ${n} in the league` : ""}`;
+    return `${row.team}: offence power ${row.offense_power} — ${parts.join(" · ")} over ${row.games} game${row.games === 1 ? "" : "s"} · ${rank}. Blend of chance creation, shot volume, pressure (corners) and goals vs the league; 50 = a league-typical attack, above 50 is potent, below is blunt. ${scored}.`;
   }
 
   const OFFENSE_SPEC = {
@@ -1913,6 +1917,7 @@
     num: (r) => r.offense_power,
     rank: (r) => r.offense_rank,
     stat: (r) => `${Number(r.scored_per_game ?? r.goals_per_game ?? 0).toFixed(1)} scored/g`,
+    statRank: (r) => r.scored_rank,
     tag: (r) => (r.potent ? { cls: "potent", text: "potent" } : { cls: "blunt", text: "blunt" }),
   };
 
@@ -1922,10 +1927,12 @@
       row.basis === "xg"
         ? `allows ${Number(row.xga_per_game).toFixed(2)} xG per game (league ${Number(row._league?.par_xga_per_game || 0).toFixed(2)})`
         : `allows ${Number(row.sot_against_per_game).toFixed(1)} shots on target per game (league ${Number(row._league?.par_sot_against_per_game || 0).toFixed(1)})`;
+    const n = row._league?.teams_ranked || 0;
     const rank = row.defense_rank
-      ? `#${row.defense_rank} of ${row._league?.teams_ranked || 0} in ${row._league?.label || row.league_chiclet}`
+      ? `#${row.defense_rank} of ${n} in ${row._league?.label || row.league_chiclet}`
       : `unranked until ${state.clinical?.min_games || 2} games`;
-    return `${row.team}: defence power ${row.defense_power} — ${basis} over ${row.games} game${row.games === 1 ? "" : "s"} · ${Number(row.conceded_per_game).toFixed(2)} conceded per game · ${rank}. 50 = allows the league's typical chances; above 50 is solid (fewer / worse chances allowed), below is leaky.`;
+    const conceded = `${Number(row.conceded_per_game).toFixed(2)} goals allowed per game${row.conceded_rank ? ` — #${row.conceded_rank} of ${n} in the league (fewest first)` : ""}`;
+    return `${row.team}: defence power ${row.defense_power} — ${basis} over ${row.games} game${row.games === 1 ? "" : "s"} · ${rank}. 50 = allows the league's typical chances; above 50 is solid (fewer / worse chances allowed), below is leaky. ${conceded}.`;
   }
 
   const DEFENSE_SPEC = {
@@ -1933,6 +1940,7 @@
     num: (r) => r.defense_power,
     rank: (r) => r.defense_rank,
     stat: (r) => `${Number(r.conceded_per_game || 0).toFixed(1)} allowed/g`,
+    statRank: (r) => r.conceded_rank,
     tag: (r) => (r.solid ? { cls: "solid", text: "solid" } : { cls: "leaky", text: "leaky" }),
   };
 
@@ -2212,12 +2220,12 @@
     {
       spec: OFFENSE_SPEC,
       label: "🎯 offence",
-      help: "Offence power: chance creation (xG), shot volume, shots on target, pressure (corners) and goals per game vs the league, ranked within the league. 50 = league average; higher creates more. Also shows goals scored per game.",
+      help: "Offence power: chance creation (xG), shot volume, shots on target, pressure (corners) and goals per game vs the league, ranked within the league (#n/N). 50 = league average; higher creates more. Then goals scored per game with its own league place (#n, most first).",
     },
     {
       spec: DEFENSE_SPEC,
       label: "🛡 defence",
-      help: "Defence power: league-average xG allowed per game over this club's, ranked within the league. 50 = league average; higher allows fewer / worse chances. Also shows goals allowed per game.",
+      help: "Defence power: league-average xG allowed per game over this club's, ranked within the league (#n/N). 50 = league average; higher allows fewer / worse chances. Then goals allowed per game with its own league place (#n, fewest first).",
     },
     {
       spec: MOMENTUM_SPEC,
