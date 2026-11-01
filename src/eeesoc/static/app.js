@@ -1677,6 +1677,124 @@
     return `${goalMixSideHtml(m, "home")}<span class="mc-power-label" title="${escapeHtml(GOALS_HELP)}">⚽ goals</span>${goalMixSideHtml(m, "away")}`;
   }
 
+  // —— Goals allowed by kind: when each club last conceded each kind, and how often ——
+
+  const ALLOWED_HELP =
+    "Goals allowed by kind — for each kind of goal, when this club last conceded one (date, opponent, minute and scorer; hover for how it happened) and how often it does: 1 in N is the games it takes to concede one, with the count over the club's tagged games and the share of games with at least one. 'n ago' is how many games have passed since. Green concedes that kind 25%+ less often than a typical club in the league, amber 25%+ more (needs 3+ games). Kinds neither club has conceded are listed at the foot.";
+  const ALLOWED_MIN_GAMES_FOR_TONE = 3;
+
+  function allowedDateText(iso) {
+    if (!iso) return "—";
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return String(iso).slice(0, 10);
+    return d.toLocaleDateString([], { month: "short", day: "numeric" });
+  }
+
+  function allowedAgoText(since) {
+    if (since == null) return "";
+    if (since === 0) return "last game";
+    return `${since} game${since === 1 ? "" : "s"} ago`;
+  }
+
+  // Lower than the league's rate for this kind is good for a defence.
+  function allowedTone(row, par, games) {
+    if (!row || !par || games < ALLOWED_MIN_GAMES_FOR_TONE || !(Number(par.per_game) > 0)) return "";
+    const rel = Number(row.per_game) / Number(par.per_game);
+    if (!Number.isFinite(rel)) return "";
+    if (rel <= 0.75) return " up";
+    if (rel >= 1.25) return " down";
+    return "";
+  }
+
+  function allowedLastCellHtml(cat, row, name, games) {
+    const label = goalCat(cat).label;
+    if (!row || !games) {
+      return `<span class="mc-box-cell none" title="${escapeHtml(`${name}: no tagged games yet`)}"><b>–</b><small>no games</small></span>`;
+    }
+    if (!row.n || !row.last) {
+      return `<span class="mc-box-cell none mc-al-never" title="${escapeHtml(`${name} has not conceded a ${label} in ${games} tagged game${games === 1 ? "" : "s"}`)}"><b>never</b><small>in ${games} g</small></span>`;
+    }
+    const l = row.last;
+    const where = l.venue === "away" ? "@" : "v";
+    const opp = shortTeamName(l.opponent, 9) || l.opponent || "—";
+    const score = l.venue === "away" ? `${l.ga}–${l.gf}` : `${l.gf}–${l.ga}`;
+    const who = l.player ? ` ${l.player}` : "";
+    const tip = `${name} last conceded a ${label} on ${allowedDateText(l.start)} ${where} ${l.opponent} (${score}): ${l.minute}'${who}${l.reason ? ` — ${l.reason}` : ""}. ${allowedAgoText(row.games_since).replace(/^./, (c) => c.toUpperCase())}.`;
+    return `<span class="mc-box-cell mc-al-last" title="${escapeHtml(tip)}"><b>${escapeHtml(allowedDateText(l.start))}</b><small>${escapeHtml(`${where} ${opp} ${l.minute}'`)}</small><i class="mc-box-rank${row.games_since === 0 ? "" : " mc-al-ago"}">${escapeHtml(row.games_since === 0 ? "last g" : `${row.games_since} ago`)}</i></span>`;
+  }
+
+  function allowedRateCellHtml(cat, row, name, games, par) {
+    const label = goalCat(cat).label;
+    if (!row || !games) {
+      return `<span class="mc-box-cell none" title="${escapeHtml(`${name}: no tagged games yet`)}"><b>–</b><small>no games</small></span>`;
+    }
+    const parText = par && Number(par.per_game) > 0 ? ` · league ${Number(par.per_game).toFixed(2)} per game (1 in ${par.every})` : "";
+    if (!row.n) {
+      return `<span class="mc-box-cell mc-al-rate${allowedTone(row, par, games)}" title="${escapeHtml(`${name}: 0 ${label}s conceded in ${games} game${games === 1 ? "" : "s"}${parText}`)}"><b>0</b><small>0/${games} g</small></span>`;
+    }
+    const tip = `${name} concedes a ${label} every ${row.every} games: ${row.n} in ${games} game${games === 1 ? "" : "s"}, ${Number(row.per_game).toFixed(2)} per game, in ${row.game_pct}% of games${parText}`;
+    return `<span class="mc-box-cell mc-al-rate${allowedTone(row, par, games)}" title="${escapeHtml(tip)}"><b>1 in ${row.every}</b><small>${row.n}/${games} g · ${row.game_pct}%</small></span>`;
+  }
+
+  function allowedTableHtml(m) {
+    if (!m || !state.clinical) return "";
+    const sides = ["home", "away"].map((side) => {
+      const name = side === "home" ? m.home : m.away;
+      const row = clinicalFor(m.league_slug, side === "home" ? m.home_id : m.away_id, name);
+      return { side, name, row, allowed: row?.allowed_by_kind || null };
+    });
+    if (!sides.some((s) => s.allowed && s.allowed.games)) return "";
+    const league = sides.find((s) => s.row)?.row?._league || state.clinical?.leagues?.[m.league_slug] || null;
+    const par = league?.par_allowed_by_kind;
+    const shown = GOAL_CAT_ORDER.filter((cat) => sides.some((s) => (s.allowed?.kinds?.[cat]?.n || 0) > 0));
+    const never = GOAL_CAT_ORDER.filter((cat) => !shown.includes(cat));
+    const head = sides
+      .map(
+        (s) =>
+          `<span class="mc-box-group mc-al-team ${s.side}" title="${escapeHtml(`${s.name}: ${s.allowed?.total ?? 0} goals conceded over ${s.allowed?.games ?? 0} tagged games`)}">${escapeHtml(shortName(s.name))}<small>${s.allowed ? `${s.allowed.total} in ${s.allowed.games} g` : "—"}</small></span>`,
+      )
+      .join("");
+    const rows = shown
+      .map((cat) => {
+        const c = goalCat(cat);
+        const kind = `<span class="mc-al-kind cat-${escapeHtml(cat)}" title="${escapeHtml(`${c.label}: ${c.help}`)}">${c.icon} ${escapeHtml(c.short)}</span>`;
+        const cells = sides
+          .map((s) => {
+            const games = s.allowed?.games || 0;
+            const row = s.allowed?.kinds?.[cat] || null;
+            return allowedLastCellHtml(cat, row, s.name, games) + allowedRateCellHtml(cat, row, s.name, games, par?.kinds?.[cat]);
+          })
+          .join("");
+        return kind + cells;
+      })
+      .join("");
+    const foot = never.length
+      ? `<span class="mc-al-never-line" title="${escapeHtml(`Neither club has conceded one of these in its tagged games: ${never.map((c) => goalCat(c).label).join(", ")}`)}">never allowed by either: ${never.map((c) => `<span class="cat-${escapeHtml(c)}">${goalCat(c).icon} ${escapeHtml(goalCat(c).short)}</span>`).join(" ")}</span>`
+      : "";
+    const key = `<small>last · 1 in N games</small>`;
+    return `<span class="mc-box-head"><span class="mc-box-rate-label" title="${escapeHtml(ALLOWED_HELP)}">goals allowed by kind</span><span class="mc-box-key">${key}</span></span>
+      <span class="mc-box-grid mc-al-grid">
+        <span></span>
+        ${head}
+        <span></span>
+        <span class="mc-box-h">Last</span><span class="mc-box-h">How often</span>
+        <span class="mc-box-h">Last</span><span class="mc-box-h">How often</span>
+        ${rows}
+      </span>${foot}`;
+  }
+
+  function paintAllowedTables() {
+    document.querySelectorAll(".mc-allowed[data-allowed-for]").forEach((el) => {
+      const card = el.closest(".match-chiclet");
+      const m = card?.__match;
+      if (!m) return;
+      const html = allowedTableHtml(m);
+      if (el.__html === html) return;
+      el.__html = html;
+      el.innerHTML = html;
+    });
+  }
+
   function chicletBulletinHtml(tl, m) {
     const rows = tl?.bulletin || [];
     if (!rows.length) return "";
@@ -2651,6 +2769,7 @@
     document.querySelectorAll(".mc-teams").forEach((el) => paintTeamStandings(el.closest(".match-chiclet")));
     paintBoxRates();
     paintGoalRarity();
+    paintAllowedTables();
   }
 
   function boxRateText(value) {
@@ -3084,6 +3203,7 @@
       </span>
       <span class="mc-power" data-power-for="${escapeHtml(m.event_id)}">${clinicalRowHtml(m)}</span>
       ${withTimeline && !upcoming ? `<div class="mc-bulletin" data-bulletin-for="${escapeHtml(m.event_id)}">${cached ? chicletBulletinHtml(cached, m) : ""}</div>` : ""}
+      ${withTimeline ? `<span class="mc-allowed" data-allowed-for="${escapeHtml(m.event_id)}">${allowedTableHtml(m)}</span>` : ""}
       ${chartPlaceholder}
     `;
     btn.addEventListener("click", () => {
