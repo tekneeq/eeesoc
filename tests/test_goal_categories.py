@@ -247,12 +247,13 @@ if (!how.includes("🚀 screamer<i>1 in 4 games</i>") || !how.includes("⚪ pen<
 if (how.includes("own_goal")) process.exit(14);  // untagged goals are left out
 if (chicletGoalMixHtml({ bulletin: [{ kind: "goal", minute: 3 }] }, m) !== "" || chicletGoalMixHtml(null, m) !== "") process.exit(15);
 
-// ⚽ goals row: scored / conceded chips with the top three kinds, and the standout against the league.
+// ⚽ goals row: every kind with its count, biggest first, over a bar split in the same proportions.
 const row = goalMixRowHtml(m);
 if (!row.includes('<span class="mc-power-label" title="')) process.exit(16);
 if (!row.includes("⚽ goals</span>")) process.exit(17);
-if (!row.includes('<span class="mc-gm-g scored"><em>scored 11</em><b><span class="cat-team" title="5 of 11 scored: team goal">🎯5</span><span class="cat-set_piece" title="3 of 11 scored: set piece">📐3</span><span class="cat-solo" title="2 of 11 scored: solo goal">⚡2</span><span class="mc-gm-more">+1</span></b></span>')) process.exit(18);
-if (!row.includes('<span class="mc-gm-g conceded"><em>conceded 8</em><b><span class="cat-mistake" title="4 of 8 conceded: defensive mistake">🎁4</span><span class="cat-team" title="3 of 8 conceded: team goal">🎯3</span><span class="cat-screamer" title="1 of 8 conceded: screamer">🚀1</span></b></span>')) process.exit(19);
+if (!row.includes('<span class="mc-gm-g scored"><em>scored 11</em><span class="mc-gm-bar"><i class="cat-team" style="flex:5" title="5 of 11 scored: team goals (45%)"></i><i class="cat-set_piece" style="flex:3" title="3 of 11 scored: set pieces (27%)"></i><i class="cat-solo" style="flex:2" title="2 of 11 scored: solo goals (18%)"></i><i class="cat-penalty" style="flex:1" title="1 of 11 scored: penalty (9%)"></i></span><b><span class="cat-team" title="5 of 11 scored: team goals (45%)">🎯5</span><span class="cat-set_piece" title="3 of 11 scored: set pieces (27%)">📐3</span><span class="cat-solo" title="2 of 11 scored: solo goals (18%)">⚡2</span><span class="cat-penalty" title="1 of 11 scored: penalty (9%)">⚪1</span></b></span>')) process.exit(18);
+if (!row.includes('<span class="mc-gm-g conceded"><em>conceded 8</em><span class="mc-gm-bar"><i class="cat-mistake" style="flex:4"') || !row.includes('<b><span class="cat-mistake" title="4 of 8 conceded: defensive mistakes (50%)">🎁4</span><span class="cat-team" title="3 of 8 conceded: team goals (38%)">🎯3</span><span class="cat-screamer" title="1 of 8 conceded: screamer (13%)">🚀1</span></b></span>')) process.exit(19);
+if (row.includes("mc-gm-more")) process.exit(26);  // nothing is folded into a +N any more
 // Gifts are 50% of what they concede against the league's 18%: that is the tag.
 if (!row.includes('<span class="mc-power-tag cat-mistake" title="4 of 8 conceded were defensive mistakes (50%; league 18%)">🎁 gift 50% GA</span>')) process.exit(20);
 if (!row.includes('class="mc-power-side mc-gm-side home conceded-mistake"')) process.exit(21);
