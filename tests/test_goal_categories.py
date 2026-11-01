@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 from eeesoc import halftime
@@ -266,6 +267,89 @@ if (!goalMixRowHtml({ ...m, home_id: "zz" }).includes("Levante: no finished game
         name = fh.name
     try:
         proc = subprocess.run(["node", name], capture_output=True, text=True)
+    finally:
+        Path(name).unlink(missing_ok=True)
+    assert proc.returncode == 0, proc.stderr or proc.stdout or proc.returncode
+
+
+def test_allowed_by_kind_table_shows_last_conceded_and_how_often():
+    """A row per kind each club has let in: the last one (date, opponent, minute, games ago) and 1 in N games."""
+    import subprocess
+    import tempfile
+
+    js = Path("src/eeesoc/static/app.js").read_text(encoding="utf-8")
+    css = Path("src/eeesoc/static/app.css").read_text(encoding="utf-8")
+    html = Path("src/eeesoc/static/index.html").read_text(encoding="utf-8")
+    assert "function allowedTableHtml" in js and "function paintAllowedTables" in js and "paintAllowedTables();" in js
+    assert 'class="mc-allowed" data-allowed-for=' in js
+    assert ".mc-al-grid" in css and ".mc-al-last" in css and ".match-chiclet.collapsed .mc-allowed" in css
+    assert "<b>goals allowed by kind</b>" in html
+
+    script = (
+        js[js.index("  function escapeHtml(s)") : js.index("  // Club-type tags and articles")]
+        + js[js.index("  // Club-type tags and articles") : js.index("  // scope: \"live\" (default)")]
+        + js[js.index("  // —— Goal categories ——") : js.index("  // Clinical power — goals per 100 xG")]
+        + r"""
+const kind = (n, every, pct, since, last, per_game) => ({ n, every, game_pct: pct, games_since: since, last, per_game: per_game ?? (n ? n / 6 : 0) });
+const none = (games) => ({ n: 0, every: null, game_pct: 0, games_since: games, last: null, per_game: 0 });
+const league = {
+  label: "La Liga",
+  par_allowed_by_kind: { games: 48, total: 66, kinds: { mistake: { n: 5, per_game: 0.1, every: 9.6, game_pct: 10 }, screamer: { n: 9, per_game: 0.19, every: 5.3, game_pct: 19 }, team: { n: 20, per_game: 0.42, every: 2.4, game_pct: 38 } } },
+};
+const lev = {
+  games: 6, total: 5,
+  kinds: {
+    team: kind(1, 6.0, 17, 4, { start: "2026-09-05T18:00:00Z", opponent: "Real Betis", venue: "away", gf: 1, ga: 2, minute: 71, player: "Isco", reason: "5-pass move" }),
+    mistake: kind(3, 2.0, 50, 0, { start: "2026-09-21T18:00:00Z", opponent: "Getafe", venue: "home", gf: 0, ga: 1, minute: 36, player: "Mayoral", reason: "Toljan miscontrol in his own third, straight to the shot" }),
+    screamer: kind(1, 6.0, 17, 2, { start: "2026-09-13T18:00:00Z", opponent: "Sevilla", venue: "home", gf: 2, ga: 2, minute: 88, player: "Suso", reason: "31 yards out, xG 0.02" }, 0.17),
+    solo: none(6), set_piece: none(6), free_kick: none(6), counter: none(6), penalty: none(6), own_goal: none(6), scramble: none(6),
+  },
+};
+const atm = { games: 6, total: 2, kinds: { team: kind(2, 3.0, 33, 1, { start: "2026-09-17T18:00:00Z", opponent: "Barcelona", venue: "home", gf: 1, ga: 1, minute: 12, player: "Lewandowski", reason: "assisted from a cross · header" }), mistake: none(6), screamer: none(6), solo: none(6), set_piece: none(6), free_kick: none(6), counter: none(6), penalty: none(6), own_goal: none(6), scramble: none(6) } };
+const rows = { H: { team: "Levante", allowed_by_kind: lev, _league: league }, A: { team: "Atlético Madrid", allowed_by_kind: atm, _league: league }, N: { team: "Newbie", allowed_by_kind: { games: 0, total: 0, kinds: {} }, _league: league } };
+const state = { clinical: { leagues: { "esp.1": league } } };
+function clinicalFor(slug, id) { return rows[id] || null; }
+const m = { event_id: "e1", league_slug: "esp.1", home: "Levante", away: "Atlético Madrid", home_id: "H", away_id: "A" };
+
+const out = allowedTableHtml(m);
+if (!out.includes('class="mc-box-rate-label" title="Goals allowed by kind')) process.exit(2);
+// Both clubs head the table with their totals.
+if (!out.includes('<span class="mc-box-group mc-al-team home" title="Levante: 5 goals conceded over 6 tagged games">Levante<small>5 in 6 g</small></span>')) process.exit(3);
+if (!out.includes("Atlético<small>2 in 6 g</small>")) process.exit(4);
+// Rows only for kinds somebody has conceded, in category order; the rest in the footer.
+const order = ["mc-al-kind cat-team", "mc-al-kind cat-mistake", "mc-al-kind cat-screamer"].map((s) => out.indexOf(s));
+if (order.some((i) => i < 0) || order[0] > order[1] || order[1] > order[2]) process.exit(5);
+if (out.includes("mc-al-kind cat-solo") || out.includes("mc-al-kind cat-penalty")) process.exit(6);
+if (!out.includes("never allowed by either: ") || !out.includes("⚡ solo</span>") || !out.includes("⚪ pen</span>") || out.includes("never allowed by either: <span class=\"cat-team\"")) process.exit(7);
+// Levante's last gift: date, venue + opponent + minute, and that it was the last game; the reason on hover.
+if (!out.includes('<span class="mc-box-cell mc-al-last" title="Levante last conceded a defensive mistake on Sep 21 v Getafe (0–1): 36\' Mayoral — Toljan miscontrol in his own third, straight to the shot. Last game.">')) process.exit(8);
+if (!out.includes("<b>Sep 21</b><small>v Getafe 36'</small><i class=\"mc-box-rank\">last g</i>")) process.exit(9);
+// Away game shows @ and the score as it stood on the pitch (home–away), and games ago.
+if (!out.includes("<b>Sep 5</b><small>@ Betis 71'</small><i class=\"mc-box-rank mc-al-ago\">4 ago</i>")) process.exit(10);
+if (!out.includes("on Sep 5 @ Real Betis (2–1): 71' Isco — 5-pass move. 4 games ago.")) process.exit(11);
+// How often: 1 in N with the count, the share, and the league par in the tooltip; gifts 5× the league → amber.
+if (!out.includes('<span class="mc-box-cell mc-al-rate down" title="Levante concedes a defensive mistake every 2 games: 3 in 6 games, 0.50 per game, in 50% of games · league 0.10 per game (1 in 9.6)"><b>1 in 2</b><small>3/6 g · 50%</small></span>')) process.exit(12);
+// Atlético have never conceded a gift: "never", and 0 reads green against the league.
+if (!out.includes('<span class="mc-box-cell none mc-al-never" title="Atlético Madrid has not conceded a defensive mistake in 6 tagged games"><b>never</b><small>in 6 g</small></span>')) process.exit(13);
+if (!out.includes('<span class="mc-box-cell mc-al-rate up" title="Atlético Madrid: 0 defensive mistakes conceded in 6 games · league 0.10 per game (1 in 9.6)"><b>0</b><small>0/6 g</small></span>')) process.exit(14);
+// Within ±25% of the league: no tone (Levante's one screamer in six ≈ league 0.19).
+if (!out.includes('class="mc-box-cell mc-al-rate" title="Levante concedes a screamer every 6 games')) process.exit(15);
+// Header row.
+if (!out.includes('<span class="mc-box-h">Last</span><span class="mc-box-h">How often</span>')) process.exit(16);
+
+// A club with no tagged games gets dashes; two such clubs → no table at all.
+const half = allowedTableHtml({ ...m, away_id: "N", away: "Newbie" });
+if (!half.includes('<span class="mc-box-cell none" title="Newbie: no tagged games yet"><b>–</b><small>no games</small></span>')) process.exit(17);
+if (allowedTableHtml({ ...m, home_id: "N", away_id: "zz" }) !== "") process.exit(18);
+if (allowedDateText("nonsense-date") !== "nonsense-d" || allowedDateText("") !== "—") process.exit(19);
+if (allowedAgoText(0) !== "last game" || allowedAgoText(1) !== "1 game ago" || allowedAgoText(3) !== "3 games ago") process.exit(20);
+"""
+    )
+    with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as fh:
+        fh.write(script)
+        name = fh.name
+    try:
+        proc = subprocess.run(["node", name], capture_output=True, text=True, env={**os.environ, "TZ": "UTC"})
     finally:
         Path(name).unlink(missing_ok=True)
     assert proc.returncode == 0, proc.stderr or proc.stdout or proc.returncode
