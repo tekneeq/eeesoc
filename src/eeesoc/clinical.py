@@ -101,6 +101,14 @@ the last ``FORM_GAMES``. The league's ``goal_mix`` counts each archived game
 once and gives, per category, the share of all goals and ``game_pct`` — the
 share of games that saw at least one — which is where the chiclet's
 "screamer · 1 in 4 games" rarity line comes from.
+
+``allowed_by_kind`` is the defensive read of the same tags: for every category,
+how many the club has conceded, how many games it takes to concede one
+(``every``), the share of games with one, how many games have passed since the
+last (``games_since``) and ``last`` itself — date, opponent, venue, minute,
+scorer and how it happened. The league's ``par_allowed_by_kind`` is the same
+rate over every side of every tagged game, so a club's rate can be coloured
+against what a typical defence lets in.
 """
 
 from __future__ import annotations
@@ -240,6 +248,80 @@ def goal_mix_for(rec: dict[str, Any], side: str, other: str) -> dict[str, dict[s
         elif ev.get("team") == other:
             conceded[cat] += 1
     return {"scored": dict(scored), "conceded": dict(conceded)}
+
+
+def goals_against_for(rec: dict[str, Any], other: str) -> list[dict[str, Any]] | None:
+    """The goals the other side scored in this game, each with its category — None until the record is tagged."""
+    if not has_current_goal_tags(rec):
+        return None
+    out = []
+    for ev in rec.get("events") or []:
+        kind = ev.get("kind")
+        if kind not in {"goal", "own_goal"} or ev.get("team") != other:
+            continue
+        cat = str(ev.get("category") or ("own_goal" if kind == "own_goal" else "") or "")
+        if cat not in GOAL_CATEGORIES:
+            continue
+        out.append(
+            {
+                "minute": ev.get("minute"),
+                "category": cat,
+                "player": ev.get("player") or "",
+                "reason": ev.get("reason") or "",
+            }
+        )
+    return out
+
+
+def allowed_by_kind(games: list[dict[str, Any]], *, with_last: bool = True) -> dict[str, Any]:
+    """
+    How often a side concedes each kind of goal, and when it last did.
+
+    Over the games whose goals are tagged (oldest → newest): per category the
+    number conceded, how many games it takes to concede one (``every``), the
+    share of games with at least one (``game_pct``), how many tagged games have
+    passed since the last one (``games_since``; 0 = the most recent game), and
+    ``last`` — the date, opponent, venue, minute, scorer and reason of the most
+    recent one. Categories the side has never conceded are listed with ``n`` 0
+    and no ``last``. ``with_last=False`` is the league par over every side.
+    """
+    tagged = sorted((g for g in games if isinstance(g.get("goals_against"), list)), key=lambda g: g["start"])
+    n_games = len(tagged)
+    kinds: dict[str, dict[str, Any]] = {}
+    for cat in GOAL_CATEGORIES:
+        n = 0
+        games_with = 0
+        last: dict[str, Any] | None = None
+        since = n_games
+        for i, g in enumerate(tagged):
+            hits = [x for x in g["goals_against"] if x["category"] == cat]
+            if not hits:
+                continue
+            n += len(hits)
+            games_with += 1
+            since = n_games - 1 - i
+            x = hits[-1]
+            last = {
+                "start": g["start"],
+                "opponent": g["opponent"],
+                "venue": g["venue"],
+                "gf": g["gf"],
+                "ga": g["ga"],
+                "minute": x["minute"],
+                "player": x["player"],
+                "reason": x["reason"],
+            }
+        row: dict[str, Any] = {
+            "n": n,
+            "per_game": round(n / n_games, 2) if n_games else 0.0,
+            "every": round(n_games / n, 1) if n else None,
+            "game_pct": int(round(100.0 * games_with / n_games)) if n_games else 0,
+        }
+        if with_last:
+            row["games_since"] = since
+            row["last"] = last
+        kinds[cat] = row
+    return {"games": n_games, "total": sum(k["n"] for k in kinds.values()), "kinds": kinds}
 
 
 def goal_mix_summary(games: list[dict[str, Any]]) -> dict[str, Any]:
@@ -442,6 +524,7 @@ def _team_totals(records: list[dict[str, Any]]) -> dict[str, dict[str, dict[str,
                     "box_touches_against": box_touches_for(rec, other),
                     "posture": posture_for(rec, side),
                     "goal_mix": goal_mix_for(rec, side, other),
+                    "goals_against": goals_against_for(rec, other),
                     "lineup": _side_lineup(rec, side),
                     **game,
                 }
@@ -672,6 +755,7 @@ def _league_table(slug: str, teams: dict[str, dict[str, Any]], label: str) -> di
             "recent_posture": posture_summary(recent),
             "goal_mix": goal_mix_summary(r["results"]),
             "recent_goal_mix": goal_mix_summary(recent),
+            "allowed_by_kind": allowed_by_kind(r["results"]),
             "xg": round(r["xg"], 2),
             "xg_against": round(r["xg_against"], 2),
             "power": int(round(power)),
@@ -772,6 +856,8 @@ def _league_table(slug: str, teams: dict[str, dict[str, Any]], label: str) -> di
         "par_posture": posture_summary([g for r in rows for g in r["results"]]),
         # Each archived game once: how common each kind of goal is in this league.
         "goal_mix": league_goal_mix([g for r in rows for g in r["results"] if g["venue"] == "home"]),
+        # Every side of every tagged game: what a typical club concedes of each kind, per game.
+        "par_allowed_by_kind": allowed_by_kind([g for r in rows for g in r["results"]], with_last=False),
         "goal_categories": list(GOAL_CATEGORIES),
         "teams": out_rows,
     }
