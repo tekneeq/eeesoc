@@ -2192,11 +2192,11 @@ main {
 .cat-solo { --cat: #c7a4ff; }
 .cat-screamer { --cat: #ff9f6b; }
 .cat-set_piece { --cat: #8fd3ff; }
-.cat-free_kick { --cat: #8fd3ff; }
+.cat-free_kick { --cat: #4fa3e0; }
 .cat-counter { --cat: var(--accent); }
 .cat-penalty { --cat: var(--muted); }
 .cat-own_goal { --cat: var(--danger); }
-.cat-scramble { --cat: var(--muted); }
+.cat-scramble { --cat: #677670; }
 
 .mc-bl-who.mc-bl-goal {
   display: inline-flex;
@@ -2274,21 +2274,27 @@ main {
   color: var(--muted);
 }
 
-/* ⚽ goals row: scored / conceded chips with the top kinds, and the standout tag. */
+/* ⚽ goals row: scored / conceded, every kind with its count over a bar split
+   in the same proportions, and the standout tag. */
 .mc-gm-side {
-  align-items: center;
-  gap: 0.25rem;
+  align-items: stretch;
+  gap: 0.3rem;
   flex-wrap: wrap;
+}
+
+.mc-gm-side.home {
+  justify-content: flex-end;
 }
 
 .mc-gm-g {
   display: inline-flex;
   flex-direction: column;
-  align-items: center;
-  min-width: 3.4rem;
-  padding: 0.08rem 0.22rem 0.12rem;
+  align-items: stretch;
+  gap: 0.14rem;
+  min-width: 5.2rem;
+  padding: 0.14rem 0.32rem 0.2rem;
   border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 0.22rem;
+  border-radius: 0.26rem;
   line-height: 1.12;
   font-variant-numeric: tabular-nums;
   color: var(--text);
@@ -2296,16 +2302,38 @@ main {
 
 .mc-gm-g em {
   font-style: normal;
-  font-size: 0.48rem;
+  font-size: 0.5rem;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--muted);
+  text-align: center;
+}
+
+.mc-gm-bar {
+  display: flex;
+  height: 0.28rem;
+  border-radius: 0.14rem;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.mc-gm-bar i {
+  display: block;
+  min-width: 2px;
+  background: var(--cat, var(--muted));
+  opacity: 0.9;
+}
+
+.mc-gm-bar i + i {
+  margin-left: 1px;
 }
 
 .mc-gm-g b {
   display: inline-flex;
-  gap: 0.22rem;
-  font-size: 0.58rem;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.1rem 0.34rem;
+  font-size: 0.64rem;
   font-weight: 600;
   white-space: nowrap;
 }
@@ -2318,12 +2346,8 @@ main {
   border-color: rgba(255, 200, 87, 0.28);
 }
 
-.mc-gm-more {
-  color: var(--muted);
-  font-weight: 500;
-}
-
 .mc-gm-side .mc-power-tag {
+  align-self: center;
   color: var(--cat, var(--text));
   text-transform: none;
   letter-spacing: 0.03em;

@@ -1644,11 +1644,13 @@
         .sort((a, b) => counts[b] - counts[a])
         .map((c) => `${counts[c]} ${goalCat(c).label}${counts[c] === 1 ? "" : "s"}`)
         .join(", ") || `none in ${total} goals`;
+    // Every kind with its count, biggest first, over a bar split in the same proportions.
     const chip = (dir, counts, total) => {
-      const top = GOAL_CAT_ORDER.filter((c) => counts[c]).sort((a, b) => counts[b] - counts[a] || GOAL_CAT_ORDER.indexOf(a) - GOAL_CAT_ORDER.indexOf(b));
-      const parts = top.slice(0, 3).map((c) => `<span class="cat-${escapeHtml(c)}" title="${escapeHtml(`${counts[c]} of ${total} ${dir}: ${goalCat(c).label}`)}">${goalCat(c).icon}${counts[c]}</span>`);
-      const more = top.length > 3 ? `<span class="mc-gm-more">+${top.slice(3).reduce((n, c) => n + counts[c], 0)}</span>` : "";
-      return `<span class="mc-gm-g ${dir}"><em>${dir} ${total}</em><b>${parts.join("")}${more}</b></span>`;
+      const kinds = GOAL_CAT_ORDER.filter((c) => counts[c]).sort((a, b) => counts[b] - counts[a] || GOAL_CAT_ORDER.indexOf(a) - GOAL_CAT_ORDER.indexOf(b));
+      const part = (c) => `${counts[c]} of ${total} ${dir}: ${goalCat(c).label}${counts[c] === 1 ? "" : "s"} (${Math.round((100 * counts[c]) / total)}%)`;
+      const bar = kinds.map((c) => `<i class="cat-${escapeHtml(c)}" style="flex:${counts[c]}" title="${escapeHtml(part(c))}"></i>`).join("");
+      const parts = kinds.map((c) => `<span class="cat-${escapeHtml(c)}" title="${escapeHtml(part(c))}">${goalCat(c).icon}${counts[c]}</span>`);
+      return `<span class="mc-gm-g ${dir}"><em>${dir} ${total}</em>${total ? `<span class="mc-gm-bar">${bar}</span>` : ""}<b>${parts.join("") || "—"}</b></span>`;
     };
     // The tag: the kind whose share here beats the league's by the most, with at least two goals of it.
     let best = null;
