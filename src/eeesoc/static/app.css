@@ -1717,6 +1717,43 @@ main {
   font-weight: 600;
 }
 
+/* Goal ruled out by VAR: a goal post drawn hollow and dashed, the ball crossed out. */
+.tl-var line {
+  stroke: var(--danger);
+  stroke-width: 1.4;
+  stroke-dasharray: 1.6 1.6;
+  opacity: 0.8;
+}
+
+.tl-var circle {
+  fill: rgba(255, 107, 107, 0.12);
+  stroke: var(--danger);
+  stroke-width: 1.2;
+}
+
+.tl-var path {
+  stroke: var(--danger);
+  stroke-width: 1.3;
+  stroke-linecap: round;
+  fill: none;
+}
+
+.tl-var-label {
+  fill: var(--danger);
+  font-family: var(--mono);
+  font-size: 5.5px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+}
+
+.tl-mark.tl-var {
+  width: 0.55rem;
+  height: 0.55rem;
+  border: 1.5px dashed var(--danger);
+  border-radius: 50%;
+  background: transparent;
+}
+
 .tl-corner rect {
   fill: rgba(230, 245, 235, 0.75);
   stroke: rgba(125, 255, 179, 0.5);
@@ -2183,6 +2220,21 @@ main {
 .mc-bl-row.red,
 .mc-bl-tag.red {
   color: var(--danger);
+}
+
+/* A goal VAR ruled out: scorer struck through, muted. */
+.mc-bl-row.disallowed {
+  color: var(--muted);
+}
+
+.mc-bl-row.disallowed s {
+  text-decoration-color: var(--danger);
+  text-decoration-thickness: 1.5px;
+}
+
+.mc-bl-tag.var {
+  color: var(--danger);
+  font-weight: 600;
 }
 
 /* Goal categories: one colour per kind, shared by the bulletin chip, the

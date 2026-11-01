@@ -1819,6 +1819,10 @@
           : ` <span class="mc-bl-tag red">🟥</span>`;
         return `<div class="mc-bl-row red"><span class="mc-bl-min">${clock}</span><span class="mc-bl-who">${name}${tag}</span></div>`;
       }
+      if (r.kind === "disallowed") {
+        const name = escapeHtml(r.player || "Goal");
+        return `<div class="mc-bl-row disallowed" title="${escapeHtml(r.text || "Goal ruled out after a VAR review")}"><span class="mc-bl-min">${clock}</span><span class="mc-bl-who mc-bl-goal"><span class="mc-bl-name"><s>${name}</s></span> <span class="mc-bl-tag var">VAR ✕</span></span></div>`;
+      }
       const name = escapeHtml(r.player || (r.kind === "own_goal" ? "Own goal" : "Goal"));
       // The category chip covers own goals and penalties too; the old OG / P marks
       // stay for timelines archived before goals were categorised.
@@ -2399,6 +2403,10 @@
 
   function last5MiniGoalHtml(r, league) {
     const side = r.team === "away" ? "away" : "home";
+    if (r.kind === "disallowed") {
+      const who = escapeHtml(r.player || "goal");
+      return `<span class="mc-last5-goal ${side} disallowed" title="${escapeHtml(r.text || "Goal ruled out after a VAR review")}"><i class="mc-key mc-key-${side}"></i><b>${escapeHtml(r.clock || `${r.minute}'`)}</b><span class="mc-last5-who"><s>${who}</s></span> <span class="mc-bl-tag var">VAR ✕</span></span>`;
+    }
     const who = r.player ? escapeHtml(r.player) : r.kind === "own_goal" ? "own goal" : "goal";
     const og = r.kind === "own_goal" ? ` <span class="mc-bl-tag og">OG</span>` : "";
     const xg = r.xg != null ? ` <span class="mc-last5-xg">xG ${Number(r.xg).toFixed(2)}</span>` : "";
@@ -2431,7 +2439,7 @@
           : "";
       const when = tl.date ? `<span class="mc-last5-when">${escapeHtml(tl.date)}</span>` : "";
       head = `<span class="mc-last5-head">${when}<i class="mc-key mc-key-home"></i>${name(tl.home, homeOn)}<b class="mc-last5-ft">${tl.home_score ?? "—"}–${tl.away_score ?? "—"}</b>${name(tl.away, awayOn)}<i class="mc-key mc-key-away"></i>${ht}${xg}</span>`;
-      const goals = (tl.bulletin || []).filter((r) => r.kind === "goal" || r.kind === "own_goal");
+      const goals = (tl.bulletin || []).filter((r) => r.kind === "goal" || r.kind === "own_goal" || r.kind === "disallowed");
       const list = goals.length
         ? `<span class="mc-last5-goals">${goals.map((r) => last5MiniGoalHtml(r, open.league)).join("")}</span>`
         : `<span class="mc-last5-goals none">no goals</span>`;
@@ -3643,6 +3651,17 @@
         const labelY = (cy + dir * 9).toFixed(1);
         marks.push(
           `<g class="tl-og"><title>${escapeHtml(title)}</title><line x1="${x}" y1="${y1}" x2="${x}" y2="${y2}"/><circle cx="${x}" cy="${cy}" r="4"/><text x="${x}" y="${labelY}" class="tl-og-label" text-anchor="middle">OG</text></g>`
+        );
+      } else if (ev.kind === "disallowed") {
+        // A goal VAR took away: the goal's post, hollow and dashed, crossed out at the ball.
+        const y1 = home ? axisY - 24 : axisY + 2;
+        const y2 = home ? axisY - 2 : axisY + 24;
+        const cy = axisY + dir * 13;
+        const labelY = (cy + dir * 9).toFixed(1);
+        const cx = Number(x);
+        const varTitle = `${ev.clock || ev.minute + "'"} goal ruled out by VAR${playerBit} — ${ev.text || ""}`;
+        marks.push(
+          `<g class="tl-var"><title>${escapeHtml(varTitle)}</title><line x1="${x}" y1="${y1}" x2="${x}" y2="${y2}"/><circle cx="${x}" cy="${cy}" r="4"/><path d="M ${(cx - 2.4).toFixed(1)} ${(cy - 2.4).toFixed(1)} L ${(cx + 2.4).toFixed(1)} ${(cy + 2.4).toFixed(1)} M ${(cx + 2.4).toFixed(1)} ${(cy - 2.4).toFixed(1)} L ${(cx - 2.4).toFixed(1)} ${(cy + 2.4).toFixed(1)}"/><text x="${x}" y="${labelY}" class="tl-var-label" text-anchor="middle">VAR</text></g>`
         );
       } else if (ev.kind === "shot_on") {
         marks.push(

@@ -578,7 +578,7 @@ def archived_timeline(league_slug: str, event_id: str) -> dict[str, Any] | None:
     xg = rec.get("xg") or {}
     home_series = list(xg.get("home") or [])
     away_series = list(xg.get("away") or [])
-    goals = [ev for ev in events if ev.get("kind") in ("goal", "own_goal")]
+    goals = [ev for ev in events if ev.get("kind") in ("goal", "own_goal", "disallowed")]
     goals.sort(key=lambda ev: (int(ev.get("period") or 0), int(ev.get("minute") or 0)))
     bulletin = [
         {

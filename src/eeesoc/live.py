@@ -669,6 +669,39 @@ def _is_penalty_goal(ptype: str, play: dict[str, Any] | None = None) -> bool:
     return False
 
 
+# A goal VAR chalked off. ESPN files it as "Deleted After Review" ("GOAL
+# OVERTURNED BY VAR: X (Team) scores but the goal is ruled out after a VAR
+# review."), usually followed a minute later by "VAR - Referee decision
+# cancelled" ("VAR Decision: No Goal ..."). The goal play itself is removed
+# from the feed, so the strip would otherwise never know a ball went in.
+_DISALLOWED_TEXT_RE = re.compile(
+    r"goal\s+overturned|goal\s+(?:is\s+)?(?:ruled\s+out|disallowed|cancelled|canceled)|no\s+goal\b|disallowed\s+goal",
+    re.I,
+)
+_DISALLOWED_PLAYER_RE = re.compile(r":\s*(?P<name>[^(:]+?)\s*\([^)]*\)\s*scores", re.I)
+
+
+def _is_disallowed_goal(ptype: str, play: dict[str, Any] | None = None) -> bool:
+    if play is None:
+        return False
+    blob = (ptype or "").lower()
+    if not ("review" in blob or "var" in blob or "disallow" in blob or "deleted" in blob):
+        return False
+    text = " ".join(str(play.get(k) or "") for k in ("text", "shortText", "alternativeText"))
+    return bool(_DISALLOWED_TEXT_RE.search(text))
+
+
+def _player_name_from_disallowed(play: dict[str, Any]) -> str | None:
+    text = str(play.get("text") or play.get("alternativeText") or "")
+    m = _DISALLOWED_PLAYER_RE.search(text)
+    named = _clean_player(m.group("name") if m else None)
+    if named:
+        return named
+    short = str(play.get("shortText") or "")
+    m = re.match(r"^(?P<name>.+?)\s+(?:Deleted After|VAR\b)", short, re.I)
+    return _clean_player(m.group("name") if m else None)
+
+
 def _player_name_from_goal(play: dict[str, Any], *, own: bool = False) -> str | None:
     short = str(play.get("shortText") or "")
     text = str(play.get("text") or play.get("alternativeText") or "")
@@ -2728,6 +2761,15 @@ def build_event_timeline(
         kind = _event_kind(ptype, scoring=bool(play.get("scoringPlay")))
         if own:
             kind = "own_goal"
+        disallowed = kind is None and _is_disallowed_goal(ptype, play)
+        if disallowed:
+            kind = "disallowed"
+            # The "VAR Decision: No Goal" play echoes the overturned goal a minute later.
+            if any(
+                ev["kind"] == "disallowed" and ev["team"] == side and abs(int(ev["minute"]) - int(pmin or 0)) <= 2
+                for ev in events
+            ):
+                continue
 
         if side in {"home", "away"}:
             if pmin is not None:
@@ -2792,8 +2834,11 @@ def build_event_timeline(
         if not kind or pmin is None:
             continue
         text = str(play.get("shortText") or play.get("text") or kind)
+        if disallowed:
+            # ESPN's shortText is cut mid-word ("… Deleted After Re"); the long text says what VAR did.
+            text = str(play.get("text") or play.get("alternativeText") or text)
         is_goal = kind in {"goal", "own_goal"}
-        player = _player_name_from_goal(play, own=own) if is_goal else None
+        player = _player_name_from_goal(play, own=own) if is_goal else (_player_name_from_disallowed(play) if disallowed else None)
         tag = classify_goal(plays, play_index) if is_goal else None
         events.append(
             {
@@ -2809,7 +2854,7 @@ def build_event_timeline(
                 **({"category": tag["category"], "reason": tag["reason"]} if tag else {}),
             }
         )
-        if is_goal and side in {"home", "away"}:
+        if (is_goal or disallowed) and side in {"home", "away"}:
             bulletin.append(
                 {
                     "minute": pmin,
@@ -2820,13 +2865,13 @@ def build_event_timeline(
                     "player": player,
                     "player_on": None,
                     "player_off": None,
-                    "penalty": _is_penalty_goal(ptype, play),
+                    "penalty": _is_penalty_goal(ptype, play) if is_goal else False,
                     "category": tag["category"] if tag else None,
                     "reason": tag["reason"] if tag else "",
                     "text": text,
                 }
             )
-        counts[kind] += 1
+        counts[kind] = counts.get(kind, 0) + 1
         if side in {"home", "away"}:
             counts[f"{side}_{kind}"] = counts.get(f"{side}_{kind}", 0) + 1
             if kind in _HALF_EVENT_KINDS:
