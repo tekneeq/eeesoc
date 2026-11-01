@@ -4590,9 +4590,12 @@ main {
   width: 100%;
 }
 
-/* Mini: the live strip is 68 units tall; show the same drawing a touch shorter. */
+/* Mini: the same drawing as the live strip, held to about half the card on a desktop
+   (the viewBox keeps the marks round); a phone gets the full width. */
 .mc-last5-strip .mc-tl-svg {
-  height: 54px;
+  height: auto;
+  max-width: 540px;
+  margin: 0 auto;
 }
 
 .mc-last5-goals {
