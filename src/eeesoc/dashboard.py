@@ -404,6 +404,18 @@ def make_handler(state: DashboardState):
                 status["started"] = started
                 return self._send(200, _json_bytes(status), "application/json")
 
+            if path == "/api/archive/timeline":
+                league = (qs.get("league") or [None])[0]
+                event_id = (qs.get("event_id") or [None])[0]
+                if not league or not event_id:
+                    return self._send(
+                        400, _json_bytes({"error": "league and event_id required"}), "application/json"
+                    )
+                timeline = halftime.archived_timeline(league, event_id)
+                if timeline is None:
+                    return self._send(404, _json_bytes({"error": "not archived"}), "application/json")
+                return self._send(200, _json_bytes(timeline), "application/json")
+
             if path == "/api/halftime/similar":
                 league = (qs.get("league") or [None])[0]
                 event_id = (qs.get("event_id") or [None])[0]

@@ -2195,6 +2195,120 @@ def test_bulletin_lists_red_cards():
     assert "red" not in [e["kind"] for e in tl["events"]]
 
 
+def test_goal_ruled_out_by_var_marks_the_strip_without_counting():
+    """ESPN deletes the goal play and files 'Deleted After Review' + a 'VAR Decision: No Goal' echo.
+
+    The strip gets one ``disallowed`` event (scorer, clock), the bulletin a row,
+    the score and goal counts nothing.
+    """
+    from eeesoc.live import _is_disallowed_goal, _player_name_from_disallowed, build_event_timeline, clear_timeline_cache
+
+    deleted = {
+        "type": {"id": "175", "text": "Deleted After Review", "type": "deleted-after-review"},
+        "shortText": "Morten Hjulmand Deleted After Re",
+        "text": "GOAL OVERTURNED BY VAR: Morten Hjulmand (Atletico Madrid) scores but the goal is ruled out after a VAR review.",
+        "clock": {"displayValue": "16'", "value": 960.0},
+        "period": {"number": 1},
+        "scoringPlay": False,
+        "team": {"$ref": ".../teams/1068"},
+    }
+    echo = {
+        "type": {"id": "172", "text": "VAR - Referee decision cancelled", "type": "var---referee-decision-cancelled"},
+        "shortText": "Morten Hjulmand VAR - Referee de",
+        "text": "VAR Decision: No Goal Levante 0-0 Atletico Madrid.",
+        "clock": {"displayValue": "17'", "value": 1020.0},
+        "period": {"number": 1},
+        "team": {"$ref": ".../teams/1068"},
+    }
+    assert _is_disallowed_goal("deleted-after-review", deleted)
+    assert _is_disallowed_goal("var---referee-decision-cancelled", echo)
+    assert not _is_disallowed_goal("var---referee-decision-cancelled", {"text": "VAR Decision: Penalty Levante."})
+    assert not _is_disallowed_goal("goal", {"text": "Goal! No goal was ever sweeter."})  # not a review play
+    assert _player_name_from_disallowed(deleted) == "Morten Hjulmand"
+    assert _player_name_from_disallowed(echo) == "Morten Hjulmand"
+
+    clear_timeline_cache()
+    plays = {
+        "pageCount": 1,
+        "items": [
+            {"type": {"type": "shot-off-target"}, "shortText": "Shot", "clock": {"displayValue": "5'", "value": 300.0}, "team": {"$ref": ".../teams/1538"}},
+            deleted,
+            echo,
+            {
+                "type": {"type": "goal"},
+                "scoringPlay": True,
+                "shortText": "Alejandro Grimaldo Goal",
+                "text": "Goal! Levante 0, Atletico Madrid 1. Alejandro Grimaldo (Atletico Madrid) left footed shot.",
+                "clock": {"displayValue": "36'", "value": 2160.0},
+                "period": {"number": 1},
+                "team": {"$ref": ".../teams/1068"},
+            },
+        ],
+    }
+    tl = build_event_timeline(
+        "esp.1", "var1", home="Levante", away="Atlético Madrid", home_id="1538", away_id="1068",
+        clock="40'", home_score=0, away_score=1, fetcher=lambda url: plays, use_cache=False,
+    )
+    marks = [e for e in tl["events"] if e["kind"] == "disallowed"]
+    assert [(e["minute"], e["team"], e["player"], e["clock"], e["period"]) for e in marks] == [(16, "away", "Morten Hjulmand", "16'", 1)]
+    assert marks[0]["text"].startswith("GOAL OVERTURNED BY VAR")
+    assert "category" not in marks[0]
+    assert [(b["clock"], b["kind"], b["player"]) for b in tl["bulletin"]] == [("16'", "disallowed", "Morten Hjulmand"), ("36'", "goal", "Alejandro Grimaldo")]
+    assert tl["counts"]["away_goal"] == 1 and tl["counts"]["goal"] == 1 and tl["counts"]["disallowed"] == 1
+    assert tl["home_score"] == 0 and tl["away_score"] == 1
+    assert tl["counts_by_half"]["1h"]["away_goal"] == 1
+
+
+def test_disallowed_goal_renders_as_a_crossed_out_post_and_bulletin_row():
+    import os
+    import subprocess
+    import tempfile
+
+    js = Path("src/eeesoc/static/app.js").read_text(encoding="utf-8")
+    css = Path("src/eeesoc/static/app.css").read_text(encoding="utf-8")
+    html = Path("src/eeesoc/static/index.html").read_text(encoding="utf-8")
+    assert ".tl-var line" in css and ".tl-var-label" in css and ".mc-bl-row.disallowed" in css and ".tl-mark.tl-var" in css
+    assert '<i class="tl-mark tl-var"></i> Goal ruled out (VAR)' in html
+
+    script = (
+        "const state = {};\n"
+        + js[js.index("  function escapeHtml(s)") : js.index("  // Club-type tags and articles")]
+        + js[js.index("  // —— Goal categories ——") : js.index("  // Clinical power — goals per 100 xG")]
+        + js[js.index("  function liveElapsedSeconds(tl)") : js.index("  function xgSeriesPath(series, xAt, yAt, nowM)")]
+        + r"""
+const tl = {
+  minute: 40, elapsed_seconds: 2400, frozen: true, max_minute: 90,
+  events: [
+    { minute: 16, kind: "disallowed", team: "away", player: "Morten Hjulmand", clock: "16'", text: "GOAL OVERTURNED BY VAR: Morten Hjulmand (Atletico Madrid) scores but the goal is ruled out after a VAR review." },
+    { minute: 36, kind: "goal", team: "away", player: "Alejandro Grimaldo", clock: "36'", xg: 0.11, category: "mistake", reason: "miscontrol" },
+  ],
+  bulletin: [
+    { minute: 16, kind: "disallowed", team: "away", player: "Morten Hjulmand", clock: "16'", text: "GOAL OVERTURNED BY VAR: Morten Hjulmand (Atletico Madrid) scores but the goal is ruled out after a VAR review." },
+    { minute: 36, kind: "goal", team: "away", player: "Alejandro Grimaldo", clock: "36'", category: "mistake", reason: "miscontrol" },
+  ],
+};
+const svg = timelineSvg(tl);
+// One hollow dashed post below the axis (away) at 16', crossed at the ball, labelled VAR; the real goal keeps its mark.
+const x16 = (10 + (16 / 90) * 300).toFixed(1);
+if (!svg.includes(`<g class="tl-var"><title>16' goal ruled out by VAR · Morten Hjulmand — GOAL OVERTURNED BY VAR`)) process.exit(2);
+if (!svg.includes(`<line x1="${x16}" y1="34" x2="${x16}" y2="56"/><circle cx="${x16}" cy="45" r="4"/><path d="M`)) process.exit(3);
+if (!svg.includes(`class="tl-var-label" text-anchor="middle">VAR</text>`)) process.exit(4);
+if ((svg.match(/<g class="tl-goal">/g) || []).length !== 1) process.exit(5);
+const bl = chicletBulletinHtml(tl, { league_slug: "esp.1" });
+if (!bl.includes(`<div class="mc-bl-row disallowed" title="GOAL OVERTURNED BY VAR: Morten Hjulmand (Atletico Madrid) scores but the goal is ruled out after a VAR review."><span class="mc-bl-min">16'</span><span class="mc-bl-who mc-bl-goal"><span class="mc-bl-name"><s>Morten Hjulmand</s></span> <span class="mc-bl-tag var">VAR ✕</span></span></div>`)) process.exit(6);
+if (!bl.includes(`<div class="mc-bl-row goal"><span class="mc-bl-min">36'</span>`)) process.exit(7);
+"""
+    )
+    with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as fh:
+        fh.write(script)
+        name = fh.name
+    try:
+        proc = subprocess.run(["node", name], capture_output=True, text=True, env={**os.environ, "TZ": "UTC"})
+    finally:
+        Path(name).unlink(missing_ok=True)
+    assert proc.returncode == 0, proc.stderr or proc.stdout or proc.returncode
+
+
 def test_timeline_score_prefers_plays_over_stale_board():
     from eeesoc.live import build_event_timeline, clear_timeline_cache
 

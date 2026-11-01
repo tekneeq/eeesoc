@@ -514,6 +514,7 @@ def _team_totals(records: list[dict[str, Any]]) -> dict[str, dict[str, dict[str,
             game = _game_side_stats(rec, side, other, has_xg=has_xg)
             row["results"].append(
                 {
+                    "event_id": str(rec.get("event_id") or ""),
                     "start": str(rec.get("start") or rec.get("date") or ""),
                     "opponent": str(rec.get(other) or ""),
                     "venue": side,
@@ -694,6 +695,8 @@ def _league_table(slug: str, teams: dict[str, dict[str, Any]], label: str) -> di
             # Only what the chiclet tooltip needs; the full log would triple the payload.
             "recent": [
                 {
+                    # Lets the chiclet fetch that game's archived timeline on tap.
+                    "event_id": g.get("event_id") or "",
                     "start": g["start"],
                     "date": g["start"][:10],
                     "opponent": g["opponent"],

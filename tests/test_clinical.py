@@ -337,6 +337,19 @@ def test_last5_games_carry_then_snapshot_as_of_that_night():
     assert last["then_defense_rank"] == alpha["defense_rank"]
 
 
+def test_last5_games_carry_the_archive_event_id_for_the_mini_timeline():
+    """Each LAST 5 chip knows which archived game it is, so a tap can fetch that game's strip."""
+    board = build_clinical_board(_records())
+    by = {t["team"]: t for t in board["leagues"]["eng.1"]["teams"]}
+    assert [g["event_id"] for g in by["Sharp FC"]["recent"]] == ["1", "2"]
+    assert [g["event_id"] for g in by["Blunt Town"]["recent"]] == ["1"]
+    # A record without an id still renders as a plain (untappable) chip.
+    recs = _records()
+    del recs[1]["event_id"]
+    by = {t["team"]: t for t in build_clinical_board(recs)["leagues"]["eng.1"]["teams"]}
+    assert [g["event_id"] for g in by["Sharp FC"]["recent"]] == ["1", ""]
+
+
 def test_momentum_is_recency_weighted_points_vs_league():
     board = build_clinical_board(_records())
     epl = board["leagues"]["eng.1"]
@@ -888,6 +901,124 @@ def test_goal_mix_rolls_up_per_club_and_league_rarity():
     assert goal_mix_for(untagged, "home", "away") == {"scored": {}, "conceded": {}}
     assert goal_mix_for(records[2], "home", "away") is None
     assert goal_mix_summary([]) == {"games": 0, "scored": {}, "conceded": {}, "scored_total": 0, "conceded_total": 0}
+
+
+def test_last5_chip_opens_a_mini_timeline_of_that_archived_game():
+    """Tap a LAST 5 chip → a full-width strip of that game under the row: 90' events, HT/FT, xG and the tagged goals."""
+    import os
+    import subprocess
+    import tempfile
+    from pathlib import Path
+
+    js = Path("src/eeesoc/static/app.js").read_text(encoding="utf-8")
+    css = Path("src/eeesoc/static/app.css").read_text(encoding="utf-8")
+    html = Path("src/eeesoc/static/index.html").read_text(encoding="utf-8")
+    py = Path("src/eeesoc/dashboard.py").read_text(encoding="utf-8")
+    assert "/api/archive/timeline" in py and "/api/archive/timeline?league=" in js
+    assert "function bindLast5MiniTaps" in js and "bindLast5MiniTaps();" in js
+    assert ".mc-form-g.tap" in css and ".mc-form-g.open" in css and ".mc-last5-mini" in css and ".mc-last5-strip .mc-tl-svg" in css
+    assert "tap a game to open its mini timeline" in html
+
+    script = (
+        "const state = { clinical: { min_games: 2, leagues: {} }, last5Open: {}, archiveTimelines: {} };\n"
+        + js[js.index("  function escapeHtml(s)") : js.index("  // Club-type tags and articles")]
+        + js[js.index("  // Club-type tags and articles") : js.index("  // scope: \"live\" (default)")]
+        + js[js.index("  // —— Goal categories ——") : js.index("  // Clinical power — goals per 100 xG")]
+        + js[js.index("  function teamKey(name)") : js.index("  function clinicalFor(leagueSlug, teamId, name)")]
+        + js[js.index("  const LAST5_HELP =") : js.index("  // Usual starters out")]
+        + js[js.index("  function liveElapsedSeconds(tl)") : js.index("  function xgSeriesPath(series, xAt, yAt, nowM)")]
+        + r"""
+const recent = [
+  { event_id: "g1", start: "2026-09-05T18:00Z", date: "2026-09-05", opponent: "Real Betis", venue: "away", gf: 1, ga: 2, ht_gf: 0, ht_ga: 1, h2_gf: 1, h2_ga: 1, letter: "L" },
+  { event_id: "", start: "2026-09-12T18:00Z", date: "2026-09-12", opponent: "Getafe", venue: "home", gf: 2, ga: 0, ht_gf: 1, ht_ga: 0, h2_gf: 1, h2_ga: 0, letter: "W" },
+];
+const row = { team: "Levante", league_slug: "esp.1", recent };
+function clinicalFor(slug, id) { return id === "H" ? row : null; }
+let painted = 0;
+function paintPowerRow() { painted += 1; }
+const m = { event_id: "live1", league_slug: "esp.1", home: "Levante", away: "Atlético Madrid", home_id: "H", away_id: "A" };
+const card = { __match: m };
+
+// Closed: the archived game is a tappable chip, the one with no id is not.
+let out = last5GamesRowHtml(m);
+if (!out.includes('class="mc-form-g l tap" role="button" tabindex="0" aria-expanded="false" data-last5-league="esp.1" data-last5-event="g1" data-last5-side="home"')) process.exit(2);
+if (!out.includes("tap for the timeline")) process.exit(3);
+if (!out.includes('class="mc-form-g w" title="W 2–0 FT · 1H 1–0 · 2H 1–0 v Getafe · 2026-09-12"')) process.exit(4);
+if (out.includes("mc-last5-mini")) process.exit(5);
+
+// Tap: the chip opens, the game is fetched, and the panel shows a loading line meanwhile.
+const calls = [];
+globalThis.document = { querySelectorAll: () => [card] };
+globalThis.fetch = async (url) => {
+  calls.push(url);
+  return { ok: true, status: 200, json: async () => ({
+    event_id: "g1", league_slug: "esp.1", home: "Real Betis", away: "Levante", date: "2026-09-05",
+    minute: 90, elapsed_seconds: 5400, frozen: true, final: true, max_minute: 90, view_max_minute: 90,
+    home_score: 2, away_score: 1, ht_home: 1, ht_away: 0, has_xg: true,
+    events: [
+      { minute: 12, kind: "shot_on", team: "home", xg: 0.1 },
+      { minute: 30, kind: "goal", team: "home", xg: 0.4, player: "Isco", clock: "30'", period: 1, category: "team", reason: "5-pass move" },
+      { minute: 61, kind: "goal", team: "away", xg: 0.05, player: "Romero", clock: "61'", period: 2, category: "screamer", reason: "28 yards out" },
+      { minute: 77, kind: "corner", team: "away" },
+      { minute: 88, kind: "goal", team: "home", xg: 0.76, player: "Bakambu", clock: "88'", period: 2, category: "penalty", reason: "from the spot" },
+    ],
+    bulletin: [
+      { kind: "goal", team: "home", minute: 30, clock: "30'", player: "Isco", xg: 0.4, category: "team", reason: "5-pass move" },
+      { kind: "goal", team: "away", minute: 61, clock: "61'", player: "Romero", xg: 0.05, category: "screamer", reason: "28 yards out" },
+      { kind: "goal", team: "home", minute: 88, clock: "88'", player: "Bakambu", xg: 0.76, category: "penalty", reason: "from the spot" },
+    ],
+    xg: { home: [{ minute: 0, cumulative: 0 }, { minute: 88, cumulative: 1.26 }], away: [{ minute: 0, cumulative: 0 }, { minute: 61, cumulative: 0.05 }], home_total: 1.26, away_total: 0.05 },
+  }) };
+};
+const chip = { dataset: { last5League: "esp.1", last5Event: "g1", last5Side: "home" } };
+toggleLast5Mini(card, chip);
+if (JSON.stringify(state.last5Open.live1) !== JSON.stringify({ league: "esp.1", event_id: "g1", side: "home" })) process.exit(6);
+if (calls[0] !== "/api/archive/timeline?league=esp.1&event_id=g1") process.exit(7);
+out = last5GamesRowHtml(m);
+if (!out.includes('class="mc-form-g l tap open" role="button" tabindex="0" aria-expanded="true"') || !out.includes("tap to close")) process.exit(8);
+if (!out.includes('<span class="mc-last5-mini" data-last5-mini="g1"') || !out.includes("loading the archived game…")) process.exit(9);
+
+(async () => {
+  await new Promise((r) => setTimeout(r, 0));
+  await new Promise((r) => setTimeout(r, 0));
+  if (painted < 2) process.exit(10);
+  out = last5GamesRowHtml(m);
+  // Header: date, home · FT · away with the club in focus bold, HT and xG.
+  if (!out.includes('<span class="mc-last5-when">2026-09-05</span><i class="mc-key mc-key-home"></i><span class="mc-last5-team">Real Betis</span><b class="mc-last5-ft">2–1</b><span class="mc-last5-team on">Levante</span><i class="mc-key mc-key-away"></i><span class="mc-last5-ht">HT 1–0</span>')) process.exit(11);
+  if (!out.includes('>xG 1.3–0.1</span>')) process.exit(12);
+  // The strip is the chiclet's own timeline, run to 90'.
+  if (!out.includes('<span class="mc-last5-strip"><svg class="mc-tl-svg"') || !out.includes('aria-label="0 to 90 minute event timeline"') || !out.includes('data-max="90"')) process.exit(13);
+  if ((out.match(/<g class="tl-goal">/g) || []).length !== 3 || !out.includes('<g class="tl-sot">') || !out.includes('<g class="tl-corner">')) process.exit(14);
+  if (!out.includes(`<line x1="310.0" y1="4" x2="310.0" y2="54" class="tl-now"/>`)) process.exit(15);
+  // Goals listed with side key, clock, scorer, category tag and xG.
+  if (!out.includes('<span class="mc-last5-goal home"><i class="mc-key mc-key-home"></i><b>30\'</b><span class="mc-last5-who">Isco</span> <span class="mc-bl-tag cat cat-team" title="team goal: 5-pass move · a passing move, or a plain assist with nothing given away">🎯 team</span> <span class="mc-last5-xg">xG 0.40</span></span>')) process.exit(16);
+  if (!out.includes('<span class="mc-last5-goal away"><i class="mc-key mc-key-away"></i><b>61\'</b><span class="mc-last5-who">Romero</span> <span class="mc-bl-tag cat cat-screamer"')) process.exit(17);
+  if (!out.includes("⚪ pen</span>")) process.exit(18);
+  if (!out.includes('<span class="mc-last5-close" role="button" tabindex="0"')) process.exit(19);
+
+  // Tap the same chip again → closed; a chip of the other side opens its own.
+  toggleLast5Mini(card, chip);
+  if (state.last5Open.live1 || last5GamesRowHtml(m).includes("mc-last5-mini")) process.exit(20);
+  toggleLast5Mini(card, { dataset: { last5League: "esp.1", last5Event: "g9", last5Side: "away" } });
+  if (state.last5Open.live1.side !== "away" || calls[1] !== "/api/archive/timeline?league=esp.1&event_id=g9") process.exit(21);
+  closeLast5Mini(card);
+  if (state.last5Open.live1) process.exit(22);
+
+  // A game the archive does not hold says so instead of a strip.
+  state.last5Open.live1 = { league: "esp.1", event_id: "g9", side: "away" };
+  state.archiveTimelines["esp.1:g9"] = { error: "not archived" };
+  if (!last5GamesRowHtml(m).includes("this game's play-by-play is not in the archive")) process.exit(23);
+})();
+"""
+    )
+    with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as fh:
+        fh.write(script)
+        name = fh.name
+    try:
+        proc = subprocess.run(["node", name], capture_output=True, text=True, env={**os.environ, "TZ": "UTC"})
+    finally:
+        Path(name).unlink(missing_ok=True)
+    assert proc.returncode == 0, proc.stderr or proc.stdout or proc.returncode
 
 
 def test_offence_and_defence_rows_print_the_goals_per_game_league_place():

@@ -1717,6 +1717,43 @@ main {
   font-weight: 600;
 }
 
+/* Goal ruled out by VAR: a goal post drawn hollow and dashed, the ball crossed out. */
+.tl-var line {
+  stroke: var(--danger);
+  stroke-width: 1.4;
+  stroke-dasharray: 1.6 1.6;
+  opacity: 0.8;
+}
+
+.tl-var circle {
+  fill: rgba(255, 107, 107, 0.12);
+  stroke: var(--danger);
+  stroke-width: 1.2;
+}
+
+.tl-var path {
+  stroke: var(--danger);
+  stroke-width: 1.3;
+  stroke-linecap: round;
+  fill: none;
+}
+
+.tl-var-label {
+  fill: var(--danger);
+  font-family: var(--mono);
+  font-size: 5.5px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+}
+
+.tl-mark.tl-var {
+  width: 0.55rem;
+  height: 0.55rem;
+  border: 1.5px dashed var(--danger);
+  border-radius: 50%;
+  background: transparent;
+}
+
 .tl-corner rect {
   fill: rgba(230, 245, 235, 0.75);
   stroke: rgba(125, 255, 179, 0.5);
@@ -2183,6 +2220,21 @@ main {
 .mc-bl-row.red,
 .mc-bl-tag.red {
   color: var(--danger);
+}
+
+/* A goal VAR ruled out: scorer struck through, muted. */
+.mc-bl-row.disallowed {
+  color: var(--muted);
+}
+
+.mc-bl-row.disallowed s {
+  text-decoration-color: var(--danger);
+  text-decoration-thickness: 1.5px;
+}
+
+.mc-bl-tag.var {
+  color: var(--danger);
+  font-weight: 600;
 }
 
 /* Goal categories: one colour per kind, shared by the bulletin chip, the
@@ -4494,6 +4546,163 @@ main {
 .mc-form-then.tbl {
   color: var(--text);
   opacity: 0.88;
+}
+
+/* A chip with an archived game behind it opens that game's mini timeline. */
+.mc-form-g.tap {
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+
+.mc-form-g.tap:hover,
+.mc-form-g.tap:focus-visible {
+  background: rgba(255, 255, 255, 0.06);
+  outline: none;
+}
+
+.mc-form-g.open {
+  background: rgba(125, 255, 179, 0.1);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px rgba(125, 255, 179, 0.25);
+}
+
+/* The archived game's strip, full width under the LAST 5 row. */
+.mc-last5-mini {
+  position: relative;
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.22rem;
+  padding: 0.3rem 0.45rem 0.25rem;
+  border: 1px solid rgba(125, 255, 179, 0.28);
+  border-radius: 0.3rem;
+  background: rgba(255, 255, 255, 0.03);
+  cursor: default;
+}
+
+.mc-last5-close {
+  position: absolute;
+  top: 0.1rem;
+  right: 0.3rem;
+  font-size: 0.9rem;
+  line-height: 1;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.mc-last5-close:hover,
+.mc-last5-close:focus-visible {
+  color: var(--text);
+  outline: none;
+}
+
+.mc-last5-head {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  padding-right: 1rem;
+  font-size: 0.62rem;
+  color: var(--muted);
+}
+
+.mc-last5-when {
+  font-size: 0.56rem;
+  letter-spacing: 0.04em;
+  margin-right: 0.15rem;
+}
+
+.mc-last5-team {
+  color: var(--text);
+  opacity: 0.8;
+}
+
+.mc-last5-team.on {
+  font-weight: 700;
+  opacity: 1;
+}
+
+.mc-last5-ft {
+  font-size: 0.8rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+
+.mc-last5-ht,
+.mc-last5-xgsum {
+  font-size: 0.56rem;
+  letter-spacing: 0.03em;
+  font-variant-numeric: tabular-nums;
+}
+
+.mc-last5-strip {
+  display: block;
+  width: 100%;
+}
+
+/* Mini: the same drawing as the live strip, held to about half the card on a desktop
+   (the viewBox keeps the marks round); a phone gets the full width. */
+.mc-last5-strip .mc-tl-svg {
+  height: auto;
+  max-width: 540px;
+  margin: 0 auto;
+}
+
+.mc-last5-goals {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.15rem 0.55rem;
+  font-size: 0.6rem;
+  color: var(--text);
+}
+
+.mc-last5-goals.none,
+.mc-last5-status {
+  text-align: center;
+  font-size: 0.58rem;
+  color: var(--muted);
+  letter-spacing: 0.03em;
+}
+
+.mc-last5-status.err {
+  color: var(--warn);
+}
+
+.mc-last5-goal {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  white-space: nowrap;
+}
+
+.mc-last5-goal b {
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.mc-last5-goal .mc-key {
+  width: 0.4rem;
+  height: 0.4rem;
+}
+
+.mc-last5-xg {
+  font-size: 0.52rem;
+  color: var(--muted);
+}
+
+@media (max-width: 520px) {
+  .mc-last5-head {
+    font-size: 0.58rem;
+    gap: 0.22rem;
+  }
+
+  .mc-last5-xg {
+    display: none;
+  }
 }
 
 /* Usual starters missing today: one chip per regular who is out or on the bench. */
