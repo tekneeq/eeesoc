@@ -38,6 +38,8 @@
     quiet: null, // /api/halftime/quiet board for the Live-tab quiet-start graphs
     quietLeague: null, // league slug picked on those graphs; null = ALL
     quietTimer: null,
+    last5Open: {}, // chiclet event_id → {league, event_id, side} of the LAST 5 chip whose mini timeline is open
+    archiveTimelines: {}, // "league:event_id" → /api/archive/timeline payload, "loading", or {error}
   };
 
   const HT_POLL_MS = 20000;
@@ -2332,6 +2334,16 @@
     return `${g.letter} ${last5PitchScore(g, g.gf, g.ga)} FT${halves} ${vs}${when}${snap ? ` · as of that night: ${snap}` : ""}`;
   }
 
+  // Which LAST 5 chip of this chiclet has its mini timeline open, if any.
+  function last5OpenFor(m) {
+    const open = state.last5Open[String(m?.event_id)];
+    return open && open.event_id ? open : null;
+  }
+
+  function archiveTimelineKey(league, eventId) {
+    return `${league}:${eventId}`;
+  }
+
   function last5GamesSideHtml(m, side) {
     const name = side === "home" ? m.home : m.away;
     const row = clinicalFor(m.league_slug, side === "home" ? m.home_id : m.away_id, name);
@@ -2339,6 +2351,8 @@
     if (!row || !(row.recent || []).length) {
       return `<span class="mc-power-side mc-form-side ${side} none" title="${title}"><b class="mc-power-num">—</b></span>`;
     }
+    const open = last5OpenFor(m);
+    const league = row.league_slug || m.league_slug || "";
     const chips = row.recent
       .map((g) => {
         const { h1, h2, known } = last5GameHalves(g);
@@ -2352,14 +2366,154 @@
           then.def ? `<span class="mc-form-then">def ${escapeHtml(then.def)}</span>` : "",
           then.table ? `<span class="mc-form-then tbl">${escapeHtml(then.table)}</span>` : "",
         ].join("");
-        return `<span class="mc-form-g ${cls}${known ? "" : " none"}" title="${escapeHtml(last5GameTitle(g))}"><em>${escapeHtml(vs)}</em><b>1H ${h1}</b><i>2H ${h2}</i>${snap}</span>`;
+        const tappable = !!g.event_id;
+        const isOpen = tappable && open && open.event_id === String(g.event_id) && open.side === side;
+        const tap = tappable
+          ? ` role="button" tabindex="0" aria-expanded="${isOpen ? "true" : "false"}" data-last5-league="${escapeHtml(league)}" data-last5-event="${escapeHtml(g.event_id)}" data-last5-side="${side}"`
+          : "";
+        const hint = tappable ? ` · ${isOpen ? "tap to close" : "tap for the timeline"}` : "";
+        return `<span class="mc-form-g ${cls}${known ? "" : " none"}${tappable ? " tap" : ""}${isOpen ? " open" : ""}"${tap} title="${escapeHtml(last5GameTitle(g) + hint)}"><em>${escapeHtml(vs)}</em><b>1H ${h1}</b><i>2H ${h2}</i>${snap}</span>`;
       })
       .join("");
     return `<span class="mc-power-side mc-form-side ${side}" title="${title}"><span class="mc-form-games">${chips}</span></span>`;
   }
 
   function last5GamesRowHtml(m) {
-    return `${last5GamesSideHtml(m, "home")}<span class="mc-power-label" title="${escapeHtml(LAST5_HELP)}">🥅 last 5</span>${last5GamesSideHtml(m, "away")}`;
+    const row = `${last5GamesSideHtml(m, "home")}<span class="mc-power-label" title="${escapeHtml(LAST5_HELP)}">🥅 last 5</span>${last5GamesSideHtml(m, "away")}`;
+    const mini = last5MiniHtml(m);
+    return mini ? `${row}${mini}` : row;
+  }
+
+  // —— Mini timeline of an archived game, opened from a LAST 5 chip ——
+  //
+  // Same strip as the live chiclet (goals span the axis, shots and corners in
+  // their lanes, home above, away below), run to 90', with the goals listed
+  // underneath carrying their category tags.
+
+  const LAST5_MINI_HELP =
+    "One of this club's last five games, from the archive: the full 90' event strip (home above the line, away below; goals span it, shots on target sit nearest the axis, then blocked shots, then corners), the score at half-time and full-time, the xG each side built, and every goal with how it came about.";
+
+  function last5MiniStatus(text, extra = "") {
+    return `<span class="mc-last5-status${extra}">${escapeHtml(text)}</span>`;
+  }
+
+  function last5MiniGoalHtml(r, league) {
+    const side = r.team === "away" ? "away" : "home";
+    const who = r.player ? escapeHtml(r.player) : r.kind === "own_goal" ? "own goal" : "goal";
+    const og = r.kind === "own_goal" ? ` <span class="mc-bl-tag og">OG</span>` : "";
+    const xg = r.xg != null ? ` <span class="mc-last5-xg">xG ${Number(r.xg).toFixed(2)}</span>` : "";
+    const text = r.text ? ` title="${escapeHtml(r.text)}"` : "";
+    return `<span class="mc-last5-goal ${side}"${text}><i class="mc-key mc-key-${side}"></i><b>${escapeHtml(r.clock || `${r.minute}'`)}</b><span class="mc-last5-who">${who}</span>${og}${goalTagHtml(r, league)}${xg}</span>`;
+  }
+
+  function last5MiniHtml(m) {
+    const open = last5OpenFor(m);
+    if (!open) return "";
+    const key = archiveTimelineKey(open.league, open.event_id);
+    const tl = state.archiveTimelines[key];
+    const close = `<span class="mc-last5-close" role="button" tabindex="0" title="Close this game's timeline" aria-label="Close">×</span>`;
+    let body;
+    let head = "";
+    if (!tl || tl === "loading") {
+      body = last5MiniStatus("loading the archived game…", " loading");
+    } else if (tl.error) {
+      body = last5MiniStatus(tl.error === "not archived" ? "this game's play-by-play is not in the archive" : "could not load this game", " err");
+    } else {
+      const focusHome = open.side === "home" ? m.home : m.away;
+      const focusKey = teamKey(focusHome);
+      const homeOn = teamKey(tl.home) === focusKey;
+      const awayOn = !homeOn && teamKey(tl.away) === focusKey;
+      const name = (n, on) => `<span class="mc-last5-team${on ? " on" : ""}">${escapeHtml(shortTeamName(n, 12) || n || "—")}</span>`;
+      const ht = tl.ht_home != null && tl.ht_away != null ? `<span class="mc-last5-ht">HT ${tl.ht_home}–${tl.ht_away}</span>` : "";
+      const xg =
+        tl.has_xg && tl.xg
+          ? `<span class="mc-last5-xgsum" title="Expected goals built over the 90'">xG ${Number(tl.xg.home_total || 0).toFixed(1)}–${Number(tl.xg.away_total || 0).toFixed(1)}</span>`
+          : "";
+      const when = tl.date ? `<span class="mc-last5-when">${escapeHtml(tl.date)}</span>` : "";
+      head = `<span class="mc-last5-head">${when}<i class="mc-key mc-key-home"></i>${name(tl.home, homeOn)}<b class="mc-last5-ft">${tl.home_score ?? "—"}–${tl.away_score ?? "—"}</b>${name(tl.away, awayOn)}<i class="mc-key mc-key-away"></i>${ht}${xg}</span>`;
+      const goals = (tl.bulletin || []).filter((r) => r.kind === "goal" || r.kind === "own_goal");
+      const list = goals.length
+        ? `<span class="mc-last5-goals">${goals.map((r) => last5MiniGoalHtml(r, open.league)).join("")}</span>`
+        : `<span class="mc-last5-goals none">no goals</span>`;
+      body = `<span class="mc-last5-strip">${timelineSvg(tl)}</span>${list}`;
+    }
+    return `<span class="mc-last5-mini" data-last5-mini="${escapeHtml(open.event_id)}" title="${escapeHtml(LAST5_MINI_HELP)}">${close}${head}${body}</span>`;
+  }
+
+  async function loadArchiveTimeline(league, eventId) {
+    const key = archiveTimelineKey(league, eventId);
+    if (state.archiveTimelines[key]) return;
+    state.archiveTimelines[key] = "loading";
+    try {
+      const res = await fetch(`/api/archive/timeline?league=${encodeURIComponent(league)}&event_id=${encodeURIComponent(eventId)}`);
+      const data = await res.json();
+      state.archiveTimelines[key] = res.ok && data && !data.error ? data : { error: (data && data.error) || `http ${res.status}` };
+    } catch (err) {
+      state.archiveTimelines[key] = { error: String(err) };
+    }
+    document.querySelectorAll(".match-chiclet").forEach((card) => paintPowerRow(card));
+  }
+
+  function toggleLast5Mini(card, chip) {
+    const m = card?.__match;
+    if (!m || !chip) return;
+    const league = chip.dataset.last5League || m.league_slug || "";
+    const eventId = String(chip.dataset.last5Event || "");
+    const side = chip.dataset.last5Side === "away" ? "away" : "home";
+    const id = String(m.event_id);
+    const open = state.last5Open[id];
+    if (open && open.event_id === eventId && open.side === side) delete state.last5Open[id];
+    else {
+      state.last5Open[id] = { league, event_id: eventId, side };
+      loadArchiveTimeline(league, eventId);
+    }
+    paintPowerRow(card);
+  }
+
+  function closeLast5Mini(card) {
+    const m = card?.__match;
+    if (!m) return;
+    delete state.last5Open[String(m.event_id)];
+    paintPowerRow(card);
+  }
+
+  // The chips live inside the chiclet <button>, whose own click opens the
+  // pitch and whose mouse-down starts a drag — so these run in the capture
+  // phase and stop there. One listener covers every chiclet, including ones
+  // re-rendered later.
+  function bindLast5MiniTaps() {
+    const hit = (e) => {
+      const chip = e.target.closest?.(".mc-form-g[data-last5-event]");
+      const close = chip ? null : e.target.closest?.(".mc-last5-close");
+      // A tap on the open panel itself does nothing, but must not open the pitch.
+      const panel = chip || close ? null : e.target.closest?.(".mc-last5-mini");
+      if (!chip && !close && !panel) return null;
+      const card = (chip || close || panel).closest(".match-chiclet");
+      return card ? { chip, close, card } : null;
+    };
+    document.addEventListener(
+      "pointerdown",
+      (e) => {
+        if (hit(e)) e.stopPropagation();
+      },
+      true,
+    );
+    const act = (e) => {
+      const h = hit(e);
+      if (!h) return;
+      e.preventDefault();
+      e.stopPropagation();
+      if (h.chip) toggleLast5Mini(h.card, h.chip);
+      else if (h.close) closeLast5Mini(h.card);
+    };
+    document.addEventListener("click", act, true);
+    document.addEventListener(
+      "keydown",
+      (e) => {
+        if (e.key === "Enter" || e.key === " ") act(e);
+      },
+      true,
+    );
   }
 
   // ---------------------------------------------------------------------------
@@ -6728,6 +6882,7 @@ echo "done → $OUT/${safe}_reel.mp4 ($N clips)"
     state.liveScope = loadLiveScope();
     $("#pitchClose")?.addEventListener("click", closePitchPanel);
     $("#pitchCloseBottom")?.addEventListener("click", closePitchPanel);
+    bindLast5MiniTaps();
     const meta = await (await fetch("/api/meta")).json();
     state.meta = meta;
     $("#seasonLabel").textContent = `${meta.season} · ${meta.match_count} matches · ${meta.history_count} history`;
