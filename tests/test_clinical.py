@@ -337,6 +337,19 @@ def test_last5_games_carry_then_snapshot_as_of_that_night():
     assert last["then_defense_rank"] == alpha["defense_rank"]
 
 
+def test_last5_games_carry_the_archive_event_id_for_the_mini_timeline():
+    """Each LAST 5 chip knows which archived game it is, so a tap can fetch that game's strip."""
+    board = build_clinical_board(_records())
+    by = {t["team"]: t for t in board["leagues"]["eng.1"]["teams"]}
+    assert [g["event_id"] for g in by["Sharp FC"]["recent"]] == ["1", "2"]
+    assert [g["event_id"] for g in by["Blunt Town"]["recent"]] == ["1"]
+    # A record without an id still renders as a plain (untappable) chip.
+    recs = _records()
+    del recs[1]["event_id"]
+    by = {t["team"]: t for t in build_clinical_board(recs)["leagues"]["eng.1"]["teams"]}
+    assert [g["event_id"] for g in by["Sharp FC"]["recent"]] == ["1", ""]
+
+
 def test_momentum_is_recency_weighted_points_vs_league():
     board = build_clinical_board(_records())
     epl = board["leagues"]["eng.1"]

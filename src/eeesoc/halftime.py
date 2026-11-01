@@ -538,6 +538,92 @@ def _trim_record_for_client(rec: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def load_record(league_slug: str, event_id: str) -> dict[str, Any] | None:
+    """One archived row by league + ESPN event id (mtime-cached), or None."""
+    if not league_slug or not event_id:
+        return None
+    path = record_path(league_slug, event_id)
+    try:
+        mtime = path.stat().st_mtime
+    except OSError:
+        return None
+    key = str(path)
+    with _records_lock:
+        hit = _records_cache.get(key)
+    if hit and hit[0] == mtime:
+        return hit[1]
+    try:
+        rec = read_json(path)
+    except (OSError, ValueError):
+        return None
+    if not isinstance(rec, dict):
+        return None
+    with _records_lock:
+        _records_cache[key] = (mtime, rec)
+    return rec
+
+
+def archived_timeline(league_slug: str, event_id: str) -> dict[str, Any] | None:
+    """
+    A finished game from the archive in the chiclet's timeline shape, full 90'.
+
+    Feeds the mini strip that opens when a LAST 5 chip is tapped: the stored
+    events, the cumulative xG series, the half-time and full-time scores and a
+    ``bulletin`` of the goals (with their category tags) in clock order.
+    """
+    rec = load_record(league_slug, event_id)
+    if rec is None:
+        return None
+    events = list(rec.get("events") or [])
+    xg = rec.get("xg") or {}
+    home_series = list(xg.get("home") or [])
+    away_series = list(xg.get("away") or [])
+    goals = [ev for ev in events if ev.get("kind") in ("goal", "own_goal")]
+    goals.sort(key=lambda ev: (int(ev.get("period") or 0), int(ev.get("minute") or 0)))
+    bulletin = [
+        {
+            "kind": ev.get("kind"),
+            "team": ev.get("team"),
+            "minute": ev.get("minute"),
+            "clock": ev.get("clock") or f"{ev.get('minute')}'",
+            "period": ev.get("period"),
+            "player": ev.get("player"),
+            "text": ev.get("text"),
+            "xg": ev.get("xg"),
+            **({"category": ev["category"], "reason": ev.get("reason") or ""} if ev.get("category") else {}),
+        }
+        for ev in goals
+    ]
+    return {
+        "event_id": rec.get("event_id"),
+        "league_slug": rec.get("league_slug"),
+        "league_chiclet": rec.get("league_chiclet"),
+        "home": rec.get("home"),
+        "away": rec.get("away"),
+        "start": rec.get("start"),
+        "date": rec.get("date"),
+        "minute": 90,
+        "elapsed_seconds": 90 * 60,
+        "frozen": True,
+        "final": True,
+        "max_minute": 90,
+        "view_max_minute": 90,
+        "home_score": rec.get("ft_home"),
+        "away_score": rec.get("ft_away"),
+        "ht_home": rec.get("ht_home"),
+        "ht_away": rec.get("ht_away"),
+        "has_xg": _record_has_xg(rec),
+        "events": events,
+        "bulletin": bulletin,
+        "xg": {
+            "home": home_series,
+            "away": away_series,
+            "home_total": xg.get("home_total") or (home_series[-1]["cumulative"] if home_series else 0.0),
+            "away_total": xg.get("away_total") or (away_series[-1]["cumulative"] if away_series else 0.0),
+        },
+    }
+
+
 def zero_zero_board(
     records: list[dict[str, Any]] | None = None,
     *,

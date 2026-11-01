@@ -167,6 +167,84 @@ def test_archive_timeline_only_stores_finals_once():
     assert zero_zero_records(rows)[0]["ht_goals"] == 0
 
 
+def test_archived_timeline_is_the_full_game_in_chiclet_shape():
+    """Tapping a LAST 5 chip asks for the archived game as a 90' strip: events, xG, HT/FT, tagged goals."""
+    from eeesoc.halftime import archived_timeline, load_record
+
+    events = _quiet_half(
+        extra=[
+            {**_ev(30, "goal", "home", xg=0.5, period=1, player="A. Striker"), "category": "team", "reason": "a passing move"},
+            _ev(60, "shot_on", "away", xg=0.3, period=2),
+            {**_ev(78, "own_goal", "home", period=2, player="B. Defender", clock="78'"), "category": "own_goal", "reason": "put into his own net"},
+            _ev(85, "corner", "away", period=2),
+        ]
+    )
+    tl = _timeline(events, home_score=1, away_score=1, event_id="4242")
+    assert archive_timeline(tl, {"league_chiclet": "EPL", "start": "2026-09-01T14:00Z"})
+
+    assert load_record("eng.1", "nope") is None
+    assert archived_timeline("eng.1", "nope") is None
+    assert archived_timeline("", "4242") is None
+
+    out = archived_timeline("eng.1", "4242")
+    assert out["event_id"] == "4242" and out["league_slug"] == "eng.1" and out["league_chiclet"] == "EPL"
+    assert out["home"] == "Home FC" and out["away"] == "Away FC"
+    assert out["date"] == "2026-09-01"
+    # Runs the whole game, frozen at full time, so the strip's axis is 0–90'.
+    assert out["final"] is True and out["frozen"] is True
+    assert out["minute"] == 90 and out["elapsed_seconds"] == 90 * 60
+    assert out["max_minute"] == 90 and out["view_max_minute"] == 90
+    assert out["home_score"] == 1 and out["away_score"] == 1
+    assert out["ht_home"] == 1 and out["ht_away"] == 0
+    assert out["has_xg"] is True
+    # Every stored event rides along — second-half ones too, unlike the 45'-cut 0-0 payload.
+    assert any(ev["minute"] == 85 and ev["kind"] == "corner" for ev in out["events"])
+    assert out["xg"]["home_total"] == pytest.approx(0.05 + 0.03 + 0.06 + 0.5)
+    assert out["xg"]["away_total"] == pytest.approx(0.04 + 0.12 + 0.02 + 0.05 + 0.3)
+    assert out["xg"]["home"][-1]["cumulative"] == pytest.approx(out["xg"]["home_total"])
+    # Goals in clock order with their category tags, for the list under the strip.
+    assert [(g["kind"], g["minute"], g["team"]) for g in out["bulletin"]] == [("goal", 30, "home"), ("own_goal", 78, "home")]
+    assert out["bulletin"][0]["player"] == "A. Striker" and out["bulletin"][0]["category"] == "team"
+    assert out["bulletin"][0]["reason"] == "a passing move" and out["bulletin"][0]["clock"] == "30'"
+    assert out["bulletin"][1]["category"] == "own_goal" and out["bulletin"][1]["xg"] is None
+
+
+def test_archive_timeline_endpoint_serves_the_stored_game():
+    import json
+    from http.server import ThreadingHTTPServer
+    from threading import Thread
+    from types import SimpleNamespace
+    from urllib.error import HTTPError
+    from urllib.request import urlopen
+
+    from eeesoc.dashboard import make_handler
+
+    tl = _timeline(_quiet_half(extra=[_ev(70, "goal", "away", xg=0.4, period=2, player="Z. Winger")]), away_score=1, event_id="777")
+    assert archive_timeline(tl, {"league_chiclet": "EPL", "start": "2026-09-01T14:00Z"})
+
+    handler = make_handler(SimpleNamespace(matches=[], by_id={}, history=[], corpus=[], season="2026-27"))
+    server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    Thread(target=server.serve_forever, daemon=True).start()
+    base = f"http://127.0.0.1:{server.server_address[1]}"
+    try:
+        with urlopen(f"{base}/api/archive/timeline?league=eng.1&event_id=777") as res:
+            assert res.status == 200
+            body = json.loads(res.read())
+        assert body["event_id"] == "777" and body["away_score"] == 1 and body["view_max_minute"] == 90
+        assert body["bulletin"][0]["player"] == "Z. Winger"
+
+        with pytest.raises(HTTPError) as missing:
+            urlopen(f"{base}/api/archive/timeline?league=eng.1&event_id=778")
+        assert missing.value.code == 404
+
+        with pytest.raises(HTTPError) as bad:
+            urlopen(f"{base}/api/archive/timeline?league=eng.1")
+        assert bad.value.code == 400
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
 def test_league_intensity_avg_from_archived_strips():
     from eeesoc.halftime import league_intensity_avg, stamp_league_intensity
     from eeesoc.live import INTENSITY_PRIOR_MEAN
