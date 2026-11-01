@@ -480,6 +480,17 @@ def test_potential_and_momentum_rank_among_ranked_clubs():
     # Par: W then D → most recent form; Blunt: L then D; Sharp: W then L.
     assert by["Par United"]["form"] == "WD" and by["Par United"]["momentum_rank"] == 1
     assert by["Blunt Town"]["form"] == "LD"
+    # Plain goals per game, as printed beside the powers: Sharp 3 in 2 scored most; Par let in fewest (1 in 2).
+    assert by["Sharp FC"]["scored_per_game"] == 1.5 and by["Sharp FC"]["scored_rank"] == 1
+    assert by["Blunt Town"]["scored_per_game"] == 0.5 and by["Par United"]["scored_per_game"] == 0.5
+    assert by["Par United"]["conceded_per_game"] == 0.0 and by["Par United"]["conceded_rank"] == 1
+    assert by["Blunt Town"]["conceded_per_game"] == 1.5 and by["Blunt Town"]["conceded_rank"] == 3
+    assert by["Sharp FC"]["conceded_per_game"] == 1.0 and by["Sharp FC"]["conceded_rank"] == 2
+    # Equal goals per game: the club with more goals outright goes first; a lone unranked club has no place.
+    assert {by["Blunt Town"]["scored_rank"], by["Par United"]["scored_rank"]} == {2, 3}
+    single = {t["team"]: t for t in build_clinical_board(_records())["leagues"]["eng.1"]["teams"]}
+    assert single["Blunt Town"]["scored_rank"] is None and single["Blunt Town"]["conceded_rank"] is None
+    assert single["Sharp FC"]["scored_rank"] == 1 and single["Sharp FC"]["conceded_rank"] == 1
 
 
 def test_clean_sheets_total_recent_and_rank():
@@ -877,3 +888,52 @@ def test_goal_mix_rolls_up_per_club_and_league_rarity():
     assert goal_mix_for(untagged, "home", "away") == {"scored": {}, "conceded": {}}
     assert goal_mix_for(records[2], "home", "away") is None
     assert goal_mix_summary([]) == {"games": 0, "scored": {}, "conceded": {}, "scored_total": 0, "conceded_total": 0}
+
+
+def test_offence_and_defence_rows_print_the_goals_per_game_league_place():
+    """Beside 1.5 scored/g and 1.0 allowed/g the chiclet shows the club's rank in the league for that plain stat."""
+    import os
+    import subprocess
+    import tempfile
+    from pathlib import Path
+
+    js = Path("src/eeesoc/static/app.js").read_text(encoding="utf-8")
+    css = Path("src/eeesoc/static/app.css").read_text(encoding="utf-8")
+    html = Path("src/eeesoc/static/index.html").read_text(encoding="utf-8")
+    assert "statRank: (r) => r.scored_rank" in js and "statRank: (r) => r.conceded_rank" in js
+    assert ".mc-stat-rank" in css
+    assert "its own league place (#n, most first)" in html and "its league place (#n, fewest first)" in html
+
+    script = (
+        "const escapeHtml = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/\"/g, '&quot;');\n"
+        "const state = { clinical: { min_games: 2 } };\n"
+        + js[js.index("  // Clinical power — goals per 100 xG") : js.index("  function formWords")]
+        + r"""
+const league = { label: "EPL", teams_ranked: 8, par_rates: { xg: 1.3, shots: 12, sot: 4, corners: 5, goals: 1.3 }, par_xga_per_game: 1.3 };
+const row = {
+  team: "Sharp FC", games: 6, basis: "xg", offense_power: 58, offense_rank: 2, defense_power: 44, defense_rank: 6, potent: true, solid: false,
+  scored_per_game: 1.5, scored_rank: 3, conceded_per_game: 1.0, conceded_rank: 5, goals_per_game: 1.5, xg_per_game: 1.4, shots_per_game: 13, sot_per_game: 5, corners_per_game: 6, xga_per_game: 1.5, _league: league,
+};
+function clinicalFor() { return row; }
+const m = { league_slug: "eng.1", home: "Sharp FC", away: "Blunt Town", home_id: "10", away_id: "20" };
+const off = powerSideHtml(m, "home", OFFENSE_SPEC);
+if (!off.includes('<b class="mc-power-num">58</b><span class="mc-power-rank">#2/8</span><span class="mc-power-stat">1.5 scored/g<i class="mc-stat-rank">#3</i></span>')) process.exit(2);
+if (!off.includes("1.50 goals scored per game — #3 of 8 in the league.")) process.exit(3);
+const def = powerSideHtml(m, "home", DEFENSE_SPEC);
+if (!def.includes('<span class="mc-power-stat">1.0 allowed/g<i class="mc-stat-rank">#5</i></span>')) process.exit(4);
+if (!def.includes("1.00 goals allowed per game — #5 of 8 in the league (fewest first).")) process.exit(5);
+// Unranked club: the stat still prints, with no place.
+row.scored_rank = null; row.conceded_rank = null; row.offense_rank = null;
+const un = powerSideHtml(m, "home", OFFENSE_SPEC);
+if (!un.includes('<span class="mc-power-stat">1.5 scored/g</span>') || un.includes("mc-stat-rank")) process.exit(6);
+if (!un.includes("1.50 goals scored per game.")) process.exit(7);
+"""
+    )
+    with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as fh:
+        fh.write(script)
+        name = fh.name
+    try:
+        proc = subprocess.run(["node", name], capture_output=True, text=True, env={**os.environ, "TZ": "UTC"})
+    finally:
+        Path(name).unlink(missing_ok=True)
+    assert proc.returncode == 0, proc.stderr or proc.stdout or proc.returncode
