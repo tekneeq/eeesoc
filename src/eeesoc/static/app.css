@@ -1126,10 +1126,120 @@ main {
   color: var(--muted);
 }
 
+/* Goals allowed by kind: a row per kind, each club's last one and how often. */
+.mc-allowed {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  width: 100%;
+  margin: 0.2rem 0 0.1rem;
+  padding-top: 0.38rem;
+  border-top: 1px solid var(--line);
+  font-family: var(--mono);
+  line-height: 1.2;
+}
+
+.mc-allowed:empty,
+.match-chiclet.collapsed .mc-allowed {
+  display: none;
+}
+
+.mc-al-grid {
+  grid-template-columns: minmax(4.6rem, auto) repeat(2, minmax(0, 1.25fr) minmax(0, 1fr));
+}
+
+.mc-al-team {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 0.35rem;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.mc-al-team small {
+  font-size: 0.5rem;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  text-transform: none;
+  color: var(--muted);
+}
+
+.mc-al-team.home {
+  color: var(--accent);
+}
+
+.mc-al-team.away {
+  color: rgba(125, 200, 255, 0.95);
+}
+
+.mc-al-kind {
+  display: flex;
+  align-items: center;
+  font-size: 0.62rem;
+  font-weight: 600;
+  color: var(--cat, var(--text));
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mc-al-last b {
+  font-size: 0.7rem;
+  white-space: nowrap;
+}
+
+.mc-al-last small {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mc-al-ago {
+  color: var(--muted);
+}
+
+.mc-al-rate b {
+  font-size: 0.7rem;
+  white-space: nowrap;
+}
+
+.mc-al-never b {
+  font-size: 0.62rem;
+  letter-spacing: 0.04em;
+}
+
+.mc-al-never-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.2rem 0.4rem;
+  font-size: 0.54rem;
+  color: var(--muted);
+}
+
+.mc-al-never-line > span {
+  color: var(--cat, var(--muted));
+  opacity: 0.85;
+}
+
 @media (max-width: 440px) {
   .mc-box-grid {
     grid-template-columns: minmax(3.6rem, auto) repeat(4, minmax(0, 1fr));
     gap: 0.12rem 0.18rem;
+  }
+
+  .mc-al-grid {
+    grid-template-columns: minmax(3.2rem, auto) repeat(2, minmax(0, 1.2fr) minmax(0, 1fr));
+  }
+
+  .mc-al-kind {
+    font-size: 0.56rem;
+  }
+
+  .mc-al-last b,
+  .mc-al-rate b {
+    font-size: 0.62rem;
   }
 
   .mc-box-key {

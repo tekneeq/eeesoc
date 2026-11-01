@@ -14,6 +14,7 @@ from eeesoc.clinical import (
     PRIOR_GAMES,
     PRIOR_XG,
     _publish_power,
+    allowed_by_kind,
     build_clinical_board,
     clinical_board,
     goal_mix_for,
@@ -843,6 +844,33 @@ def test_goal_mix_rolls_up_per_club_and_league_rarity():
     assert mix["categories"]["screamer"] == {"goals": 1, "share_pct": 14, "per_game": 0.5, "game_pct": 50}
     assert "solo" not in mix["categories"]
     assert league["goal_categories"][:3] == ["team", "mistake", "solo"]
+
+    # When did Gift FC last concede each kind, and how often: gifts in both tagged games (the newest
+    # one 5' by "Someone"), the screamer only in the first — one tagged game ago.
+    allowed = by["Gift FC"]["allowed_by_kind"]
+    assert allowed["games"] == 2 and allowed["total"] == 4
+    gifts = allowed["kinds"]["mistake"]
+    assert gifts["n"] == 3 and gifts["per_game"] == 1.5 and gifts["every"] == 0.7 and gifts["game_pct"] == 100 and gifts["games_since"] == 0
+    assert gifts["last"] == {
+        "start": "2026-03-01T12:00:00Z", "opponent": "Rocket Town", "venue": "home", "gf": 2, "ga": 1,
+        "minute": 5, "player": "", "reason": "",
+    }
+    screamer = allowed["kinds"]["screamer"]
+    assert screamer["n"] == 1 and screamer["every"] == 2.0 and screamer["game_pct"] == 50 and screamer["games_since"] == 1
+    assert screamer["last"]["start"] == "2026-02-01T12:00:00Z" and screamer["last"]["minute"] == 80
+    # Never conceded: counted as zero with no last, and the untagged game does not count.
+    assert allowed["kinds"]["penalty"] == {"n": 0, "per_game": 0.0, "every": None, "game_pct": 0, "games_since": 2, "last": None}
+    assert set(allowed["kinds"]) == set(league["goal_categories"])
+    # Rocket Town's own goal (for Gift FC) is a goal they conceded, with the scorer's reason riding along.
+    rocket_allowed = by["Rocket Town"]["allowed_by_kind"]["kinds"]
+    assert rocket_allowed["own_goal"]["n"] == 1 and rocket_allowed["own_goal"]["last"]["reason"] == "own goal"
+    assert rocket_allowed["penalty"]["last"]["venue"] == "away" and rocket_allowed["penalty"]["last"]["opponent"] == "Gift FC"
+    # League par: every side of every tagged game (4 team-games, 7 goals), rates only.
+    par = league["par_allowed_by_kind"]
+    assert par["games"] == 4 and par["total"] == 7
+    assert par["kinds"]["mistake"] == {"n": 3, "per_game": 0.75, "every": 1.3, "game_pct": 50}
+    assert "last" not in par["kinds"]["mistake"]
+    assert allowed_by_kind([]) == {"games": 0, "total": 0, "kinds": {c: {"n": 0, "per_game": 0.0, "every": None, "game_pct": 0, "games_since": 0, "last": None} for c in league["goal_categories"]}}
 
     # A record with the marker but an untagged goal event just drops that goal from the mix.
     untagged = {**records[0], "events": [_ev(10, "goal", "away")]}
