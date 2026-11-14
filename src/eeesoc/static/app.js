@@ -38,7 +38,7 @@
     quiet: null, // /api/halftime/quiet board for the Live-tab quiet-start graphs
     quietLeague: null, // league slug picked on those graphs; null = ALL
     quietTimer: null,
-    last5Open: {}, // chiclet event_id → {league, event_id, side} of the LAST 5 chip whose mini timeline is open
+    last5Open: {}, // chiclet event_id → {league, event_id, side, index} of the LAST 5 chip whose panel is open
     archiveTimelines: {}, // "league:event_id" → /api/archive/timeline payload, "loading", or {error}
   };
 
@@ -2253,7 +2253,7 @@
   ];
 
   const LAST5_HELP =
-    "Each of this club's last five archived games: who they faced, the first-half and second-half score as it stood on the pitch (home–away), then clinical / offence / defence (power and league rank) and the archive table rank plus W–D–L as they stood after that night. Away games keep the home club first, so @ Dortmund 2–0 is a 2–0 loss, not 0–2. Oldest → newest.";
+    "Each of this club's last five archived games: who they faced, the first-half and second-half score as it stood on the pitch (home–away), then clinical / offence / defence (power and league rank) and the archive table rank plus W–D–L as they stood after that night. Away games keep the home club first, so @ Dortmund 2–0 is a 2–0 loss, not 0–2. Oldest → newest. Tap a game to pin its scoreline on top — same idea as the xG line graph — and, when the archive has it, that game's xG chart.";
 
   function last5OppName(name) {
     return shortTeamName(name, 10) || "—";
@@ -2338,14 +2338,56 @@
     return `${g.letter} ${last5PitchScore(g, g.gf, g.ga)} FT${halves} ${vs}${when}${snap ? ` · as of that night: ${snap}` : ""}`;
   }
 
-  // Which LAST 5 chip of this chiclet has its mini timeline open, if any.
+  // Which LAST 5 chip of this chiclet has its mini panel open, if any.
   function last5OpenFor(m) {
     const open = state.last5Open[String(m?.event_id)];
-    return open && open.event_id ? open : null;
+    return open && open.side ? open : null;
   }
 
   function archiveTimelineKey(league, eventId) {
     return `${league}:${eventId}`;
+  }
+
+  function last5SelectedGame(m) {
+    const open = last5OpenFor(m);
+    if (!open) return null;
+    const name = open.side === "away" ? m.away : m.home;
+    const id = open.side === "away" ? m.away_id : m.home_id;
+    const row = clinicalFor(m.league_slug, id, name);
+    const recent = row?.recent || [];
+    const idx = Number(open.index);
+    let game = Number.isInteger(idx) && idx >= 0 && idx < recent.length ? recent[idx] : null;
+    if (!game && open.event_id) {
+      game = recent.find((g) => String(g.event_id) === String(open.event_id)) || null;
+    }
+    return { open, game, focusName: name };
+  }
+
+  function last5BoardSides(focusName, g, tl) {
+    if (tl && !tl.error) {
+      return {
+        home: tl.home,
+        away: tl.away,
+        ft: `${tl.home_score ?? "—"}–${tl.away_score ?? "—"}`,
+        ht: tl.ht_home != null && tl.ht_away != null ? `${tl.ht_home}–${tl.ht_away}` : "",
+      };
+    }
+    if (!g) return { home: focusName || "—", away: "—", ft: "—", ht: "" };
+    const { h1 } = last5GameHalves(g);
+    if (g.venue === "away") {
+      return {
+        home: g.opponent,
+        away: focusName,
+        ft: last5PitchScore(g, g.gf, g.ga),
+        ht: h1 !== "—" ? h1 : "",
+      };
+    }
+    return {
+      home: focusName,
+      away: g.opponent,
+      ft: last5PitchScore(g, g.gf, g.ga),
+      ht: h1 !== "—" ? h1 : "",
+    };
   }
 
   function last5GamesSideHtml(m, side) {
@@ -2358,7 +2400,7 @@
     const open = last5OpenFor(m);
     const league = row.league_slug || m.league_slug || "";
     const chips = row.recent
-      .map((g) => {
+      .map((g, i) => {
         const { h1, h2, known } = last5GameHalves(g);
         const vs = `${g.venue === "home" ? "v" : "@"} ${last5OppName(g.opponent)}`;
         const letter = String(g.letter || "").toLowerCase();
@@ -2370,13 +2412,10 @@
           then.def ? `<span class="mc-form-then">def ${escapeHtml(then.def)}</span>` : "",
           then.table ? `<span class="mc-form-then tbl">${escapeHtml(then.table)}</span>` : "",
         ].join("");
-        const tappable = !!g.event_id;
-        const isOpen = tappable && open && open.event_id === String(g.event_id) && open.side === side;
-        const tap = tappable
-          ? ` role="button" tabindex="0" aria-expanded="${isOpen ? "true" : "false"}" data-last5-league="${escapeHtml(league)}" data-last5-event="${escapeHtml(g.event_id)}" data-last5-side="${side}"`
-          : "";
-        const hint = tappable ? ` · ${isOpen ? "tap to close" : "tap for the timeline"}` : "";
-        return `<span class="mc-form-g ${cls}${known ? "" : " none"}${tappable ? " tap" : ""}${isOpen ? " open" : ""}"${tap} title="${escapeHtml(last5GameTitle(g) + hint)}"><em>${escapeHtml(vs)}</em><b>1H ${h1}</b><i>2H ${h2}</i>${snap}</span>`;
+        const isOpen = open && open.side === side && Number(open.index) === i;
+        const tap = ` role="button" tabindex="0" aria-expanded="${isOpen ? "true" : "false"}" data-last5-league="${escapeHtml(league)}" data-last5-event="${escapeHtml(g.event_id || "")}" data-last5-side="${side}" data-last5-index="${i}"`;
+        const hint = ` · ${isOpen ? "tap to close" : g.event_id ? "tap for the line graph" : "tap for the score"}`;
+        return `<span class="mc-form-g ${cls}${known ? "" : " none"} tap${isOpen ? " open" : ""}"${tap} title="${escapeHtml(last5GameTitle(g) + hint)}"><em>${escapeHtml(vs)}</em><b>1H ${h1}</b><i>2H ${h2}</i>${snap}</span>`;
       })
       .join("");
     return `<span class="mc-power-side mc-form-side ${side}" title="${title}"><span class="mc-form-games">${chips}</span></span>`;
@@ -2385,17 +2424,18 @@
   function last5GamesRowHtml(m) {
     const row = `${last5GamesSideHtml(m, "home")}<span class="mc-power-label" title="${escapeHtml(LAST5_HELP)}">🥅 last 5</span>${last5GamesSideHtml(m, "away")}`;
     const mini = last5MiniHtml(m);
-    return mini ? `${row}${mini}` : row;
+    // Panel sits above the chips, same as the xG totals sit on top of the line graph.
+    return mini ? `${mini}${row}` : row;
   }
 
-  // —— Mini timeline of an archived game, opened from a LAST 5 chip ——
+  // —— Mini panel of an archived game, opened from a LAST 5 chip ——
   //
-  // Same strip as the live chiclet (goals span the axis, shots and corners in
-  // their lanes, home above, away below), run to 90', with the goals listed
-  // underneath carrying their category tags.
+  // Scoreline on top (date, teams, FT / HT / 2H), then the same xG line graph
+  // the live chiclet draws — totals printed on the chart — then the 90' event
+  // strip and the tagged goals.
 
   const LAST5_MINI_HELP =
-    "One of this club's last five games, from the archive: the full 90' event strip (home above the line, away below; goals span it, shots on target sit nearest the axis, then blocked shots, then corners), the score at half-time and full-time, the xG each side built, and every goal with how it came about.";
+    "One of this club's last five games. The scoreline sits on top — date, teams, full-time, half-time, and (when the archive has it) the xG line graph with totals, the same way the live chiclet's xG chart prints its numbers on top. Under that: the 90' event strip and every goal with how it came about.";
 
   function last5MiniStatus(text, extra = "") {
     return `<span class="mc-last5-status${extra}">${escapeHtml(text)}</span>`;
@@ -2414,38 +2454,63 @@
     return `<span class="mc-last5-goal ${side}"${text}><i class="mc-key mc-key-${side}"></i><b>${escapeHtml(r.clock || `${r.minute}'`)}</b><span class="mc-last5-who">${who}</span>${og}${goalTagHtml(r, league)}${xg}</span>`;
   }
 
+  function last5MiniHeadHtml(m, tl) {
+    const sel = last5SelectedGame(m);
+    if (!sel) return "";
+    const { game, focusName } = sel;
+    const ready = tl && tl !== "loading" && !tl.error ? tl : null;
+    const board = last5BoardSides(focusName, game, ready);
+    const focusKey = teamKey(focusName);
+    const homeOn = teamKey(board.home) === focusKey;
+    const awayOn = !homeOn && teamKey(board.away) === focusKey;
+    const name = (n, on) => `<span class="mc-last5-team${on ? " on" : ""}">${escapeHtml(shortTeamName(n, 12) || n || "—")}</span>`;
+    const when = (ready && ready.date) || game?.date || "";
+    const whenHtml = when ? `<span class="mc-last5-when">${escapeHtml(when)}</span>` : "";
+    const letter = game?.letter
+      ? `<span class="mc-last5-letter ${escapeHtml(String(game.letter).toLowerCase())}">${escapeHtml(game.letter)}</span>`
+      : "";
+    const { h1, h2, known } = game ? last5GameHalves(game) : { h1: "", h2: "", known: false };
+    const ht = board.ht ? `<span class="mc-last5-ht">HT ${escapeHtml(board.ht)}</span>` : known && h1 !== "—" ? `<span class="mc-last5-ht">HT ${escapeHtml(h1)}</span>` : "";
+    const second = known && h2 !== "—" ? `<span class="mc-last5-ht">2H ${escapeHtml(h2)}</span>` : "";
+    const xg =
+      ready && ready.has_xg && ready.xg
+        ? `<span class="mc-last5-xgsum" title="Expected goals built over the 90'">xG ${Number(ready.xg.home_total || 0).toFixed(1)}–${Number(ready.xg.away_total || 0).toFixed(1)}</span>`
+        : "";
+    const then = game ? last5ThenBits(game) : {};
+    const snap = [
+      then.clin ? `cl ${then.clin}` : "",
+      then.off ? `off ${then.off}` : "",
+      then.def ? `def ${then.def}` : "",
+      then.table ? `tbl ${then.table}` : "",
+    ].filter(Boolean);
+    const snapHtml = snap.length
+      ? `<span class="mc-last5-then" title="As they stood after that night">${escapeHtml(snap.join(" · "))}</span>`
+      : "";
+    return `<span class="mc-last5-head">${whenHtml}${letter}<i class="mc-key mc-key-home"></i>${name(board.home, homeOn)}<b class="mc-last5-ft">${escapeHtml(board.ft)}</b>${name(board.away, awayOn)}<i class="mc-key mc-key-away"></i>${ht}${second}${xg}${snapHtml}</span>`;
+  }
+
   function last5MiniHtml(m) {
     const open = last5OpenFor(m);
     if (!open) return "";
-    const key = archiveTimelineKey(open.league, open.event_id);
-    const tl = state.archiveTimelines[key];
-    const close = `<span class="mc-last5-close" role="button" tabindex="0" title="Close this game's timeline" aria-label="Close">×</span>`;
-    let body;
-    let head = "";
-    if (!tl || tl === "loading") {
+    const key = open.event_id ? archiveTimelineKey(open.league, open.event_id) : "";
+    const tl = key ? state.archiveTimelines[key] : null;
+    const close = `<span class="mc-last5-close" role="button" tabindex="0" title="Close this game" aria-label="Close">×</span>`;
+    const head = last5MiniHeadHtml(m, tl);
+    let body = "";
+    if (open.event_id && (!tl || tl === "loading")) {
       body = last5MiniStatus("loading the archived game…", " loading");
-    } else if (tl.error) {
+    } else if (tl && tl.error) {
       body = last5MiniStatus(tl.error === "not archived" ? "this game's play-by-play is not in the archive" : "could not load this game", " err");
-    } else {
-      const focusHome = open.side === "home" ? m.home : m.away;
-      const focusKey = teamKey(focusHome);
-      const homeOn = teamKey(tl.home) === focusKey;
-      const awayOn = !homeOn && teamKey(tl.away) === focusKey;
-      const name = (n, on) => `<span class="mc-last5-team${on ? " on" : ""}">${escapeHtml(shortTeamName(n, 12) || n || "—")}</span>`;
-      const ht = tl.ht_home != null && tl.ht_away != null ? `<span class="mc-last5-ht">HT ${tl.ht_home}–${tl.ht_away}</span>` : "";
-      const xg =
-        tl.has_xg && tl.xg
-          ? `<span class="mc-last5-xgsum" title="Expected goals built over the 90'">xG ${Number(tl.xg.home_total || 0).toFixed(1)}–${Number(tl.xg.away_total || 0).toFixed(1)}</span>`
-          : "";
-      const when = tl.date ? `<span class="mc-last5-when">${escapeHtml(tl.date)}</span>` : "";
-      head = `<span class="mc-last5-head">${when}<i class="mc-key mc-key-home"></i>${name(tl.home, homeOn)}<b class="mc-last5-ft">${tl.home_score ?? "—"}–${tl.away_score ?? "—"}</b>${name(tl.away, awayOn)}<i class="mc-key mc-key-away"></i>${ht}${xg}</span>`;
+    } else if (tl && tl !== "loading") {
       const goals = (tl.bulletin || []).filter((r) => r.kind === "goal" || r.kind === "own_goal" || r.kind === "disallowed");
       const list = goals.length
         ? `<span class="mc-last5-goals">${goals.map((r) => last5MiniGoalHtml(r, open.league)).join("")}</span>`
         : `<span class="mc-last5-goals none">no goals</span>`;
-      body = `<span class="mc-last5-strip">${timelineSvg(tl)}</span>${list}`;
+      const graph = tl.has_xg ? `<span class="mc-last5-xggraph">${xgSvg(tl)}</span>` : "";
+      body = `${graph}<span class="mc-last5-strip">${timelineSvg(tl)}</span>${list}`;
     }
-    return `<span class="mc-last5-mini" data-last5-mini="${escapeHtml(open.event_id)}" title="${escapeHtml(LAST5_MINI_HELP)}">${close}${head}${body}</span>`;
+    const miniId = open.event_id || `${open.side}-${open.index}`;
+    return `<span class="mc-last5-mini" data-last5-mini="${escapeHtml(miniId)}" title="${escapeHtml(LAST5_MINI_HELP)}">${close}${head}${body}</span>`;
   }
 
   async function loadArchiveTimeline(league, eventId) {
@@ -2468,12 +2533,13 @@
     const league = chip.dataset.last5League || m.league_slug || "";
     const eventId = String(chip.dataset.last5Event || "");
     const side = chip.dataset.last5Side === "away" ? "away" : "home";
+    const index = Number(chip.dataset.last5Index);
     const id = String(m.event_id);
     const open = state.last5Open[id];
-    if (open && open.event_id === eventId && open.side === side) delete state.last5Open[id];
+    if (open && open.side === side && Number(open.index) === index) delete state.last5Open[id];
     else {
-      state.last5Open[id] = { league, event_id: eventId, side };
-      loadArchiveTimeline(league, eventId);
+      state.last5Open[id] = { league, event_id: eventId, side, index: Number.isInteger(index) ? index : 0 };
+      if (eventId) loadArchiveTimeline(league, eventId);
     }
     paintPowerRow(card);
   }
@@ -2491,7 +2557,7 @@
   // re-rendered later.
   function bindLast5MiniTaps() {
     const hit = (e) => {
-      const chip = e.target.closest?.(".mc-form-g[data-last5-event]");
+      const chip = e.target.closest?.(".mc-form-g.tap[data-last5-side]");
       const close = chip ? null : e.target.closest?.(".mc-last5-close");
       // A tap on the open panel itself does nothing, but must not open the pitch.
       const panel = chip || close ? null : e.target.closest?.(".mc-last5-mini");

@@ -168,7 +168,7 @@ def test_archive_timeline_only_stores_finals_once():
 
 
 def test_archived_timeline_is_the_full_game_in_chiclet_shape():
-    """Tapping a LAST 5 chip asks for the archived game as a 90' strip: events, xG, HT/FT, tagged goals."""
+    """Tapping a LAST 5 chip asks for the archived game as a 90' strip: events, xG line, HT/FT, tagged goals."""
     from eeesoc.halftime import archived_timeline, load_record
 
     events = _quiet_half(

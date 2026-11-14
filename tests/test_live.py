@@ -1012,6 +1012,9 @@ def test_live_chiclets_show_last5_games_with_halves():
     assert "1H ${h1}" in js and "2H ${h2}" in js
     assert "then.clin" in js and "then.table" in js
     assert "as of that night" in js
+    assert "tap for the line graph" in js
+    assert "mc-last5-xggraph" in js
+    assert "${mini}${row}" in js
     assert "rows.splice(afterMomentum + 1, 0, last5)" in js
     assert ".mc-form-g" in css and ".mc-form-games" in css
     assert ".mc-form-then" in css
