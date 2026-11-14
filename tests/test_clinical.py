@@ -904,7 +904,7 @@ def test_goal_mix_rolls_up_per_club_and_league_rarity():
 
 
 def test_last5_chip_opens_a_mini_timeline_of_that_archived_game():
-    """Tap a LAST 5 chip → a full-width strip of that game under the row: 90' events, HT/FT, xG and the tagged goals."""
+    """Tap a LAST 5 chip → scoreline on top of the row, then that game's xG line graph, 90' strip and tagged goals."""
     import os
     import subprocess
     import tempfile
@@ -916,8 +916,11 @@ def test_last5_chip_opens_a_mini_timeline_of_that_archived_game():
     py = Path("src/eeesoc/dashboard.py").read_text(encoding="utf-8")
     assert "/api/archive/timeline" in py and "/api/archive/timeline?league=" in js
     assert "function bindLast5MiniTaps" in js and "bindLast5MiniTaps();" in js
-    assert ".mc-form-g.tap" in css and ".mc-form-g.open" in css and ".mc-last5-mini" in css and ".mc-last5-strip .mc-tl-svg" in css
-    assert "tap a game to open its mini timeline" in html
+    assert "function last5MiniHeadHtml" in js and "function last5BoardSides" in js
+    assert ".mc-form-g.tap" in css and ".mc-form-g.open" in css and ".mc-last5-mini" in css
+    assert ".mc-last5-xggraph .mc-xg-svg" in css and ".mc-last5-strip .mc-tl-svg" in css
+    assert "tap a game to pin its scoreline" in html
+    assert "xG line graph" in html
 
     script = (
         "const state = { clinical: { min_games: 2, leagues: {} }, last5Open: {}, archiveTimelines: {} };\n"
@@ -926,7 +929,7 @@ def test_last5_chip_opens_a_mini_timeline_of_that_archived_game():
         + js[js.index("  // —— Goal categories ——") : js.index("  // Clinical power — goals per 100 xG")]
         + js[js.index("  function teamKey(name)") : js.index("  function clinicalFor(leagueSlug, teamId, name)")]
         + js[js.index("  const LAST5_HELP =") : js.index("  // Usual starters out")]
-        + js[js.index("  function liveElapsedSeconds(tl)") : js.index("  function xgSeriesPath(series, xAt, yAt, nowM)")]
+        + js[js.index("  function liveElapsedSeconds(tl)") : js.index("  function endToEndGap(minutes)")]
         + r"""
 const recent = [
   { event_id: "g1", start: "2026-09-05T18:00Z", date: "2026-09-05", opponent: "Real Betis", venue: "away", gf: 1, ga: 2, ht_gf: 0, ht_ga: 1, h2_gf: 1, h2_ga: 1, letter: "L" },
@@ -939,14 +942,14 @@ function paintPowerRow() { painted += 1; }
 const m = { event_id: "live1", league_slug: "esp.1", home: "Levante", away: "Atlético Madrid", home_id: "H", away_id: "A" };
 const card = { __match: m };
 
-// Closed: the archived game is a tappable chip, the one with no id is not.
+// Closed: every last-5 chip is tappable, including one with no archive id.
 let out = last5GamesRowHtml(m);
-if (!out.includes('class="mc-form-g l tap" role="button" tabindex="0" aria-expanded="false" data-last5-league="esp.1" data-last5-event="g1" data-last5-side="home"')) process.exit(2);
-if (!out.includes("tap for the timeline")) process.exit(3);
-if (!out.includes('class="mc-form-g w" title="W 2–0 FT · 1H 1–0 · 2H 1–0 v Getafe · 2026-09-12"')) process.exit(4);
+if (!out.includes('class="mc-form-g l tap" role="button" tabindex="0" aria-expanded="false" data-last5-league="esp.1" data-last5-event="g1" data-last5-side="home" data-last5-index="0"')) process.exit(2);
+if (!out.includes("tap for the line graph")) process.exit(3);
+if (!out.includes('class="mc-form-g w tap"') || !out.includes('data-last5-event="" data-last5-side="home" data-last5-index="1"') || !out.includes("tap for the score")) process.exit(4);
 if (out.includes("mc-last5-mini")) process.exit(5);
 
-// Tap: the chip opens, the game is fetched, and the panel shows a loading line meanwhile.
+// Tap: the chip opens, the scoreline is on top at once, and the archive is fetched for the graph.
 const calls = [];
 globalThis.document = { querySelectorAll: () => [card] };
 globalThis.fetch = async (url) => {
@@ -970,22 +973,29 @@ globalThis.fetch = async (url) => {
     xg: { home: [{ minute: 0, cumulative: 0 }, { minute: 88, cumulative: 1.26 }], away: [{ minute: 0, cumulative: 0 }, { minute: 61, cumulative: 0.05 }], home_total: 1.26, away_total: 0.05 },
   }) };
 };
-const chip = { dataset: { last5League: "esp.1", last5Event: "g1", last5Side: "home" } };
+const chip = { dataset: { last5League: "esp.1", last5Event: "g1", last5Side: "home", last5Index: "0" } };
 toggleLast5Mini(card, chip);
-if (JSON.stringify(state.last5Open.live1) !== JSON.stringify({ league: "esp.1", event_id: "g1", side: "home" })) process.exit(6);
+if (JSON.stringify(state.last5Open.live1) !== JSON.stringify({ league: "esp.1", event_id: "g1", side: "home", index: 0 })) process.exit(6);
 if (calls[0] !== "/api/archive/timeline?league=esp.1&event_id=g1") process.exit(7);
 out = last5GamesRowHtml(m);
 if (!out.includes('class="mc-form-g l tap open" role="button" tabindex="0" aria-expanded="true"') || !out.includes("tap to close")) process.exit(8);
 if (!out.includes('<span class="mc-last5-mini" data-last5-mini="g1"') || !out.includes("loading the archived game…")) process.exit(9);
+// Scoreline is already on top while the graph loads (chip data: away at Betis, 2–1).
+if (!out.includes('<span class="mc-last5-when">2026-09-05</span><span class="mc-last5-letter l">L</span><i class="mc-key mc-key-home"></i><span class="mc-last5-team">Real Betis</span><b class="mc-last5-ft">2–1</b><span class="mc-last5-team on">Levante</span>')) process.exit(91);
+if (out.indexOf("mc-last5-mini") > out.indexOf("mc-form-g l tap open")) process.exit(92);
 
 (async () => {
   await new Promise((r) => setTimeout(r, 0));
   await new Promise((r) => setTimeout(r, 0));
   if (painted < 2) process.exit(10);
   out = last5GamesRowHtml(m);
-  // Header: date, home · FT · away with the club in focus bold, HT and xG.
-  if (!out.includes('<span class="mc-last5-when">2026-09-05</span><i class="mc-key mc-key-home"></i><span class="mc-last5-team">Real Betis</span><b class="mc-last5-ft">2–1</b><span class="mc-last5-team on">Levante</span><i class="mc-key mc-key-away"></i><span class="mc-last5-ht">HT 1–0</span>')) process.exit(11);
+  // Header: date, W/D/L, home · FT · away with the club in focus bold, HT, 2H and xG.
+  if (!out.includes('<span class="mc-last5-when">2026-09-05</span><span class="mc-last5-letter l">L</span><i class="mc-key mc-key-home"></i><span class="mc-last5-team">Real Betis</span><b class="mc-last5-ft">2–1</b><span class="mc-last5-team on">Levante</span><i class="mc-key mc-key-away"></i><span class="mc-last5-ht">HT 1–0</span><span class="mc-last5-ht">2H 1–1</span>')) process.exit(11);
   if (!out.includes('>xG 1.3–0.1</span>')) process.exit(12);
+  // The live chiclet's own xG line graph, with totals printed on top of the chart.
+  if (!out.includes('<span class="mc-last5-xggraph"><svg class="mc-xg-svg"') || !out.includes('aria-label="Expected goals versus game time"')) process.exit(121);
+  if (!out.includes('>xG <tspan class="tl-xg-h">1.26</tspan>–<tspan class="tl-xg-a">0.05</tspan></text>')) process.exit(122);
+  if (out.indexOf("mc-last5-xggraph") > out.indexOf("mc-last5-strip")) process.exit(123);
   // The strip is the chiclet's own timeline, run to 90'.
   if (!out.includes('<span class="mc-last5-strip"><svg class="mc-tl-svg"') || !out.includes('aria-label="0 to 90 minute event timeline"') || !out.includes('data-max="90"')) process.exit(13);
   if ((out.match(/<g class="tl-goal">/g) || []).length !== 3 || !out.includes('<g class="tl-sot">') || !out.includes('<g class="tl-corner">')) process.exit(14);
@@ -999,15 +1009,26 @@ if (!out.includes('<span class="mc-last5-mini" data-last5-mini="g1"') || !out.in
   // Tap the same chip again → closed; a chip of the other side opens its own.
   toggleLast5Mini(card, chip);
   if (state.last5Open.live1 || last5GamesRowHtml(m).includes("mc-last5-mini")) process.exit(20);
-  toggleLast5Mini(card, { dataset: { last5League: "esp.1", last5Event: "g9", last5Side: "away" } });
+  toggleLast5Mini(card, { dataset: { last5League: "esp.1", last5Event: "g9", last5Side: "away", last5Index: "0" } });
   if (state.last5Open.live1.side !== "away" || calls[1] !== "/api/archive/timeline?league=esp.1&event_id=g9") process.exit(21);
   closeLast5Mini(card);
   if (state.last5Open.live1) process.exit(22);
 
   // A game the archive does not hold says so instead of a strip.
-  state.last5Open.live1 = { league: "esp.1", event_id: "g9", side: "away" };
+  state.last5Open.live1 = { league: "esp.1", event_id: "g9", side: "away", index: 0 };
   state.archiveTimelines["esp.1:g9"] = { error: "not archived" };
   if (!last5GamesRowHtml(m).includes("this game's play-by-play is not in the archive")) process.exit(23);
+
+  // A chip with no archive id still opens: scoreline on top, no fetch.
+  closeLast5Mini(card);
+  const nCalls = calls.length;
+  toggleLast5Mini(card, { dataset: { last5League: "esp.1", last5Event: "", last5Side: "home", last5Index: "1" } });
+  if (calls.length !== nCalls) process.exit(24);
+  out = last5GamesRowHtml(m);
+  if (!out.includes('<span class="mc-last5-mini" data-last5-mini="home-1"')) process.exit(25);
+  if (!out.includes('<span class="mc-last5-when">2026-09-12</span><span class="mc-last5-letter w">W</span>')) process.exit(26);
+  if (!out.includes('<span class="mc-last5-team on">Levante</span><b class="mc-last5-ft">2–0</b><span class="mc-last5-team">Getafe</span>')) process.exit(27);
+  if (out.includes("mc-last5-xggraph") || out.includes("loading the archived game")) process.exit(28);
 })();
 """
     )

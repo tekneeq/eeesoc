@@ -4566,7 +4566,8 @@ main {
   box-shadow: 0 0 0 1px rgba(125, 255, 179, 0.25);
 }
 
-/* The archived game's strip, full width under the LAST 5 row. */
+/* The archived game sits full width above the LAST 5 chips — scoreline
+   on top, then the xG line graph (same drawing as the live chiclet). */
 .mc-last5-mini {
   position: relative;
   grid-column: 1 / -1;
@@ -4631,19 +4632,36 @@ main {
 }
 
 .mc-last5-ht,
-.mc-last5-xgsum {
+.mc-last5-xgsum,
+.mc-last5-then {
   font-size: 0.56rem;
   letter-spacing: 0.03em;
   font-variant-numeric: tabular-nums;
 }
 
+.mc-last5-letter {
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.mc-last5-letter.w {
+  color: var(--accent);
+}
+
+.mc-last5-letter.l {
+  color: var(--warn);
+}
+
+.mc-last5-xggraph,
 .mc-last5-strip {
   display: block;
   width: 100%;
 }
 
-/* Mini: the same drawing as the live strip, held to about half the card on a desktop
-   (the viewBox keeps the marks round); a phone gets the full width. */
+/* Mini: the same drawings as the live chiclet, held to about half the card on a
+   desktop (the viewBox keeps the marks round); a phone gets the full width. */
+.mc-last5-xggraph .mc-xg-svg,
 .mc-last5-strip .mc-tl-svg {
   height: auto;
   max-width: 540px;
