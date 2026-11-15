@@ -701,3 +701,34 @@ def test_bets_tab_lists_todays_alarms_by_league():
     assert ".bets-hero" in css and ".bets-league" in css and ".bets-card.won" in css
     assert ".bets-records" in css and ".bets-record-main" in css
     assert "last 30 days and season record" in html
+
+
+def test_zero_nogoal_tab_last_30_days_still_nil_nil():
+    js = Path("src/eeesoc/static/app.js").read_text(encoding="utf-8")
+    css = Path("src/eeesoc/static/app.css").read_text(encoding="utf-8")
+    html = Path("src/eeesoc/static/index.html").read_text(encoding="utf-8")
+    assert 'data-tab="zero"' in html
+    assert 'id="panel-zero"' in html
+    assert 'id="zeroBoard"' in html
+    assert "still <b>0–0</b>" in html
+    assert "2–0" in html
+    assert "function isZeroZeroSignal" in js
+    assert "typeof ev.zero_zero" in js
+    assert "const ev = s && s.eval" in js
+    assert "Do not use half_goals_at_fire" in js
+    assert "function lastNDayKeys" in js
+    assert "function zeroSignalsLast30" in js
+    assert "function renderZeroBoard" in js
+    assert "function refreshZero" in js
+    assert "function selectZeroDay" in js
+    assert "function renderDayGameChiclets" in js
+    assert 'if (name === "zero") refreshZero()' in js
+    assert 'bindDailyBars($("#zeroDays"), selectZeroDay)' in js
+    assert "dailyBarsHtml(days, state.zeroDay, { compact: true })" in js
+    assert 'gridId: "zeroDayGrid"' in js
+    assert "A 2–0 game that later triggered is left off" in js
+    assert "Last ${BET_WINDOW_DAYS} days · still 0–0 only" in js
+    assert ".zero-days" in css
+    assert "#zeroDayGames .match-chiclet-row" in css
+    # Live poll should refresh this tab the same way it refreshes Bets.
+    assert "tab[data-tab='zero']" in js

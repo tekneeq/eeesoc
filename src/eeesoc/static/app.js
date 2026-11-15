@@ -34,6 +34,7 @@
     playerCard: null, // {side, name} of the open player card
     clinicalTimer: null,
     sigDay: null, // "YYYY-MM-DD" local day selected on the Signals daily bars
+    zeroDay: null, // same, on the 0–0 NG last-30 daily bars
     sigSignals: [],
     quiet: null, // /api/halftime/quiet board for the Live-tab quiet-start graphs
     quietLeague: null, // league slug picked on those graphs; null = ALL
@@ -308,6 +309,7 @@
     else stopHalftimeTimer();
     if (name === "signals") refreshSignals();
     if (name === "bets") refreshBets();
+    if (name === "zero") refreshZero();
   }
 
   // ---------------------------------------------------------------------------
@@ -649,9 +651,11 @@
     };
   }
 
-  function dailyBarsHtml(days, selected) {
+  function dailyBarsHtml(days, selected, opts = {}) {
     if (!days.length) return "";
-    const W = Math.max(320, days.length * 52 + 16);
+    const compact = Boolean(opts.compact);
+    const slotPx = compact ? 38 : 52;
+    const W = Math.max(320, days.length * slotPx + 16);
     const H = 118;
     const padL = 6;
     const padR = 6;
@@ -660,7 +664,8 @@
     const innerH = H - padT - padB;
     const max = Math.max(1, ...days.map((d) => d.fired));
     const slot = (W - padL - padR) / days.length;
-    const bw = Math.min(34, Math.max(14, slot - 10));
+    const bw = Math.min(compact ? 26 : 34, Math.max(compact ? 10 : 14, slot - 10));
+    const last = days.length - 1;
     const bars = days
       .map((d, i) => {
         const x = padL + i * slot + (slot - bw) / 2;
@@ -680,15 +685,18 @@
         }
         const frameY = padT + innerH - (d.fired / max) * innerH;
         const frameH = (d.fired / max) * innerH;
-        const hit = d.hit_pct != null ? `${d.held}/${d.held + d.busted}` : `${d.fired}`;
-        const title = `${sigDayLabel(d.key)} · ${d.held} held · ${d.busted} busted${d.open ? ` · ${d.open} open` : ""}${d.void ? ` · ${d.void} void` : ""}`;
+        const hit = !d.fired ? "" : d.hit_pct != null ? `${d.held}/${d.held + d.busted}` : `${d.fired}`;
+        const title = d.fired
+          ? `${sigDayLabel(d.key)} · ${d.held} held · ${d.busted} busted${d.open ? ` · ${d.open} open` : ""}${d.void ? ` · ${d.void} void` : ""}`
+          : `${sigDayLabel(d.key)} · no signals`;
         const short = new Date(`${d.key}T00:00:00`).toLocaleDateString([], { month: "short", day: "numeric" });
+        const showLabel = !compact || i === 0 || i === last || i % 2 === 0 || d.key === selected;
         return `<g class="sig-day${d.key === selected ? " on" : ""}" role="button" tabindex="0" data-sig-day="${escapeHtml(d.key)}" aria-label="${escapeHtml(title)}">
           <title>${escapeHtml(title)}</title>
           <rect class="sig-day-frame" x="${x.toFixed(1)}" y="${frameY.toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.max(frameH, 2).toFixed(1)}"/>
           ${segs.join("")}
           <text class="sig-day-count" x="${(x + bw / 2).toFixed(1)}" y="${Math.max(padT - 2, frameY - 3).toFixed(1)}" text-anchor="middle">${hit}</text>
-          <text class="sig-day-label" x="${(x + bw / 2).toFixed(1)}" y="${H - 8}" text-anchor="middle">${escapeHtml(short)}</text>
+          <text class="sig-day-label" x="${(x + bw / 2).toFixed(1)}" y="${H - 8}" text-anchor="middle">${showLabel ? escapeHtml(short) : ""}</text>
         </g>`;
       })
       .join("");
@@ -734,10 +742,10 @@
     };
   }
 
-  function bindDailyBars(root) {
+  function bindDailyBars(root, onPick) {
     if (!root) return;
     root.querySelectorAll("[data-sig-day]").forEach((el) => {
-      const pick = () => selectSigDay(el.dataset.sigDay);
+      const pick = () => (onPick || selectSigDay)(el.dataset.sigDay);
       el.addEventListener("click", (ev) => {
         ev.preventDefault();
         ev.stopPropagation();
@@ -763,30 +771,39 @@
     renderSignalDayGames();
   }
 
-  function renderSignalDayGames() {
-    const mount = $("#sigDayGames");
+  function renderDayGameChiclets(mount, signals, dayKey, opts = {}) {
     if (!mount) return;
-    const byDay = new Map(groupSignalsByDay(state.sigSignals));
-    const key = state.sigDay && byDay.has(state.sigDay) ? state.sigDay : null;
-    if (!key) {
+    const byDay = new Map(groupSignalsByDay(signals));
+    const list = dayKey ? byDay.get(dayKey) || [] : [];
+    if (!dayKey || (!list.length && opts.hideWhenEmpty)) {
       mount.hidden = true;
       mount.innerHTML = "";
       return;
     }
-    const list = byDay.get(key) || [];
+    mount.hidden = false;
+    const held = list.filter((s) => s.status === "held").length;
+    const busted = list.filter((s) => s.status === "busted").length;
+    const blurb =
+      typeof opts.blurb === "function"
+        ? opts.blurb(list, held, busted)
+        : `${list.length} signal${list.length === 1 ? "" : "s"} · ${held} held · ${busted} busted — each chiclet is the game as ESPN filed it.`;
+    const gridId = opts.gridId || "sigDayGrid";
+    if (!list.length) {
+      mount.innerHTML = `<h3>${escapeHtml(sigDayLabel(dayKey))}</h3>
+        <p class="sig-muted">${escapeHtml(opts.empty || "No signals this day.")}</p>`;
+      return;
+    }
     const games = new Map();
     for (const s of list) {
       const id = String(s.event_id || s.key || "");
       if (!games.has(id)) games.set(id, []);
       games.get(id).push(s);
     }
-    mount.hidden = false;
-    const held = list.filter((s) => s.status === "held").length;
-    const busted = list.filter((s) => s.status === "busted").length;
-    mount.innerHTML = `<h3>${escapeHtml(sigDayLabel(key))}</h3>
-      <p class="sig-muted">${list.length} signal${list.length === 1 ? "" : "s"} · ${held} held · ${busted} busted — each chiclet is the game as ESPN filed it.</p>
-      <div class="match-chiclet-row match-chiclet-row-tl" id="sigDayGrid"></div>`;
-    const grid = mount.querySelector("#sigDayGrid");
+    mount.innerHTML = `<h3>${escapeHtml(sigDayLabel(dayKey))}</h3>
+      <p class="sig-muted">${blurb}</p>
+      <div class="match-chiclet-row match-chiclet-row-tl" id="${escapeHtml(gridId)}"></div>`;
+    const grid = mount.querySelector(`#${gridId}`);
+    if (!grid) return;
     for (const group of games.values()) {
       const m = matchFromSignals(group);
       const btn = buildMatchChicletButton(m, null, null, true);
@@ -799,6 +816,154 @@
       grid.appendChild(btn);
       if (m.event_id && m.league_slug) {
         loadMatchTimeline(m, btn.querySelector(".mc-timeline"), btn.querySelector(".mc-xg"), { quiet: true });
+      }
+    }
+  }
+
+  function renderSignalDayGames() {
+    renderDayGameChiclets($("#sigDayGames"), state.sigSignals, state.sigDay, {
+      hideWhenEmpty: true,
+      gridId: "sigDayGrid",
+    });
+  }
+
+  // ---------------------------------------------------------------------------
+  // 0–0 NG tab — last 30 days of still-0–0 no-more-goals signals
+  // ---------------------------------------------------------------------------
+
+  function isZeroZeroSignal(s) {
+    // Fire-time 0–0 only. A 2–0 game that later triggered is left off.
+    // Do not use half_goals_at_fire: a 2H alarm at 2–0 can still be 0 this-half goals.
+    const ev = s && s.eval;
+    if (ev && typeof ev.zero_zero === "boolean") return ev.zero_zero === true;
+    if (ev && ev.home_score != null && ev.away_score != null) {
+      return (Number(ev.home_score) || 0) + (Number(ev.away_score) || 0) === 0;
+    }
+    const sc = s && s.score;
+    if (Array.isArray(sc) && sc.length >= 2) {
+      return (Number(sc[0]) || 0) + (Number(sc[1]) || 0) === 0;
+    }
+    return false;
+  }
+
+  function lastNDayKeys(n, nowSec) {
+    const keys = [];
+    const now = new Date((nowSec ?? Date.now() / 1000) * 1000);
+    now.setHours(12, 0, 0, 0);
+    for (let i = Math.max(1, n) - 1; i >= 0; i--) {
+      const d = new Date(now.getTime());
+      d.setDate(now.getDate() - i);
+      keys.push(sigDayKey(d.getTime() / 1000));
+    }
+    return keys;
+  }
+
+  function zeroSignalsLast30(signals, nowSec) {
+    const keys = new Set(lastNDayKeys(BET_WINDOW_DAYS, nowSec));
+    return (signals || []).filter((s) => isZeroZeroSignal(s) && keys.has(sigDayKey(s.fired_at)));
+  }
+
+  function zeroHalfTileHtml(t, label) {
+    const frac = t && t.settled ? `${t.won} / ${t.settled}` : t && t.fired ? "0 / 0" : "—";
+    const hit = t && t.hit_pct != null ? `${t.hit_pct}% held` : t && t.fired ? "waiting on results" : "no signals";
+    const live = t && t.live ? ` · ${t.live} open` : "";
+    return `<div class="bets-record">
+      <div class="bets-record-label">${escapeHtml(label)}</div>
+      <div class="bets-record-main">${escapeHtml(frac)}</div>
+      <div class="bets-record-meta">${escapeHtml(hit)}${escapeHtml(live)}</div>
+    </div>`;
+  }
+
+  function selectZeroDay(key) {
+    state.zeroDay = key || null;
+    const root = $("#zeroDays");
+    if (root) {
+      root.querySelectorAll("[data-sig-day]").forEach((el) => {
+        el.classList.toggle("on", el.dataset.sigDay === state.zeroDay);
+      });
+    }
+    renderZeroDayGames();
+  }
+
+  function renderZeroDayGames(signals) {
+    const list = signals || zeroSignalsLast30(state.sigSignals);
+    renderDayGameChiclets($("#zeroDayGames"), list, state.zeroDay, {
+      hideWhenEmpty: false,
+      empty: "No 0–0 no-goal signal fired this day.",
+      gridId: "zeroDayGrid",
+      blurb: (rows, held, busted) =>
+        `${rows.length} 0–0 signal${rows.length === 1 ? "" : "s"} · ${held} held · ${busted} busted — each chiclet is the game as ESPN filed it.`,
+    });
+  }
+
+  function renderZeroBoard(signals) {
+    const mount = $("#zeroBoard");
+    if (!mount) return;
+    const nowSec = Date.now() / 1000;
+    const list = zeroSignalsLast30(signals, nowSec);
+    const t = tallyBets(list);
+    const h1 = tallyBets(list.filter((s) => Number(s.period) === 1));
+    const h2 = tallyBets(list.filter((s) => Number(s.period) === 2));
+    const byDay = new Map(groupSignalsByDay(list));
+    const days = lastNDayKeys(BET_WINDOW_DAYS, nowSec).map((key) => dayBucket(key, byDay.get(key) || []));
+    const withFires = days.filter((d) => d.fired);
+    if (!state.zeroDay || !days.some((d) => d.key === state.zeroDay)) {
+      state.zeroDay = (withFires.length ? withFires[withFires.length - 1] : days[days.length - 1])?.key || null;
+    }
+    const hit = t.hit_pct != null ? `${t.hit_pct}% held` : t.fired ? "waiting on results" : "no 0–0 signals";
+    const settled = t.settled
+      ? `${t.won} of ${t.settled} settled`
+      : t.fired
+        ? "none settled yet"
+        : "none in the last 30 days";
+    mount.innerHTML = `
+      <div class="bets-hero">
+        <div class="bets-hero-when">Last ${BET_WINDOW_DAYS} days · still 0–0 only</div>
+        <div class="bets-hero-score">
+          <span class="bets-stat won"><b>${t.won}</b> held</span>
+          <span class="bets-stat lost"><b>${t.lost}</b> busted</span>
+          <span class="bets-stat live"><b>${t.live}</b> open</span>
+          ${t.void ? `<span class="bets-stat void"><b>${t.void}</b> void</span>` : ""}
+        </div>
+        ${t.fired ? betBarHtml(t) : ""}
+        <p class="bets-hero-sub">${t.fired} signal${t.fired === 1 ? "" : "s"} · ${settled} · ${hit}</p>
+        <div class="bets-records">
+          ${zeroHalfTileHtml(h1, "First half")}
+          ${zeroHalfTileHtml(h2, "Second half")}
+        </div>
+      </div>
+      <div class="sig-card zero-record" id="zeroDays">
+        <h3>Daily record</h3>
+        <p class="sig-muted">Each bar is a day — green held, red busted. Click a bar to open those game chiclets. A 2–0 game that later triggered is left off.</p>
+        ${days.length ? `<div class="sig-days zero-days">${dailyBarsHtml(days, state.zeroDay, { compact: true })}</div>` : ""}
+      </div>
+      <div class="sig-card" id="zeroDayGames" hidden></div>`;
+    bindDailyBars($("#zeroDays"), selectZeroDay);
+    renderZeroDayGames(list);
+  }
+
+  async function refreshZero(opts = {}) {
+    const stamp = $("#zeroStamp");
+    const quiet = Boolean(opts.quiet);
+    try {
+      const rec = await (await fetch("/api/nogoal/signals")).json();
+      state.sigSignals = rec.signals || [];
+      renderZeroBoard(state.sigSignals);
+      const list = zeroSignalsLast30(state.sigSignals);
+      const t = tallyBets(list);
+      if (stamp) {
+        stamp.textContent = t.fired
+          ? `last ${BET_WINDOW_DAYS}: ${t.won} held · ${t.lost} busted${t.live ? ` · ${t.live} open` : ""}${
+              t.hit_pct != null ? ` · ${t.hit_pct}%` : ""
+            }`
+          : `last ${BET_WINDOW_DAYS}: no 0–0 signals`;
+      }
+    } catch (err) {
+      if (quiet) return;
+      if (stamp) stamp.textContent = "0–0 signals unavailable";
+      const mount = $("#zeroBoard");
+      if (mount && !mount.innerHTML) {
+        mount.innerHTML = `<div class="bets-empty"><p>Couldn’t load 0–0 no-goal signals.</p></div>`;
       }
     }
   }
@@ -2954,6 +3119,8 @@
       paintClinicalRows();
       const betsOn = document.querySelector(".tab[data-tab='bets']")?.classList.contains("active");
       if (betsOn) refreshBets({ quiet: true });
+      const zeroOn = document.querySelector(".tab[data-tab='zero']")?.classList.contains("active");
+      if (zeroOn) refreshZero({ quiet: true });
     } catch (err) {
       /* keep the last reading */
     }
@@ -4716,6 +4883,34 @@
       const clockEl = btn.querySelector(".mc-clock-text");
       if (clockEl) clockEl.textContent = formatTickClock(secs);
     }
+    tickLineupMinutes();
+  }
+
+  function tickLineupMinutes() {
+    const mount = $("#pitchLineups");
+    const m = state.selectedLive;
+    if (!mount || !m || $("#pitchPanel")?.hidden) return;
+    const now = lineupNowMinute(m);
+    const title = mount.querySelector(".lu-title");
+    if (title) {
+      title.textContent = now > 0 ? `On the pitch · ${now}′` : m.start ? `XI · ${upcomingKick(m)}` : "XI";
+    }
+    if (now <= 0) return;
+    const barW = 46;
+    mount.querySelectorAll(".lu-player").forEach((g) => {
+      const start = Number(g.dataset.in) || 0;
+      const outRaw = g.dataset.out;
+      const end = outRaw === "" || outRaw == null ? now : Number(outRaw);
+      const mins = Math.max(0, end - start);
+      const label = g.querySelector(".lu-mins");
+      if (label) label.textContent = `${mins}′`;
+      const frac = Math.max(0, Math.min(1, 1 - mins / 95));
+      const stam = g.querySelector(".lu-stam");
+      if (stam) {
+        stam.setAttribute("width", (barW * frac).toFixed(1));
+        stam.setAttribute("class", `lu-stam ${frac > 0.5 ? "ok" : frac > 0.25 ? "warn" : "low"}`);
+      }
+    });
   }
 
   function ensureLiveTicker() {
@@ -5196,11 +5391,15 @@
   // —— Formation lineups on the pitch panel ——
 
   function lineupNowMinute(m) {
+    if (!m || isUpcomingMatch(m) || m.state === "pre") return 0;
     const tl = state.timelines?.[m.event_id];
     if (tl) return Math.max(1, Math.round(liveNowMinutes(tl)));
     if (isFinishedMatch(m)) return 90;
-    const mm = String(m.clock || "").match(/(\d+)/);
-    return mm ? Math.max(1, Math.min(90, Number(mm[1]))) : 1;
+    const clock = String(m.clock || "");
+    // Upcoming kickoff labels look like "15:00" — don't treat that as the 15th minute.
+    if (/^\d{1,2}:\d{2}/.test(clock)) return 0;
+    const mm = clock.match(/(\d+)/);
+    return mm ? Math.max(1, Math.min(120, Number(mm[1]))) : 1;
   }
 
   function lineupMinutes(p, now) {
@@ -5260,7 +5459,8 @@
       <rect class="lu-sub-badge" x="-22" y="34" width="44" height="13" rx="3"/>
       <text class="lu-sub-tag" y="44.2" text-anchor="middle">IN ${p.in_minute}′</text>`
       : "";
-    return `<g class="lu-player lu-${side}${cameOn ? " lu-sub" : ""}" data-side="${side}" data-player="${escapeHtml(p.short || p.name || "")}" data-player-full="${escapeHtml(p.name || "")}" data-keeper="${p.keeper ? "1" : ""}" role="button" tabindex="0" transform="translate(${x.toFixed(1)},${y.toFixed(1)})">
+    const minsLabel = now > 0 ? `${mins}′` : "";
+    return `<g class="lu-player lu-${side}${cameOn ? " lu-sub" : ""}" data-side="${side}" data-player="${escapeHtml(p.short || p.name || "")}" data-player-full="${escapeHtml(p.name || "")}" data-keeper="${p.keeper ? "1" : ""}" data-in="${Number(p.in_minute) || 0}" data-out="${p.out_minute == null ? "" : Number(p.out_minute)}" role="button" tabindex="0" transform="translate(${x.toFixed(1)},${y.toFixed(1)})">
       <title>${escapeHtml(title)} · click for the player card</title>
       <circle class="lu-dot" r="16"/>
       ${subMark}
@@ -5270,6 +5470,7 @@
       <text class="lu-name" y="31" text-anchor="middle">${escapeHtml(name)}</text>
       <rect class="lu-stam-bg" x="${-barW / 2}" y="${stamY}" width="${barW}" height="4" rx="2"/>
       <rect class="lu-stam ${stamCls}" x="${-barW / 2}" y="${stamY}" width="${(barW * frac).toFixed(1)}" height="4" rx="2"/>
+      <text class="lu-mins" y="${stamY + 12}" text-anchor="middle">${minsLabel}</text>
       ${s.goals ? `<text class="lu-goal" x="-22" y="-14">⚽</text>` : ""}
       ${s.yellow || s.red ? `<rect class="lu-card ${s.red ? "red" : "yellow"}" x="-30" y="-4" width="7" height="10" rx="1"/>` : ""}
     </g>`;
@@ -5302,10 +5503,16 @@
     }
     const now = lineupNowMinute(m);
     const subCount = (sd) => (sd.players || []).filter((p) => p.in_minute).length;
+    const clock =
+      now > 0
+        ? `On the pitch · ${now}′`
+        : m.start
+          ? `XI · ${upcomingKick(m)}`
+          : "XI";
     mount.innerHTML = `
       <div class="lu-head">
         <span class="lu-team lu-team-home">${escapeHtml(shortName(data.home.team || m.home))} <b>${escapeHtml(data.home.formation || "—")}</b>${subCount(data.home) ? ` · ${subCount(data.home)} sub${subCount(data.home) === 1 ? "" : "s"}` : ""}</span>
-        <span class="lu-title">On the pitch · ${now}′</span>
+        <span class="lu-title">${escapeHtml(clock)}</span>
         <span class="lu-team lu-team-away"><b>${escapeHtml(data.away.formation || "—")}</b> ${escapeHtml(shortName(data.away.team || m.away))}${subCount(data.away) ? ` · ${subCount(data.away)} sub${subCount(data.away) === 1 ? "" : "s"}` : ""}</span>
       </div>
       <svg class="lu-svg" viewBox="0 0 1050 680" role="img" aria-label="Formations and players on the pitch">
