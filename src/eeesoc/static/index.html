@@ -22,6 +22,7 @@
       <nav class="tabs" role="tablist">
         <button class="tab active" data-tab="live" role="tab" aria-selected="true">Live</button>
         <button class="tab" data-tab="bets" role="tab" aria-selected="false">Bets</button>
+        <button class="tab" data-tab="zero" role="tab" aria-selected="false">0–0 NG</button>
         <button class="tab" data-tab="winprob" role="tab" aria-selected="false">WinProb</button>
         <button class="tab" data-tab="matches" role="tab" aria-selected="false">Matches</button>
         <button class="tab" data-tab="similar" role="tab" aria-selected="false">Similar</button>
@@ -127,8 +128,9 @@
               kickoffs that have not started yet. Tap a chiclet and the pitch graphic opens
               <b>at the top</b> — <b>✕ close</b> is at the top and the bottom of that panel —
               last 15′ of the ball, fading older touches, home attacking right —
-              plus each team's <b>formation and XI</b> — every player's match <b>power</b> number, a freshness
-              bar by minutes played, and ⇄ sub markers with the minute and who came off.
+              plus each team's <b>formation and XI</b> — every player's match <b>power</b> number, how many
+              <b>minutes</b> he has been on the pitch (printed under him, and in the header clock), a freshness
+              bar from those minutes, and ⇄ sub markers with the minute he came on and who came off.
               <b>Click a player</b> for his card: every logged touch, pass and shot with the minute,
               a touch map, and a <b>highlight cut list</b> — download the clip times or an ffmpeg
               script and run it against your own recording of the broadcast —
@@ -218,6 +220,26 @@
           </div>
         </div>
         <div id="betsBoard" class="bets-board"></div>
+      </section>
+
+      <section id="panel-zero" class="panel" role="tabpanel" hidden>
+        <div class="panel-head live-head">
+          <div>
+            <h1>0–0 no-goal signals</h1>
+            <p class="lede">
+              Last 30 days of <b>no more goals this half</b> alarms that fired while the score
+              was still <b>0–0</b>. A 2–0 (or any score that already had a goal) that later
+              triggered is left off — this is only the still-nil-nil read. Daily bars:
+              <span class="lede-home">green held</span>, <span class="lede-away">red busted</span>
+              — click a day to open those game chiclets.
+            </p>
+          </div>
+          <div class="live-status">
+            <span class="pulse" aria-hidden="true"></span>
+            <span id="zeroStamp">loading…</span>
+          </div>
+        </div>
+        <div id="zeroBoard" class="bets-board"></div>
       </section>
 
       <section id="panel-winprob" class="panel" role="tabpanel" hidden>

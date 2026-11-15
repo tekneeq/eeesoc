@@ -2986,6 +2986,12 @@ def test_pitch_lineups_annotate_subbed_in_players():
     assert "SUB ON" in js
     assert ".lu-sub .lu-dot" in css and ".lu-sub-tag" in css
     assert ".lu-sub-badge" in css and ".lu-sub-ring" in css
+    # Minutes on the pitch are printed on each player, not hover-only.
+    assert 'class="lu-mins"' in js
+    assert "function tickLineupMinutes" in js
+    assert "On the pitch · ${now}" in js
+    assert ".lu-mins" in css
+    assert "flex-shrink: 0" in css[css.index(".lu-title") : css.index(".lu-title") + 400]
 
 
 def _pe_play(minute, ptype, player, team="1", *, seconds=None, x=None, y=None, scoring=False):

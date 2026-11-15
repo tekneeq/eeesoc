@@ -76,6 +76,7 @@ body {
 
 .tabs {
   display: flex;
+  flex-wrap: wrap;
   gap: 0.35rem;
   margin-left: 0.5rem;
   margin-right: auto;
@@ -2817,6 +2818,15 @@ main {
   text-transform: uppercase;
   letter-spacing: 0.08em;
   font-size: 0.64rem;
+  flex-shrink: 0;
+  white-space: nowrap;
+  text-align: center;
+  min-width: 7.5rem;
+}
+
+.lu-team-home,
+.lu-team-away {
+  min-width: 0;
 }
 
 .lu-team-home {
@@ -2932,6 +2942,14 @@ main {
 
 .lu-stam.low {
   fill: var(--danger);
+}
+
+.lu-mins {
+  fill: rgba(230, 245, 238, 0.95);
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 10px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
 }
 
 .lu-goal {
@@ -4028,8 +4046,22 @@ main {
   color: var(--muted);
 }
 
-#sigDayGames .match-chiclet-row {
+#sigDayGames .match-chiclet-row,
+#zeroDayGames .match-chiclet-row {
   margin-top: 0.5rem;
+}
+
+.zero-days {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.zero-days .sig-days-svg {
+  min-width: 720px;
+}
+
+.bets-board > .sig-card {
+  margin-bottom: 0;
 }
 
 .sig-log-when {
