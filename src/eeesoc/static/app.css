@@ -4517,6 +4517,14 @@ main {
   color: var(--text);
 }
 
+.mc-form-when {
+  font-size: 0.48rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
 .mc-form-g em {
   font-style: normal;
   font-size: 0.52rem;

@@ -921,6 +921,8 @@ def test_last5_chip_opens_a_mini_timeline_of_that_archived_game():
     assert ".mc-last5-xggraph .mc-xg-svg" in css and ".mc-last5-strip .mc-tl-svg" in css
     assert "tap a game to pin its scoreline" in html
     assert "xG line graph" in html
+    assert "function last5DateLabel" in js
+    assert "mc-form-when" in js and ".mc-form-when" in css
 
     script = (
         "const state = { clinical: { min_games: 2, leagues: {} }, last5Open: {}, archiveTimelines: {} };\n"
@@ -945,6 +947,7 @@ const card = { __match: m };
 // Closed: every last-5 chip is tappable, including one with no archive id.
 let out = last5GamesRowHtml(m);
 if (!out.includes('class="mc-form-g l tap" role="button" tabindex="0" aria-expanded="false" data-last5-league="esp.1" data-last5-event="g1" data-last5-side="home" data-last5-index="0"')) process.exit(2);
+if (!out.includes('<time class="mc-form-when">Sep 5</time>') || !out.includes('<time class="mc-form-when">Sep 12</time>')) process.exit(21);
 if (!out.includes("tap for the line graph")) process.exit(3);
 if (!out.includes('class="mc-form-g w tap"') || !out.includes('data-last5-event="" data-last5-side="home" data-last5-index="1"') || !out.includes("tap for the score")) process.exit(4);
 if (out.includes("mc-last5-mini")) process.exit(5);
@@ -981,7 +984,7 @@ out = last5GamesRowHtml(m);
 if (!out.includes('class="mc-form-g l tap open" role="button" tabindex="0" aria-expanded="true"') || !out.includes("tap to close")) process.exit(8);
 if (!out.includes('<span class="mc-last5-mini" data-last5-mini="g1"') || !out.includes("loading the archived game…")) process.exit(9);
 // Scoreline is already on top while the graph loads (chip data: away at Betis, 2–1).
-if (!out.includes('<span class="mc-last5-when">2026-09-05</span><span class="mc-last5-letter l">L</span><i class="mc-key mc-key-home"></i><span class="mc-last5-team">Real Betis</span><b class="mc-last5-ft">2–1</b><span class="mc-last5-team on">Levante</span>')) process.exit(91);
+if (!out.includes('<span class="mc-last5-when">Sep 5</span><span class="mc-last5-letter l">L</span><i class="mc-key mc-key-home"></i><span class="mc-last5-team">Real Betis</span><b class="mc-last5-ft">2–1</b><span class="mc-last5-team on">Levante</span>')) process.exit(91);
 if (out.indexOf("mc-last5-mini") > out.indexOf("mc-form-g l tap open")) process.exit(92);
 
 (async () => {
@@ -990,7 +993,7 @@ if (out.indexOf("mc-last5-mini") > out.indexOf("mc-form-g l tap open")) process.
   if (painted < 2) process.exit(10);
   out = last5GamesRowHtml(m);
   // Header: date, W/D/L, home · FT · away with the club in focus bold, HT, 2H and xG.
-  if (!out.includes('<span class="mc-last5-when">2026-09-05</span><span class="mc-last5-letter l">L</span><i class="mc-key mc-key-home"></i><span class="mc-last5-team">Real Betis</span><b class="mc-last5-ft">2–1</b><span class="mc-last5-team on">Levante</span><i class="mc-key mc-key-away"></i><span class="mc-last5-ht">HT 1–0</span><span class="mc-last5-ht">2H 1–1</span>')) process.exit(11);
+  if (!out.includes('<span class="mc-last5-when">Sep 5</span><span class="mc-last5-letter l">L</span><i class="mc-key mc-key-home"></i><span class="mc-last5-team">Real Betis</span><b class="mc-last5-ft">2–1</b><span class="mc-last5-team on">Levante</span><i class="mc-key mc-key-away"></i><span class="mc-last5-ht">HT 1–0</span><span class="mc-last5-ht">2H 1–1</span>')) process.exit(11);
   if (!out.includes('>xG 1.3–0.1</span>')) process.exit(12);
   // The live chiclet's own xG line graph, with totals printed on top of the chart.
   if (!out.includes('<span class="mc-last5-xggraph"><svg class="mc-xg-svg"') || !out.includes('aria-label="Expected goals versus game time"')) process.exit(121);
@@ -1026,7 +1029,7 @@ if (out.indexOf("mc-last5-mini") > out.indexOf("mc-form-g l tap open")) process.
   if (calls.length !== nCalls) process.exit(24);
   out = last5GamesRowHtml(m);
   if (!out.includes('<span class="mc-last5-mini" data-last5-mini="home-1"')) process.exit(25);
-  if (!out.includes('<span class="mc-last5-when">2026-09-12</span><span class="mc-last5-letter w">W</span>')) process.exit(26);
+  if (!out.includes('<span class="mc-last5-when">Sep 12</span><span class="mc-last5-letter w">W</span>')) process.exit(26);
   if (!out.includes('<span class="mc-last5-team on">Levante</span><b class="mc-last5-ft">2–0</b><span class="mc-last5-team">Getafe</span>')) process.exit(27);
   if (out.includes("mc-last5-xggraph") || out.includes("loading the archived game")) process.exit(28);
 })();

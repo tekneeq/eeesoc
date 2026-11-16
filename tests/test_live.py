@@ -1007,9 +1007,11 @@ def test_live_chiclets_show_last5_games_with_halves():
     assert "function last5GameHalves" in js
     assert "function last5PitchScore" in js
     assert "function last5ThenBits" in js
+    assert "function last5DateLabel" in js
     assert 'g.venue === "away" ? last5HalfScore(ga, gf)' in js
     assert '">🥅 last 5</span>' in js
     assert "1H ${h1}" in js and "2H ${h2}" in js
+    assert "mc-form-when" in js
     assert "then.clin" in js and "then.table" in js
     assert "as of that night" in js
     assert "tap for the line graph" in js
@@ -1018,7 +1020,9 @@ def test_live_chiclets_show_last5_games_with_halves():
     assert "rows.splice(afterMomentum + 1, 0, last5)" in js
     assert ".mc-form-g" in css and ".mc-form-games" in css
     assert ".mc-form-then" in css
+    assert ".mc-form-when" in css
     assert "who they faced" in html
+    assert "the <b>date</b>" in html
     assert "first-half score" in html and "second-half score" in html
     assert "50 = a league-typical attack" in js
     assert "50 = allows the league's typical chances" in js

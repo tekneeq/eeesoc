@@ -2418,10 +2418,19 @@
   ];
 
   const LAST5_HELP =
-    "Each of this club's last five archived games: who they faced, the first-half and second-half score as it stood on the pitch (home–away), then clinical / offence / defence (power and league rank) and the archive table rank plus W–D–L as they stood after that night. Away games keep the home club first, so @ Dortmund 2–0 is a 2–0 loss, not 0–2. Oldest → newest. Tap a game to pin its scoreline on top — same idea as the xG line graph — and, when the archive has it, that game's xG chart.";
+    "Each of this club's last five archived games: the date, who they faced, the first-half and second-half score as it stood on the pitch (home–away), then clinical / offence / defence (power and league rank) and the archive table rank plus W–D–L as they stood after that night. Away games keep the home club first, so @ Dortmund 2–0 is a 2–0 loss, not 0–2. Oldest → newest. Tap a game to pin its scoreline on top — same idea as the xG line graph — and, when the archive has it, that game's xG chart.";
 
   function last5OppName(name) {
     return shortTeamName(name, 10) || "—";
+  }
+
+  function last5DateLabel(src) {
+    const raw = typeof src === "string" ? src : src?.start || src?.date || "";
+    if (!raw) return "";
+    const iso = /T/.test(raw) ? raw : `${raw}T12:00:00`;
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return String(raw);
+    return d.toLocaleDateString([], { month: "short", day: "numeric" });
   }
 
   function last5HalfScore(gf, ga) {
@@ -2455,7 +2464,8 @@
       .map((g) => {
         const { h1, h2, known } = last5GameHalves(g);
         const halves = known ? `, 1H ${h1}, 2H ${h2}` : "";
-        return `${g.letter} ${last5PitchScore(g, g.gf, g.ga)} FT${halves} ${g.venue === "home" ? "v" : "@"} ${g.opponent}`;
+        const when = last5DateLabel(g);
+        return `${when ? `${when} ` : ""}${g.letter} ${last5PitchScore(g, g.gf, g.ga)} FT${halves} ${g.venue === "home" ? "v" : "@"} ${g.opponent}`;
       })
       .join(", ");
   }
@@ -2490,7 +2500,8 @@
     const vs = `${g.venue === "home" ? "v" : "@"} ${g.opponent}`;
     const { h1, h2, known } = last5GameHalves(g);
     const halves = known ? ` · 1H ${h1} · 2H ${h2}` : " · no half-time score archived";
-    const when = g.date ? ` · ${g.date}` : "";
+    const day = last5DateLabel(g);
+    const when = day ? ` · ${day}` : "";
     const then = last5ThenBits(g);
     const snap = [
       then.clin ? `clinical ${then.clin}` : "",
@@ -2580,7 +2591,9 @@
         const isOpen = open && open.side === side && Number(open.index) === i;
         const tap = ` role="button" tabindex="0" aria-expanded="${isOpen ? "true" : "false"}" data-last5-league="${escapeHtml(league)}" data-last5-event="${escapeHtml(g.event_id || "")}" data-last5-side="${side}" data-last5-index="${i}"`;
         const hint = ` · ${isOpen ? "tap to close" : g.event_id ? "tap for the line graph" : "tap for the score"}`;
-        return `<span class="mc-form-g ${cls}${known ? "" : " none"} tap${isOpen ? " open" : ""}"${tap} title="${escapeHtml(last5GameTitle(g) + hint)}"><em>${escapeHtml(vs)}</em><b>1H ${h1}</b><i>2H ${h2}</i>${snap}</span>`;
+        const when = last5DateLabel(g);
+        const whenHtml = when ? `<time class="mc-form-when">${escapeHtml(when)}</time>` : "";
+        return `<span class="mc-form-g ${cls}${known ? "" : " none"} tap${isOpen ? " open" : ""}"${tap} title="${escapeHtml(last5GameTitle(g) + hint)}">${whenHtml}<em>${escapeHtml(vs)}</em><b>1H ${h1}</b><i>2H ${h2}</i>${snap}</span>`;
       })
       .join("");
     return `<span class="mc-power-side mc-form-side ${side}" title="${title}"><span class="mc-form-games">${chips}</span></span>`;
@@ -2629,7 +2642,7 @@
     const homeOn = teamKey(board.home) === focusKey;
     const awayOn = !homeOn && teamKey(board.away) === focusKey;
     const name = (n, on) => `<span class="mc-last5-team${on ? " on" : ""}">${escapeHtml(shortTeamName(n, 12) || n || "—")}</span>`;
-    const when = (ready && ready.date) || game?.date || "";
+    const when = last5DateLabel((ready && (ready.start || ready.date)) || game);
     const whenHtml = when ? `<span class="mc-last5-when">${escapeHtml(when)}</span>` : "";
     const letter = game?.letter
       ? `<span class="mc-last5-letter ${escapeHtml(String(game.letter).toLowerCase())}">${escapeHtml(game.letter)}</span>`
