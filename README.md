@@ -45,7 +45,8 @@ both teams' formations with everyone currently on the pitch in his slot. Each pl
 number — a FIFA-flavoured 40–99 match-performance score computed from ESPN's live per-player stats.
 Click any player on the formation board for his **player card** (`/api/live/player-events`): every play
 ESPN logged for him — touches, passes, shots, duels, set pieces — with the match-clock second, a touch
-map (his side attacking right), and a **highlight cut list**. The cut list downloads as text (clip
+map (his side attacking right), and a **highlight cut list**. A substitute's card also names who he
+replaced and the minute he came on. The cut list downloads as text (clip
 start/end on the match clock) or as a ready-to-run **ffmpeg script**: point it at your own recording of
 the broadcast, tell it when each half kicked off in that file, and it cuts and concatenates a per-player
 highlight reel locally. The dashboard never touches the video — DRM'd streams (Peacock, Hulu, …) can't

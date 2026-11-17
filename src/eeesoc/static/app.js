@@ -31,7 +31,7 @@
     clinical: null, // /api/clinical board: leagues[slug].teams[]
     standings: null, // /api/live/standings: leagues[slug].teams[id]
     playerEvents: null, // /api/live/player-events for the open pitch panel
-    playerCard: null, // {side, name} of the open player card
+    playerCard: null, // {side, name, full, keeper, inMinute, subFor} of the open player card
     clinicalTimer: null,
     sigDay: null, // "YYYY-MM-DD" local day selected on the Signals daily bars
     zeroDay: null, // same, on the 0–0 NG last-30 daily bars
@@ -5473,7 +5473,7 @@
       <text class="lu-sub-tag" y="44.2" text-anchor="middle">IN ${p.in_minute}′</text>`
       : "";
     const minsLabel = now > 0 ? `${mins}′` : "";
-    return `<g class="lu-player lu-${side}${cameOn ? " lu-sub" : ""}" data-side="${side}" data-player="${escapeHtml(p.short || p.name || "")}" data-player-full="${escapeHtml(p.name || "")}" data-keeper="${p.keeper ? "1" : ""}" data-in="${Number(p.in_minute) || 0}" data-out="${p.out_minute == null ? "" : Number(p.out_minute)}" role="button" tabindex="0" transform="translate(${x.toFixed(1)},${y.toFixed(1)})">
+    return `<g class="lu-player lu-${side}${cameOn ? " lu-sub" : ""}" data-side="${side}" data-player="${escapeHtml(p.short || p.name || "")}" data-player-full="${escapeHtml(p.name || "")}" data-keeper="${p.keeper ? "1" : ""}" data-in="${Number(p.in_minute) || 0}" data-out="${p.out_minute == null ? "" : Number(p.out_minute)}" data-sub-for="${escapeHtml(p.sub_for || "")}" role="button" tabindex="0" transform="translate(${x.toFixed(1)},${y.toFixed(1)})">
       <title>${escapeHtml(title)} · click for the player card</title>
       <circle class="lu-dot" r="16"/>
       ${subMark}
@@ -5538,7 +5538,7 @@
         ${lineupSideSvg(data.home, "home", now)}
         ${lineupSideSvg(data.away, "away", now)}
       </svg>
-      <p class="lede lu-note">Hover a player for the full line, <b>click him for his player card</b> — every logged touch, pass and shot, a touch map, and a highlight cut list you can run against your own recording. <b>Power</b> is a match-performance number from ESPN's live stats (goals, assists, shots, saves, fouls, cards) — 65 is a quiet, tidy game. The bar is <b>freshness by minutes played</b> (ESPN has no distance-run data); subs come on full. <b class="lu-sub-legend">IN 74′</b> is a player who was subbed on at that minute — dashed ring, hover to see who came off.</p>`;
+      <p class="lede lu-note">Hover a player for the full line, <b>click him for his player card</b> — every logged touch, pass and shot, a touch map, and a highlight cut list you can run against your own recording. <b>Power</b> is a match-performance number from ESPN's live stats (goals, assists, shots, saves, fouls, cards) — 65 is a quiet, tidy game. The bar is <b>freshness by minutes played</b> (ESPN has no distance-run data); subs come on full. <b class="lu-sub-legend">IN 74′</b> is a player who was subbed on at that minute — dashed ring; click him and the card names who came off.</p>`;
     bindLineupPlayerClicks(mount, m);
   }
 
@@ -5551,6 +5551,8 @@
         name: g.dataset.player || "",
         full: g.dataset.playerFull || "",
         keeper: g.dataset.keeper === "1",
+        inMinute: Number(g.dataset.in) || 0,
+        subFor: g.dataset.subFor || "",
       });
     };
     svg.addEventListener("click", (ev) => {
@@ -5656,13 +5658,40 @@
     return bySurname.length === 1 ? bySurname[0] : null;
   }
 
+  function findLineupPlayer(m, sel) {
+    const rows = lineupFor(m)?.[sel.side]?.players || [];
+    const keys = [sel.full, sel.name].map(playerNameKey).filter(Boolean);
+    if (!keys.length) return null;
+    return (
+      rows.find((p) => keys.includes(playerNameKey(p.name)) || keys.includes(playerNameKey(p.short))) || null
+    );
+  }
+
+  function playerCardSubHtml(m, sel) {
+    const lu = findLineupPlayer(m, sel);
+    const inMinute = Number(sel.inMinute || lu?.in_minute || 0);
+    if (!(inMinute > 0)) return "";
+    let off = sel.subFor || lu?.sub_for || "";
+    if (!off) {
+      const me = playerNameKey(lu?.short || lu?.name || sel.name);
+      const teammates = lineupFor(m)?.[sel.side]?.players || [];
+      const hit = teammates.find((p) => playerNameKey(p.sub_by) === me);
+      off = hit ? hit.short || hit.name : "";
+    }
+    return `<span class="pc-sub">IN ${inMinute}′ for ${escapeHtml(off || "?")}</span>`;
+  }
+
   function openPlayerCard(m, sel) {
     state.playerCard = sel;
     const mount = $("#playerCard");
     if (mount) {
       mount.hidden = false;
       if (!mount.querySelector(".pc-head")) {
-        mount.innerHTML = `<p class="lede">Reading ${escapeHtml(sel.name || "player")}’s plays…</p>`;
+        mount.innerHTML = `
+        <div class="pc-head">
+          <span><b>${escapeHtml(sel.full || sel.name)}</b>${playerCardSubHtml(m, sel)}</span>
+        </div>
+        <p class="lede">Reading ${escapeHtml(sel.name || "player")}’s plays…</p>`;
       }
     }
     refreshPlayerEvents(m, { force: false });
@@ -5853,11 +5882,12 @@ echo "done → $OUT/${safe}_reel.mp4 ($N clips)"
     const data = state.playerEvents;
     if (!data || String(data.event_id) !== String(m.event_id)) return;
     const player = findPlayerEntry(data, sel);
+    const subLine = playerCardSubHtml(m, sel);
     mount.hidden = false;
     if (!player) {
       mount.innerHTML = `
         <div class="pc-head">
-          <b>${escapeHtml(sel.full || sel.name)}</b>
+          <span><b>${escapeHtml(sel.full || sel.name)}</b>${subLine}</span>
           <button type="button" class="chiclet-tool" data-pc-close>✕ close</button>
         </div>
         <p class="lede">No logged plays for ${escapeHtml(sel.name)} yet — ESPN files player names on passes, shots and duels as the feed catches up. Check back in a minute.</p>
@@ -5880,7 +5910,7 @@ echo "done → $OUT/${safe}_reel.mp4 ($N clips)"
       : "";
     mount.innerHTML = `
       <div class="pc-head">
-        <span><b>${escapeHtml(player.name)}</b> · ${escapeHtml(shortName(player.team || ""))}${sel.keeper ? " · GK" : ""}</span>
+        <span><b>${escapeHtml(player.name)}</b> · ${escapeHtml(shortName(player.team || ""))}${sel.keeper ? " · GK" : ""}${subLine}</span>
         <span class="pc-tools">
           <button type="button" class="chiclet-tool" id="pcCutList" title="Download the clip list (match-clock times) as text">⬇ cut list</button>
           <button type="button" class="chiclet-tool" id="pcScript" title="Download a bash script that cuts these clips out of your own recording with ffmpeg">⬇ ffmpeg script</button>

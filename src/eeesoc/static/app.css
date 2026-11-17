@@ -2991,10 +2991,19 @@ main {
 
 .pc-head {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 0.5rem;
   font-size: 0.95rem;
+}
+
+.pc-sub {
+  display: block;
+  margin-top: 0.2rem;
+  font-family: var(--mono);
+  font-size: 0.74rem;
+  font-weight: 600;
+  color: var(--warn);
 }
 
 .pc-tools {
