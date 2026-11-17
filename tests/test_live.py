@@ -118,6 +118,80 @@ def test_leagues_include_uefa_nations_league():
     assert slugs.index("uefa.europa") < slugs.index("uefa.nations") < slugs.index("eng.2")
 
 
+def test_leagues_include_concacaf_nations_league():
+    assert ("concacaf.nations.league", "CNL") in LEAGUES
+    slugs = [slug for slug, _ in LEAGUES]
+    assert slugs.index("mex.1") < slugs.index("concacaf.nations.league")
+
+
+CONCACAF_NL_SB = {
+    "leagues": [{"name": "Concacaf Nations League", "slug": "concacaf.nations.league"}],
+    "events": [
+        {
+            "id": "7000001",
+            "date": "2026-11-17T01:00Z",
+            "competitions": [
+                {
+                    "status": {
+                        "type": {
+                            "state": "pre",
+                            "detail": "Scheduled",
+                            "shortDetail": "Scheduled",
+                        }
+                    },
+                    "competitors": [
+                        {
+                            "homeAway": "home",
+                            "score": "0",
+                            "team": {"id": "208", "displayName": "Canada"},
+                        },
+                        {
+                            "homeAway": "away",
+                            "score": "0",
+                            "team": {"id": "216", "displayName": "Guatemala"},
+                        },
+                    ],
+                }
+            ],
+        }
+    ],
+}
+
+
+def test_parse_concacaf_nations_league_scoreboard():
+    matches = parse_scoreboard(CONCACAF_NL_SB, "concacaf.nations.league", "CNL")
+    assert len(matches) == 1
+    match = matches[0]
+    assert match.league_slug == "concacaf.nations.league"
+    assert match.league_chiclet == "CNL"
+    assert match.league_name == "Concacaf Nations League"
+    assert match.home == "Canada"
+    assert match.away == "Guatemala"
+    assert match.state == "pre"
+
+
+def test_fetch_live_board_includes_concacaf_nations_league():
+    clear_live_cache()
+
+    def fake_fetch(url: str):
+        if "concacaf.nations.league" in url:
+            return CONCACAF_NL_SB
+        return {"events": []}
+
+    board = fetch_live_board(
+        live_only=False,
+        leagues=[("concacaf.nations.league", "CNL")],
+        fetcher=fake_fetch,
+        use_cache=False,
+    )
+    assert board["chiclets"][0]["slug"] == "concacaf.nations.league"
+    assert board["chiclets"][0]["label"] == "CNL"
+    assert board["chiclets"][0]["pre_count"] == 1
+    assert board["leagues"][0]["chiclet"] == "CNL"
+    assert board["leagues"][0]["matches"][0]["home"] == "Canada"
+    assert board["leagues"][0]["matches"][0]["away"] == "Guatemala"
+
+
 def _stamp_event_dates(payload: dict, *starts: str) -> dict:
     """Copy a scoreboard payload and rewrite event kickoff times."""
     import copy

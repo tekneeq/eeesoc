@@ -24,8 +24,8 @@ _DEAD = ("postponed", "canceled", "cancelled", "suspended", "abandoned", "forfei
 _STATE_NAME = "discord-digest.json"
 _DISCORD_SAFE_LEN = 1800
 
-# Europe first (already midday at 9:30 ET), MLS last. Conference League is
-# fetched for the slate even when it is not a dashboard chiclet.
+# Europe first (already midday at 9:30 ET), MLS / CONCACAF last. Conference League
+# is fetched for the slate even when it is not a dashboard chiclet.
 DIGEST_LEAGUES: list[tuple[str, str]] = [
     ("eng.1", "EPL"),
     ("eng.2", "Championship"),
@@ -40,6 +40,7 @@ DIGEST_LEAGUES: list[tuple[str, str]] = [
     ("uefa.europa.conf", "UECL"),
     ("uefa.nations", "Nations"),
     ("usa.1", "MLS"),
+    ("concacaf.nations.league", "CNL"),
 ]
 
 
