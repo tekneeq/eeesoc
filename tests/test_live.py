@@ -124,6 +124,80 @@ def test_leagues_include_concacaf_nations_league():
     assert slugs.index("mex.1") < slugs.index("concacaf.nations.league")
 
 
+def test_leagues_include_international_friendlies():
+    assert ("fifa.friendly", "Friendly") in LEAGUES
+    slugs = [slug for slug, _ in LEAGUES]
+    assert slugs.index("concacaf.nations.league") < slugs.index("fifa.friendly")
+
+
+INTL_FRIENDLY_SB = {
+    "leagues": [{"name": "International Friendly", "slug": "fifa.friendly"}],
+    "events": [
+        {
+            "id": "401930895",
+            "date": "2026-11-17T23:00Z",
+            "competitions": [
+                {
+                    "status": {
+                        "type": {
+                            "state": "pre",
+                            "detail": "Scheduled",
+                            "shortDetail": "Scheduled",
+                        }
+                    },
+                    "competitors": [
+                        {
+                            "homeAway": "home",
+                            "score": "0",
+                            "team": {"id": "202", "displayName": "Argentina"},
+                        },
+                        {
+                            "homeAway": "away",
+                            "score": "0",
+                            "team": {"id": "214", "displayName": "Costa Rica"},
+                        },
+                    ],
+                }
+            ],
+        }
+    ],
+}
+
+
+def test_parse_international_friendly_scoreboard():
+    matches = parse_scoreboard(INTL_FRIENDLY_SB, "fifa.friendly", "Friendly")
+    assert len(matches) == 1
+    match = matches[0]
+    assert match.league_slug == "fifa.friendly"
+    assert match.league_chiclet == "Friendly"
+    assert match.league_name == "International Friendly"
+    assert match.home == "Argentina"
+    assert match.away == "Costa Rica"
+    assert match.state == "pre"
+
+
+def test_fetch_live_board_includes_international_friendlies():
+    clear_live_cache()
+
+    def fake_fetch(url: str):
+        if "fifa.friendly" in url:
+            return INTL_FRIENDLY_SB
+        return {"events": []}
+
+    board = fetch_live_board(
+        live_only=False,
+        leagues=[("fifa.friendly", "Friendly")],
+        fetcher=fake_fetch,
+        use_cache=False,
+    )
+    assert board["chiclets"][0]["slug"] == "fifa.friendly"
+    assert board["chiclets"][0]["label"] == "Friendly"
+    assert board["chiclets"][0]["pre_count"] == 1
+    assert board["leagues"][0]["chiclet"] == "Friendly"
+    assert board["leagues"][0]["matches"][0]["home"] == "Argentina"
+    assert board["leagues"][0]["matches"][0]["away"] == "Costa Rica"
+
+
 CONCACAF_NL_SB = {
     "leagues": [{"name": "Concacaf Nations League", "slug": "concacaf.nations.league"}],
     "events": [

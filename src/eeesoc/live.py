@@ -46,6 +46,7 @@ LEAGUES: list[tuple[str, str]] = [
     ("usa.1", "MLS"),
     ("mex.1", "Liga MX"),
     ("concacaf.nations.league", "CNL"),
+    ("fifa.friendly", "Friendly"),
     ("ned.1", "Eredivisie"),
     ("por.1", "Primeira"),
     ("sco.1", "SPL"),
