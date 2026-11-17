@@ -80,6 +80,7 @@ def test_digest_leagues_cover_requested_competitions():
         "uefa.nations",
         "usa.1",
         "concacaf.nations.league",
+        "fifa.friendly",
     }
 
 
