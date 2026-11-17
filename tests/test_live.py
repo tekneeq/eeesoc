@@ -3062,6 +3062,8 @@ def test_pitch_lineups_annotate_subbed_in_players():
     assert "function lineupPlayerSvg" in js
     assert "lu-sub" in js and "IN ${p.in_minute}" in js
     assert "SUB ON" in js
+    assert "data-sub-for=" in js
+    assert "the card names who came off" in js
     assert ".lu-sub .lu-dot" in css and ".lu-sub-tag" in css
     assert ".lu-sub-badge" in css and ".lu-sub-ring" in css
     # Minutes on the pitch are printed on each player, not hover-only.
@@ -3168,10 +3170,14 @@ def test_player_card_and_highlight_export_in_frontend():
     assert "function playerFfmpegScript" in js
     assert "function playerTouchMapSvg" in js
     assert "function bindLineupPlayerClicks" in js
+    assert "function playerCardSubHtml" in js
     assert "data-player=" in js
+    assert "data-sub-for=" in js
     assert 'id="playerCard"' in html
     assert ".player-card" in css
     assert ".pc-ev" in css and ".pc-chip" in css and ".pc-dot.pc-goal" in css
+    assert ".pc-sub" in css
+    assert "IN ${inMinute}" in js and "for ${escapeHtml(off || \"?\")}" in js
     assert "KICKOFF_1H" in js and "KICKOFF_2H" in js
     assert "ffmpeg" in js
     assert "highlight cut list" in html.lower()
