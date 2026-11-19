@@ -118,6 +118,82 @@ def test_leagues_include_uefa_nations_league():
     assert slugs.index("uefa.europa") < slugs.index("uefa.nations") < slugs.index("eng.2")
 
 
+def test_leagues_include_womens_champions_league():
+    assert ("uefa.wchampions", "UWCL") in LEAGUES
+    slugs = [slug for slug, _ in LEAGUES]
+    assert slugs.index("uefa.europa") < slugs.index("uefa.wchampions") < slugs.index("uefa.nations")
+
+
+UWCL_SB = {
+    "leagues": [{"name": "UEFA Women's Champions League", "slug": "uefa.wchampions"}],
+    "events": [
+        {
+            "id": "401916978",
+            "date": "2026-11-19T17:45Z",
+            "competitions": [
+                {
+                    "status": {
+                        "displayClock": "HT",
+                        "type": {
+                            "state": "in",
+                            "detail": "HT",
+                            "shortDetail": "HT",
+                        },
+                    },
+                    "competitors": [
+                        {
+                            "homeAway": "home",
+                            "score": "0",
+                            "team": {"id": "17450", "displayName": "Austria Vienna"},
+                        },
+                        {
+                            "homeAway": "away",
+                            "score": "2",
+                            "team": {"id": "17448", "displayName": "Bayern Munich"},
+                        },
+                    ],
+                }
+            ],
+        }
+    ],
+}
+
+
+def test_parse_womens_champions_league_scoreboard():
+    matches = parse_scoreboard(UWCL_SB, "uefa.wchampions", "UWCL")
+    assert len(matches) == 1
+    match = matches[0]
+    assert match.league_slug == "uefa.wchampions"
+    assert match.league_chiclet == "UWCL"
+    assert match.league_name == "UEFA Women's Champions League"
+    assert match.home == "Austria Vienna"
+    assert match.away == "Bayern Munich"
+    assert match.away_score == 2
+    assert match.state == "in"
+
+
+def test_fetch_live_board_includes_womens_champions_league():
+    clear_live_cache()
+
+    def fake_fetch(url: str):
+        if "uefa.wchampions" in url:
+            return UWCL_SB
+        return {"events": []}
+
+    board = fetch_live_board(
+        live_only=False,
+        leagues=[("uefa.wchampions", "UWCL")],
+        fetcher=fake_fetch,
+        use_cache=False,
+    )
+    assert board["chiclets"][0]["slug"] == "uefa.wchampions"
+    assert board["chiclets"][0]["label"] == "UWCL"
+    assert board["chiclets"][0]["live_count"] == 1
+    assert board["leagues"][0]["chiclet"] == "UWCL"
+    assert board["leagues"][0]["matches"][0]["home"] == "Austria Vienna"
+    assert board["leagues"][0]["matches"][0]["away"] == "Bayern Munich"
+
+
 def test_leagues_include_concacaf_nations_league():
     assert ("concacaf.nations.league", "CNL") in LEAGUES
     slugs = [slug for slug, _ in LEAGUES]
