@@ -274,6 +274,82 @@ def test_fetch_live_board_includes_international_friendlies():
     assert board["leagues"][0]["matches"][0]["away"] == "Costa Rica"
 
 
+def test_leagues_include_uruguay_primera():
+    assert ("uru.1", "Liga URU") in LEAGUES
+    slugs = [slug for slug, _ in LEAGUES]
+    assert slugs.index("arg.1") < slugs.index("uru.1")
+
+
+URU_PRIMERA_SB = {
+    "leagues": [{"name": "Liga AUF Uruguaya", "slug": "uru.1"}],
+    "events": [
+        {
+            "id": "401934686",
+            "date": "2026-11-19T19:30Z",
+            "competitions": [
+                {
+                    "status": {
+                        "displayClock": "51'",
+                        "type": {
+                            "state": "in",
+                            "detail": "2nd Half",
+                            "shortDetail": "51'",
+                        },
+                    },
+                    "competitors": [
+                        {
+                            "homeAway": "home",
+                            "score": "2",
+                            "team": {"id": "2679", "displayName": "Peñarol"},
+                        },
+                        {
+                            "homeAway": "away",
+                            "score": "0",
+                            "team": {"id": "7357", "displayName": "Cerro Largo"},
+                        },
+                    ],
+                }
+            ],
+        }
+    ],
+}
+
+
+def test_parse_uruguay_primera_scoreboard():
+    matches = parse_scoreboard(URU_PRIMERA_SB, "uru.1", "Liga URU")
+    assert len(matches) == 1
+    match = matches[0]
+    assert match.league_slug == "uru.1"
+    assert match.league_chiclet == "Liga URU"
+    assert match.league_name == "Liga AUF Uruguaya"
+    assert match.home == "Peñarol"
+    assert match.away == "Cerro Largo"
+    assert match.home_score == 2
+    assert match.state == "in"
+
+
+def test_fetch_live_board_includes_uruguay_primera():
+    clear_live_cache()
+
+    def fake_fetch(url: str):
+        if "uru.1" in url:
+            return URU_PRIMERA_SB
+        return {"events": []}
+
+    board = fetch_live_board(
+        live_only=False,
+        leagues=[("uru.1", "Liga URU")],
+        fetcher=fake_fetch,
+        use_cache=False,
+    )
+    assert board["chiclets"][0]["slug"] == "uru.1"
+    assert board["chiclets"][0]["label"] == "Liga URU"
+    assert board["chiclets"][0]["live_count"] == 1
+    assert board["leagues"][0]["chiclet"] == "Liga URU"
+    assert board["leagues"][0]["matches"][0]["home"] == "Peñarol"
+    assert board["leagues"][0]["matches"][0]["away"] == "Cerro Largo"
+
+
 CONCACAF_NL_SB = {
     "leagues": [{"name": "Concacaf Nations League", "slug": "concacaf.nations.league"}],
     "events": [
