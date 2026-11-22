@@ -274,10 +274,14 @@ def test_fetch_live_board_includes_international_friendlies():
     assert board["leagues"][0]["matches"][0]["away"] == "Costa Rica"
 
 
+def test_leagues_omit_liga_argentina():
+    assert "arg.1" not in {slug for slug, _ in LEAGUES}
+
+
 def test_leagues_include_uruguay_primera():
     assert ("uru.1", "Liga URU") in LEAGUES
     slugs = [slug for slug, _ in LEAGUES]
-    assert slugs.index("arg.1") < slugs.index("uru.1")
+    assert slugs.index("bra.1") < slugs.index("uru.1")
 
 
 URU_PRIMERA_SB = {
