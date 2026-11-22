@@ -3529,6 +3529,67 @@
     return statGridHtml(postureCols(par), rows, { cls: "mc-posture", corner: "🧱", help: POSTURE_HELP });
   }
 
+  const GRADE_HELP =
+    "📈 grade — how each side is playing against what it usually has by this minute of its own past games. Goals, chances (shots incl. blocked), xG, touches in the other box and possession are each scored 0–100 against the club’s usual by now, then weighted (box 25%, goals 20%, chances 20%, xG 20%, possession 15%). 50 is exactly its usual; A 75+, B 60+, C 40+, D 25+, F below. Clubs with few archived games are pulled toward the league average.";
+  const GRADE_PARTS = ["goals", "chances", "xg", "box", "possession"];
+  const GRADE_PART_LABEL = { goals: "Goals", chances: "Chances", xg: "xG", box: "Box", possession: "Poss" };
+  const GRADE_PART_WHAT = {
+    goals: "goals scored",
+    chances: "chances (shots incl. blocked)",
+    xg: "xG",
+    box: "touches in the other box",
+    possession: "possession",
+  };
+
+  function gradeTone(score) {
+    return score >= 60 ? " up" : score < 40 ? " down" : "";
+  }
+
+  function gradeNumber(key, v) {
+    if (key === "xg") return Number(v).toFixed(2);
+    if (key === "possession") return `${Math.round(Number(v))}%`;
+    return Number.isInteger(Number(v)) ? String(Number(v)) : Number(v).toFixed(1);
+  }
+
+  function gradeBasis(g) {
+    if (g.basis !== "club") return { text: "league avg", title: "No archived games for this club yet — graded against the league average" };
+    const n = Number(g.games) || 0;
+    return { text: `${n} ${n === 1 ? "game" : "games"}`, title: `Its usual is read from its last ${n} archived ${n === 1 ? "game" : "games"}, mixed with the league average while that history is short` };
+  }
+
+  function gradeRowHtml(side, name, g, when) {
+    const key = `<i class="mc-key mc-key-${side}"></i>`;
+    const team = `<span class="mc-grade-team" title="${escapeHtml(name)}">${key}${escapeHtml(name)}</span>`;
+    if (!g) {
+      return `${team}<span class="mc-grade-mark none">—</span>${GRADE_PARTS.map(() => `<span class="mc-grade-part"></span>`).join("")}<span class="mc-grade-basis">no history</span>`;
+    }
+    const mark = `<span class="mc-grade-mark${gradeTone(g.score)}" title="${escapeHtml(`${name}: ${g.letter} · ${g.score} of 100 against its usual ${when} (50 = usual)`)}"><b>${escapeHtml(g.letter)}</b> ${g.score}</span>`;
+    const byKey = Object.fromEntries((g.parts || []).map((p) => [p.key, p]));
+    const parts = GRADE_PARTS.map((k) => {
+      const p = byKey[k];
+      if (!p) return `<span class="mc-grade-part none" title="${escapeHtml(`${GRADE_PART_LABEL[k]}: not measured in this club’s archived games yet`)}"><small>${GRADE_PART_LABEL[k]}</small>—</span>`;
+      const title = `${name} ${GRADE_PART_WHAT[k]}: ${gradeNumber(k, p.actual)} so far, usually ${gradeNumber(k, p.usual)} ${when} → ${p.score} of 100 · ${Math.round(p.weight * 100)}% of the grade`;
+      return `<span class="mc-grade-part${gradeTone(p.score)}" title="${escapeHtml(title)}"><small>${GRADE_PART_LABEL[k]}</small><b>${gradeNumber(k, p.actual)}</b><i>/${gradeNumber(k, p.usual)}</i></span>`;
+    }).join("");
+    const basis = gradeBasis(g);
+    return `${team}${mark}${parts}<span class="mc-grade-basis" title="${escapeHtml(basis.title)}">${basis.text}</span>`;
+  }
+
+  // 📈 grade: each side against its own usual by this minute — sits right above the strip and the xG line graph.
+  function chicletGradeHtml(tl, m) {
+    const grade = tl?.grade;
+    if (!grade || (!grade.home && !grade.away)) return "";
+    const when = grade.final ? "over a full game" : `by ${grade.minute}′`;
+    const head =
+      `<span class="mc-grade-corner" title="${escapeHtml(GRADE_HELP)}">📈</span>` +
+      `<span class="mc-grade-head" title="${escapeHtml(GRADE_HELP)}">Grade</span>` +
+      GRADE_PARTS.map((k) => `<span class="mc-grade-head" title="${escapeHtml(`${GRADE_PART_WHAT[k]} so far / usual ${when}`)}">${GRADE_PART_LABEL[k]}</span>`).join("") +
+      `<span class="mc-grade-head mc-grade-when" title="${escapeHtml(GRADE_HELP)}">vs usual ${when}</span>`;
+    const home = gradeRowHtml("home", tl.home || m?.home || "Home", grade.home, when);
+    const away = gradeRowHtml("away", tl.away || m?.away || "Away", grade.away, when);
+    return `<span class="mc-grade" data-grade-minute="${grade.minute}">${head}${home}${away}</span>`;
+  }
+
   function chicletStatsHtml(tl, m) {
     if (!tl) {
       return `<span class="mc-stat mc-stat-empty">shots · on target · blocked · corners · xG · box</span>`;
@@ -3548,7 +3609,7 @@
       row("1H", h1, h1.home_xg, h1.away_xg, "1"),
       row("2H", h2, h2.home_xg, h2.away_xg, "2"),
     ];
-    return statGridHtml(cols, rows, { cls: "mc-stat-grid-counts" }) + chicletGoalMixHtml(tl, m) + chicletPostureHtml(tl, m);
+    return statGridHtml(cols, rows, { cls: "mc-stat-grid-counts" }) + chicletGoalMixHtml(tl, m) + chicletPostureHtml(tl, m) + chicletGradeHtml(tl, m);
   }
 
   function buildMatchChicletButton(m, selected, onSelect, withTimeline) {

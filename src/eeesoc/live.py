@@ -2305,6 +2305,45 @@ def _play_minute_exact(play: dict[str, Any], minute: int) -> float:
     return float(minute)
 
 
+def _touch_counts(points: list[tuple[int, str]]) -> dict[str, list[int]]:
+    """On-ball plays per side for each match minute (index = minute, 0–90)."""
+    out = {"home": [0] * 91, "away": [0] * 91}
+    for minute, side in points:
+        if side in out:
+            out[side][max(0, min(90, int(minute)))] += 1
+    return out
+
+
+def touch_counts_from_plays(
+    plays: list[dict[str, Any]],
+    *,
+    home_id: str = "",
+    away_id: str = "",
+    home: str = "",
+    away: str = "",
+) -> dict[str, list[int]]:
+    """
+    Per-minute on-ball play counts, the same plays the possession ribbons read.
+
+    Kept at minute level so a side's possession share *up to any minute* of a
+    past game can be compared with a live game at the same minute.
+    """
+    points: list[tuple[int, str]] = []
+    for play in plays:
+        ptype = _normalize_play_type(_play_type(play))
+        if _is_own_goal(ptype, play) or not _is_possession_play(ptype):
+            continue
+        pmin = _play_minute(play)
+        if pmin is None:
+            continue
+        side = _side_for_team(
+            _team_id_from_play(play), home_id=home_id, away_id=away_id, home=home, away=away, play=play
+        )
+        if side in {"home", "away"}:
+            points.append((pmin, side))
+    return _touch_counts(points)
+
+
 def _build_possession_spells(
     touches: list[tuple[float, str, str]],
     *,
@@ -3115,6 +3154,7 @@ def build_event_timeline(
             tilt=_POSSESSION_TILT,
         ),
         "possession_spells": _build_possession_spells(touches, now_minute=minute, final=final),
+        "touch_counts": _touch_counts(poss_pts),
         "intensity": _build_intensity(intensity_pts, now_minute=minute),
         "end_to_end": _build_end_to_end(end_to_end_pts, now_minute=minute),
         "duels": _build_share_clock(

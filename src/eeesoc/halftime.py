@@ -41,6 +41,7 @@ from eeesoc.live import (
     goal_tags_from_plays,
     parse_scoreboard,
     parse_start,
+    touch_counts_from_plays,
 )
 
 HALF_MINUTE = 45
@@ -253,6 +254,7 @@ def record_from_timeline(tl: dict[str, Any], meta: dict[str, Any] | None = None)
         "goal_tags": int(tl.get("goal_tags") or GOAL_TAG_VERSION),
         "intensity": compact_intensity(tl.get("intensity") if isinstance(tl.get("intensity"), dict) else None),
         "penalties": list(tl.get("penalties") or []),
+        **({"touch_counts": tl["touch_counts"]} if has_touch_counts(tl) else {}),
         "xg": {
             "home": list(xg.get("home") or []),
             "away": list(xg.get("away") or []),
@@ -1256,12 +1258,25 @@ def has_current_goal_tags(rec: dict[str, Any]) -> bool:
         return False
 
 
+def has_touch_counts(rec: dict[str, Any]) -> bool:
+    """Per-minute on-ball counts for both sides (the possession history the live grade reads)."""
+    block = rec.get("touch_counts")
+    return isinstance(block, dict) and all(isinstance(block.get(s), list) and block[s] for s in ("home", "away"))
+
+
 def records_missing_box_entries(records: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
     """Records never counted, counted under an older ``BOX_VERSION``, without a posture block, or with untagged goals."""
     return [
         r for r in (load_records() if records is None else records)
         if not has_current_box(r) or "posture" not in r or not has_current_goal_tags(r)
     ]
+
+
+def records_needing_play_backfill(records: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
+    """Everything the play-by-play re-read fills in: box entries, posture, goal tags and per-minute touch counts."""
+    pool = load_records() if records is None else records
+    stale = {id(r) for r in records_missing_box_entries(pool)}
+    return [r for r in pool if id(r) in stale or not has_touch_counts(r)]
 
 
 def stamp_goal_tags(events: list[dict[str, Any]], tags: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -1328,6 +1343,7 @@ def enrich_box_entries(
     rec["posture"] = defence_from_plays(plays, **sides)
     rec["events"] = stamp_goal_tags(list(rec.get("events") or []), goal_tags_from_plays(plays))
     rec["goal_tags"] = GOAL_TAG_VERSION
+    rec["touch_counts"] = touch_counts_from_plays(plays, **sides)
     path = record_path(league, event_id)
     write_json(path, rec)
     with _records_lock:
@@ -1346,7 +1362,7 @@ def backfill_box_entries(
         if _box_state["running"]:
             return {**_box_state, "busy": True}
         _box_state.update({"running": True, "done": 0, "failed": 0, "started_at": time.time(), "finished_at": None})
-    todo = records_missing_box_entries()
+    todo = records_needing_play_backfill()
     if limit is not None:
         todo = todo[:limit]
     with _box_lock:

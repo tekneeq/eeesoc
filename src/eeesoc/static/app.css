@@ -2651,6 +2651,146 @@ main {
   border-bottom-color: transparent;
 }
 
+/* 📈 grade: each side against its own usual by this minute */
+.mc-grade {
+  display: grid;
+  grid-template-columns: max-content max-content repeat(5, max-content) max-content;
+  align-items: baseline;
+  gap: 0;
+  max-width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  margin-top: 0.3rem;
+  padding: 0.2rem 0 0.1rem;
+  border-top: 1px dashed var(--line);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.7rem;
+  color: var(--text);
+}
+
+.mc-grade-corner,
+.mc-grade-head {
+  padding: 0 0.85rem 0.12rem 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 0.58rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.mc-grade-corner {
+  font-size: 0.72rem;
+}
+
+.mc-grade-when {
+  padding-right: 0;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.mc-grade-team,
+.mc-grade-mark,
+.mc-grade-part,
+.mc-grade-basis {
+  padding: 0.16rem 0.85rem 0 0;
+  white-space: nowrap;
+}
+
+.mc-grade-team {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  max-width: 9rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 0.62rem;
+  color: var(--muted);
+}
+
+.mc-grade-mark {
+  font-weight: 700;
+  color: var(--text);
+}
+
+.mc-grade-mark b {
+  display: inline-block;
+  min-width: 0.9rem;
+  margin-right: 0.15rem;
+  padding: 0 0.22rem;
+  border: 1px solid currentColor;
+  border-radius: 3px;
+  text-align: center;
+}
+
+.mc-grade-part b {
+  font-weight: 600;
+}
+
+.mc-grade-part i {
+  font-style: normal;
+  font-size: 0.6rem;
+  color: var(--muted);
+}
+
+.mc-grade-part small {
+  display: none;
+  margin-right: 0.25rem;
+  font-size: 0.55rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.mc-grade-mark.up,
+.mc-grade-part.up b {
+  color: var(--accent);
+}
+
+.mc-grade-mark.down,
+.mc-grade-part.down b {
+  color: var(--warn);
+}
+
+.mc-grade-mark.none,
+.mc-grade-part.none,
+.mc-grade-basis {
+  font-size: 0.6rem;
+  color: var(--muted);
+}
+
+.mc-grade-basis {
+  padding-right: 0;
+}
+
+@media (max-width: 520px) {
+  /* Phones: the club on its own line, then its grade and reads wrapping, each read carrying its label. */
+  .mc-grade {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    overflow-x: visible;
+  }
+
+  .mc-grade-head:not(.mc-grade-when) {
+    display: none;
+  }
+
+  .mc-grade-corner,
+  .mc-grade-when {
+    border-bottom: 0;
+  }
+
+  .mc-grade-team {
+    flex: 0 0 100%;
+    max-width: 100%;
+  }
+
+  .mc-grade-part small {
+    display: inline;
+  }
+}
+
 .empty-live {
   margin-top: 0.5rem;
 }
