@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
-from eeesoc import clinical, halftime, nogoal, nogoal_monitor, standings
+from eeesoc import clinical, grade, halftime, nogoal, nogoal_monitor, standings
 from eeesoc.data import load_season, previous_season_label
 from eeesoc.live import (
     build_event_timeline,
@@ -295,6 +295,13 @@ def make_handler(state: DashboardState):
                         home_score=_qint("hs"),
                         away_score=_qint("as"),
                     )
+                )
+                # How each side is playing against what it usually has by this minute.
+                grade.stamp_grade(
+                    timeline,
+                    home_id=(qs.get("home_id") or [""])[0],
+                    away_id=(qs.get("away_id") or [""])[0],
+                    start=(qs.get("start") or [""])[0],
                 )
                 if timeline.get("final"):
                     # Full-time strips feed the 0-0 first-half archive.
@@ -721,11 +728,11 @@ def serve(*, port: int, season: str, host: str = "127.0.0.1") -> None:
         # Fill the 0-0 first-half archive from recent full-time games without blocking bind.
         halftime.start_backfill_loop(initial_days_back=days)
     if _box_backfill_enabled():
-        # Records archived before box entries were kept get them from the play-by-play, once.
-        missing = len(halftime.records_missing_box_entries())
+        # Records archived before box entries (or per-minute possession) were kept get them from the play-by-play, once.
+        missing = len(halftime.records_needing_play_backfill())
         if missing:
             halftime.start_box_backfill_thread()
-            print(f"[nogoal] backfilling penalty-box entries for {missing} archived games")
+            print(f"[nogoal] backfilling penalty-box entries and possession counts for {missing} archived games")
         # Likewise match-day squads, so the regular-XI table covers the whole archive.
         missing_lineups = len(halftime.records_missing_lineups())
         if missing_lineups:

@@ -153,7 +153,10 @@ def test_box_backfill_recounts_records_behind_the_current_version(monkeypatch, t
     stale.write_text(json.dumps({**base, "event_id": "78", "box_entries": v1_box}))
     current = halftime.record_path("t.1", "79")
     current.write_text(
-        json.dumps({**base, "event_id": "79", "box_entries": v1_box, "box_version": BOX_VERSION, "posture": {}, "goal_tags": GOAL_TAG_VERSION})
+        json.dumps({
+            **base, "event_id": "79", "box_entries": v1_box, "box_version": BOX_VERSION, "posture": {}, "goal_tags": GOAL_TAG_VERSION,
+            "touch_counts": {"home": [1] * 91, "away": [1] * 91},
+        })
     )
     # Current box count and posture, but its goals were archived before categories existed.
     untagged = halftime.record_path("t.1", "80")
