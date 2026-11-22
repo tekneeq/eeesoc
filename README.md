@@ -177,7 +177,7 @@ EEESOC_DISCORD_WEBHOOK=https://discord.com/api/webhooks/...   # unset = evaluate
 # EEESOC_NOGOAL_THRESHOLD=0.65     # P(no goal) needed to fire; pick from the Signals policy table
 # EEESOC_NOGOAL_WINDOW_1H=10-35    # minutes the 1st-half trigger may fire
 # EEESOC_NOGOAL_WINDOW_2H=50-78    # same for the 2nd half
-# EEESOC_NOGOAL_LEAGUES=arg.1,eng.2 # only fire in these leagues (unset = all)
+# EEESOC_NOGOAL_LEAGUES=mex.1,eng.2 # only fire in these leagues (unset = all)
 # EEESOC_NOGOAL_POLL_S=20          # seconds between polls
 # EEESOC_NOGOAL_MONITOR=0          # disable the background thread
 ```
