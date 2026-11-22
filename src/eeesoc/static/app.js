@@ -3968,12 +3968,43 @@
     return parts.join(" ");
   }
 
+  const XG_PEN_OUTCOME = { scored: "IN", saved: "SAVE", missed: "MISS", no_penalty: "NO" };
+
+  function xgPenaltyMarks(tl, xAt, yTop, y0, nowM, W) {
+    const pens = tl.penalties || [];
+    if (!pens.length) return "";
+    const marks = [];
+    const anchorAt = (x) => (Number(x) > W - 36 ? "end" : "middle");
+    for (const p of pens) {
+      if (p.minute == null || Number(p.minute) > nowM + 0.02) continue;
+      const team = p.team === "away" ? "away" : "home";
+      const check = p.phase === "check";
+      const startX = xAt(p.minute).toFixed(1);
+      const startLabel = check ? "VAR" : "PEN";
+      const startWhy = check ? "penalty being checked" : "penalty given";
+      const startTitle = `${p.clock || p.minute + "'"} ${startWhy}${p.text ? " — " + p.text : ""}`;
+      marks.push(
+        `<g class="xg-pen xg-pen-start ${check ? "check" : "given"} ${team}"><title>${escapeHtml(startTitle)}</title><line x1="${startX}" y1="${yTop}" x2="${startX}" y2="${y0}"/><text x="${startX}" y="11" class="xg-pen-label" text-anchor="${anchorAt(startX)}">${startLabel}</text></g>`
+      );
+      if (!p.outcome || p.outcome_minute == null || Number(p.outcome_minute) > nowM + 0.02) continue;
+      const sameMin = Math.abs(Number(p.outcome_minute) - Number(p.minute)) < 0.51;
+      const outX = (sameMin ? xAt(p.minute) : xAt(p.outcome_minute)).toFixed(1);
+      const outLabel = XG_PEN_OUTCOME[p.outcome] || String(p.outcome).replace("_", " ");
+      const outTitle = `${p.outcome_clock || p.outcome_minute + "'"} ${String(p.outcome).replace("_", " ")}${p.outcome_text ? " — " + p.outcome_text : ""}`;
+      const outLine = sameMin ? "" : `<line x1="${outX}" y1="${yTop}" x2="${outX}" y2="${y0}"/>`;
+      marks.push(
+        `<g class="xg-pen xg-pen-out ${escapeHtml(String(p.outcome))} ${team}"><title>${escapeHtml(outTitle)}</title>${outLine}<text x="${outX}" y="${Number(y0) - 4}" class="xg-pen-label" text-anchor="${anchorAt(outX)}">${escapeHtml(outLabel)}</text></g>`
+      );
+    }
+    return marks.join("");
+  }
+
   function xgSvg(tl) {
     const W = 320;
     const H = 110;
     const padL = 28;
     const padR = 10;
-    const padT = 12;
+    const padT = 16;
     const padB = 18;
     const { maxM, ticks, now } = chartAxis(tl);
     const xg = tl.xg || { home: [], away: [], home_total: 0, away_total: 0 };
@@ -3993,7 +4024,7 @@
       <text x="${tx}" y="${H - 4}" class="tl-label" text-anchor="middle">${t}'</text>`;
       })
       .join("");
-    return `<svg class="mc-xg-svg" viewBox="0 0 ${W} ${H}" width="100%" height="${H}" role="img" aria-label="Expected goals versus game time" data-pad-l="${padL}" data-pad-r="${padR}" data-width="${W}" data-max="${maxM}">
+    return `<svg class="mc-xg-svg" viewBox="0 0 ${W} ${H}" width="100%" height="${H}" role="img" aria-label="Expected goals versus game time, with penalty given or VAR check and the outcome" data-pad-l="${padL}" data-pad-r="${padR}" data-width="${W}" data-max="${maxM}">
       <text x="4" y="${Number(yTop) + 3}" class="tl-label">${yMax.toFixed(1)}</text>
       <text x="4" y="${Number(yMid) + 3}" class="tl-label">${(yMax / 2).toFixed(1)}</text>
       <text x="4" y="${Number(y0) + 3}" class="tl-label">0</text>
@@ -4001,6 +4032,7 @@
       <line x1="${padL}" y1="${yMid}" x2="${W - padR}" y2="${yMid}" class="tl-grid"/>
       <line x1="${padL}" y1="${y0}" x2="${W - padR}" y2="${y0}" class="tl-axis"/>
       ${tickMarks}
+      ${xgPenaltyMarks(tl, xAt, yTop, y0, now, W)}
       <line x1="${nowX}" y1="${padT}" x2="${nowX}" y2="${y0}" class="tl-now"/>
       ${homePath ? `<path d="${homePath}" class="xg-home" fill="none"/>` : ""}
       ${awayPath ? `<path d="${awayPath}" class="xg-away" fill="none"/>` : ""}

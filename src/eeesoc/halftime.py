@@ -252,6 +252,7 @@ def record_from_timeline(tl: dict[str, Any], meta: dict[str, Any] | None = None)
         "posture": tl.get("posture") or None,
         "goal_tags": int(tl.get("goal_tags") or GOAL_TAG_VERSION),
         "intensity": compact_intensity(tl.get("intensity") if isinstance(tl.get("intensity"), dict) else None),
+        "penalties": list(tl.get("penalties") or []),
         "xg": {
             "home": list(xg.get("home") or []),
             "away": list(xg.get("away") or []),
@@ -528,6 +529,11 @@ def _trim_record_for_client(rec: dict[str, Any]) -> dict[str, Any]:
             "home_score": rec.get("ht_home"),
             "away_score": rec.get("ht_away"),
             "events": first_half_events,
+            "penalties": [
+                p
+                for p in rec.get("penalties") or []
+                if int(p.get("minute") or 0) <= HALF_MINUTE
+            ],
             "xg": {
                 "home": home_series,
                 "away": away_series,
@@ -615,6 +621,7 @@ def archived_timeline(league_slug: str, event_id: str) -> dict[str, Any] | None:
         "has_xg": _record_has_xg(rec),
         "events": events,
         "bulletin": bulletin,
+        "penalties": list(rec.get("penalties") or []),
         "xg": {
             "home": home_series,
             "away": away_series,

@@ -996,7 +996,7 @@ if (out.indexOf("mc-last5-mini") > out.indexOf("mc-form-g l tap open")) process.
   if (!out.includes('<span class="mc-last5-when">Sep 5</span><span class="mc-last5-letter l">L</span><i class="mc-key mc-key-home"></i><span class="mc-last5-team">Real Betis</span><b class="mc-last5-ft">2–1</b><span class="mc-last5-team on">Levante</span><i class="mc-key mc-key-away"></i><span class="mc-last5-ht">HT 1–0</span><span class="mc-last5-ht">2H 1–1</span>')) process.exit(11);
   if (!out.includes('>xG 1.3–0.1</span>')) process.exit(12);
   // The live chiclet's own xG line graph, with totals printed on top of the chart.
-  if (!out.includes('<span class="mc-last5-xggraph"><svg class="mc-xg-svg"') || !out.includes('aria-label="Expected goals versus game time"')) process.exit(121);
+  if (!out.includes('<span class="mc-last5-xggraph"><svg class="mc-xg-svg"') || !out.includes('aria-label="Expected goals versus game time, with penalty given or VAR check and the outcome"')) process.exit(121);
   if (!out.includes('>xG <tspan class="tl-xg-h">1.26</tspan>–<tspan class="tl-xg-a">0.05</tspan></text>')) process.exit(122);
   if (out.indexOf("mc-last5-xggraph") > out.indexOf("mc-last5-strip")) process.exit(123);
   // The strip is the chiclet's own timeline, run to 90'.

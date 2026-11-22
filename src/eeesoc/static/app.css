@@ -1314,6 +1314,54 @@ main {
   stroke-linecap: round;
 }
 
+.xg-pen line {
+  stroke-width: 1.8;
+  stroke-linecap: round;
+}
+
+.xg-pen.home line {
+  stroke: var(--accent);
+}
+
+.xg-pen.away line {
+  stroke: rgba(125, 200, 255, 0.95);
+}
+
+.xg-pen-start.check line {
+  stroke-dasharray: 3 2.5;
+  opacity: 0.95;
+}
+
+.xg-pen-start.given line {
+  stroke-dasharray: 5 3;
+  opacity: 0.95;
+}
+
+.xg-pen-out line {
+  stroke-width: 2.1;
+}
+
+.xg-pen-out.saved line,
+.xg-pen-out.missed line,
+.xg-pen-out.no_penalty line {
+  stroke-dasharray: 2 2.5;
+  opacity: 0.95;
+}
+
+.xg-pen-label {
+  fill: rgba(245, 252, 248, 0.98);
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 11px;
+  font-weight: 700;
+  paint-order: stroke;
+  stroke: rgba(7, 9, 12, 0.92);
+  stroke-width: 3px;
+}
+
+.xg-pen.away .xg-pen-label {
+  fill: rgba(190, 228, 255, 1);
+}
+
 .mc-timeline-loading {
   font-family: var(--mono);
   font-size: 0.68rem;
