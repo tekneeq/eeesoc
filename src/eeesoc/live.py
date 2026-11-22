@@ -6,6 +6,7 @@ import json
 import math
 import re
 import time
+import unicodedata
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -704,6 +705,189 @@ def _player_name_from_disallowed(play: dict[str, Any]) -> str | None:
     short = str(play.get("shortText") or "")
     m = re.match(r"^(?P<name>.+?)\s+(?:Deleted After|VAR\b)", short, re.I)
     return _clean_player(m.group("name") if m else None)
+
+
+# Spot-kick incidents for the xG chart: a given/VAR-check mark, then the outcome.
+_PENALTY_NO_RE = re.compile(r"var\s+decision:\s*no\s+penalty\b|\bno\s+penalty\b", re.I)
+_PENALTY_VAR_RE = re.compile(r"var\s+decision:\s*penalty\b", re.I)
+_PENALTY_CONCEDED_RE = re.compile(r"\bpenalty\s+conceded\b", re.I)
+_PENALTY_SAVED_RE = re.compile(r"\bpenalty\s+saved\b", re.I)
+_PENALTY_MISSED_RE = re.compile(r"\bpenalty\s+missed\b", re.I)
+_PENALTY_TEAM_RE = re.compile(
+    r"var\s+decision:\s*(?:no\s+)?penalty\s+(?P<name>.+?)(?:\.|$)",
+    re.I,
+)
+_PENALTY_KICKER_TEAM_RE = re.compile(
+    r"\((?P<name>[^)]+)\)\s*(?:converts|fails|misses|from)\s+(?:the\s+)?penalty",
+    re.I,
+)
+_PENALTY_OUTCOMES = {"scored", "saved", "missed", "no_penalty"}
+_PENALTY_OPEN_MAX_MIN = 12
+
+
+def _norm_team_name(name: str) -> str:
+    folded = unicodedata.normalize("NFKD", name or "")
+    folded = "".join(ch for ch in folded if not unicodedata.combining(ch))
+    return re.sub(r"[\s\-]+", " ", folded).casefold().strip()
+
+
+def _penalty_team_from_label(label: str, *, home: str, away: str) -> str | None:
+    blob = _norm_team_name(label)
+    if not blob:
+        return None
+    for side, name in (("home", home), ("away", away)):
+        norm = _norm_team_name(name)
+        if not norm:
+            continue
+        if blob == norm or blob in norm or norm in blob:
+            return side
+        token = norm.split()[-1]
+        if len(token) > 3 and token in blob:
+            return side
+    return None
+
+
+def _penalty_kind(ptype: str, play: dict[str, Any]) -> str | None:
+    """check | given | scored | saved | missed | no_penalty — None when this play is not a spot kick."""
+    if play.get("shootout"):
+        return None
+    text = _play_blob(play)
+    text_l = text.lower()
+    if "penalty shootout" in text_l:
+        return None
+    blob = (ptype or "").lower().replace("_", "-")
+    if _PENALTY_NO_RE.search(text) or "no-penalty" in blob:
+        return "no_penalty"
+    if _PENALTY_VAR_RE.search(text):
+        return "check"
+    if blob == "penalty---saved" or _PENALTY_SAVED_RE.search(text):
+        return "saved"
+    if blob == "penalty---missed" or _PENALTY_MISSED_RE.search(text):
+        return "missed"
+    if blob in {"penalty---scored", "penalty-goal"} or (
+        play.get("scoringPlay") and _is_penalty_goal(ptype, play)
+    ):
+        return "scored"
+    if "penalty-conceded" in blob or "penalty-awarded" in blob or _PENALTY_CONCEDED_RE.search(text):
+        return "given"
+    return None
+
+
+def _penalty_side(
+    play: dict[str, Any],
+    ptype: str,
+    kind: str,
+    *,
+    home_id: str,
+    away_id: str,
+    home: str,
+    away: str,
+) -> str | None:
+    """Side taking the kick (or who would have), not the fouling defender."""
+    text = _play_blob(play)
+    named = _PENALTY_TEAM_RE.search(text)
+    if named:
+        side = _penalty_team_from_label(named.group("name"), home=home, away=away)
+        if side:
+            return side
+    kicker = _PENALTY_KICKER_TEAM_RE.search(text)
+    if kicker:
+        side = _penalty_team_from_label(kicker.group("name"), home=home, away=away)
+        if side:
+            return side
+    tid = _team_id_from_play(play)
+    # Goal copy is "Goal! Home 1, Away 2. …" — a bare name match would always
+    # pick home. Team id and (Club) kicker/VAR labels above are the reliable cues.
+    if tid:
+        side = _side_for_team(tid, home_id=home_id, away_id=away_id, home=home, away=away, play=play)
+    else:
+        side = None
+    if kind == "given" and _PENALTY_CONCEDED_RE.search(text):
+        if side is None:
+            side = _side_for_team(None, home_id=home_id, away_id=away_id, home=home, away=away, play=play)
+        if side == "home":
+            return "away"
+        if side == "away":
+            return "home"
+    return side
+
+
+def penalties_from_plays(
+    plays: list[dict[str, Any]],
+    *,
+    home_id: str = "",
+    away_id: str = "",
+    home: str = "",
+    away: str = "",
+) -> list[dict[str, Any]]:
+    """Spot-kick incidents: VAR check or award, then scored / saved / missed / no penalty."""
+    incidents: list[dict[str, Any]] = []
+    open_inc: dict[str, Any] | None = None
+    for play in plays:
+        if not isinstance(play, dict):
+            continue
+        ptype = _normalize_play_type(_play_type(play))
+        kind = _penalty_kind(ptype, play)
+        if not kind:
+            continue
+        pmin = _play_minute(play)
+        if pmin is None:
+            continue
+        if open_inc and open_inc.get("outcome") is None and pmin - int(open_inc["minute"] or 0) > _PENALTY_OPEN_MAX_MIN:
+            open_inc = None
+        side = _penalty_side(
+            play, ptype, kind, home_id=home_id, away_id=away_id, home=home, away=away
+        )
+        clock = _clock_label(play) or f"{pmin}'"
+        text = str(play.get("text") or play.get("shortText") or kind)
+        if kind in {"check", "given"}:
+            if open_inc and open_inc.get("outcome") is None:
+                if kind == "check":
+                    open_inc["phase"] = "check"
+                    open_inc["minute"] = pmin
+                    open_inc["clock"] = clock
+                    open_inc["text"] = text
+                    if side:
+                        open_inc["team"] = side
+                continue
+            open_inc = {
+                "phase": kind,
+                "minute": pmin,
+                "clock": clock,
+                "team": side or "",
+                "outcome": None,
+                "outcome_minute": None,
+                "outcome_clock": "",
+                "outcome_text": "",
+                "text": text,
+            }
+            incidents.append(open_inc)
+            continue
+        if open_inc and open_inc.get("outcome") is None:
+            open_inc["outcome"] = kind
+            open_inc["outcome_minute"] = pmin
+            open_inc["outcome_clock"] = clock
+            open_inc["outcome_text"] = text
+            if side and not open_inc.get("team"):
+                open_inc["team"] = side
+            open_inc = None
+            continue
+        phase = "check" if kind == "no_penalty" else "given"
+        incidents.append(
+            {
+                "phase": phase,
+                "minute": pmin,
+                "clock": clock,
+                "team": side or "",
+                "outcome": kind,
+                "outcome_minute": pmin,
+                "outcome_clock": clock,
+                "outcome_text": text,
+                "text": text,
+            }
+        )
+        open_inc = None
+    return incidents
 
 
 def _player_name_from_goal(play: dict[str, Any], *, own: bool = False) -> str | None:
@@ -2943,6 +3127,9 @@ def build_event_timeline(
         "box_version": BOX_VERSION,
         "goal_tags": GOAL_TAG_VERSION,
         "posture": defence_from_plays(plays, home_id=home_id, away_id=away_id, home=home, away=away),
+        "penalties": penalties_from_plays(
+            plays, home_id=home_id, away_id=away_id, home=home, away=away
+        ),
         "xg": {
             "home": home_series,
             "away": away_series,

@@ -2616,6 +2616,235 @@ if (!bl.includes(`<div class="mc-bl-row goal"><span class="mc-bl-min">36'</span>
     assert proc.returncode == 0, proc.stderr or proc.stdout or proc.returncode
 
 
+def test_penalties_from_plays_pairs_var_check_with_outcome():
+    from eeesoc.live import penalties_from_plays
+
+    plays = [
+        {
+            "type": {"type": "foul"},
+            "text": "Foul by Smith in the penalty area.",
+            "clock": {"displayValue": "11'"},
+            "team": {"$ref": ".../teams/2"},
+        },
+        {
+            "type": {"type": "var---referee-decision-cancelled"},
+            "text": "VAR Decision: Penalty Vasco da Gama.",
+            "clock": {"displayValue": "13'"},
+            "team": {"$ref": ".../teams/1"},
+        },
+        {
+            "type": {"type": "penalty---scored"},
+            "text": "Pablo Vegetti (Vasco da Gama) converts the penalty with a right footed shot.",
+            "clock": {"displayValue": "17'"},
+            "team": {"$ref": ".../teams/1"},
+        },
+        {
+            "type": {"type": "var---referee-decision-cancelled"},
+            "text": "VAR Decision: No Penalty Fortaleza.",
+            "clock": {"displayValue": "85'"},
+            "team": {"$ref": ".../teams/2"},
+        },
+        {
+            "type": {"type": "penalty---scored"},
+            "text": "Shootout taker converts the penalty.",
+            "clock": {"displayValue": "91'"},
+            "shootout": True,
+            "team": {"$ref": ".../teams/1"},
+        },
+    ]
+    pens = penalties_from_plays(plays, home_id="1", away_id="2", home="Vasco da Gama", away="Fortaleza")
+    assert [(p["phase"], p["minute"], p["outcome"], p["outcome_minute"], p["team"]) for p in pens] == [
+        ("check", 13, "scored", 17, "home"),
+        ("check", 85, "no_penalty", 85, "away"),
+    ]
+
+
+def test_penalties_from_plays_keeps_var_side_when_goal_copy_names_both_teams():
+    from eeesoc.live import penalties_from_plays
+
+    plays = [
+        {
+            "type": {"type": "var---referee-decision-cancelled"},
+            "text": "VAR Decision: Penalty Paris Saint Germain.",
+            "clock": {"displayValue": "27'"},
+        },
+        {
+            "type": {"type": "penalty---scored"},
+            "scoringPlay": True,
+            "text": "Goal! Nice 1, Paris Saint Germain 1. Senny Mayulu (Paris Saint Germain) converts the penalty with a right footed shot.",
+            "clock": {"displayValue": "31'"},
+        },
+        {
+            "type": {"type": "var---penalty-not-awarded"},
+            "text": "VAR Decision: No Penalty Paris Saint Germain.",
+            "clock": {"displayValue": "65'"},
+        },
+    ]
+    pens = penalties_from_plays(
+        plays, home_id="1", away_id="2", home="Nice", away="Paris Saint-Germain"
+    )
+    assert [(p["phase"], p["minute"], p["outcome"], p["outcome_minute"], p["team"]) for p in pens] == [
+        ("check", 27, "scored", 31, "away"),
+        ("check", 65, "no_penalty", 65, "away"),
+    ]
+
+
+def test_penalties_from_plays_given_then_missed_without_var():
+    from eeesoc.live import penalties_from_plays
+
+    plays = [
+        {
+            "type": {"type": "penalty-conceded"},
+            "text": "Penalty conceded by the last defender.",
+            "clock": {"displayValue": "40'"},
+            "team": {"$ref": ".../teams/2"},
+        },
+        {
+            "type": {"type": "penalty---missed"},
+            "text": "Penalty missed! Shot goes wide.",
+            "clock": {"displayValue": "41'"},
+            "team": {"$ref": ".../teams/1"},
+        },
+    ]
+    pens = penalties_from_plays(plays, home_id="1", away_id="2", home="Home", away="Away")
+    assert len(pens) == 1
+    assert pens[0]["phase"] == "given"
+    assert pens[0]["minute"] == 40
+    assert pens[0]["outcome"] == "missed"
+    assert pens[0]["outcome_minute"] == 41
+    assert pens[0]["team"] == "home"
+
+
+def test_penalties_from_plays_saved_after_var_and_ignores_box_fouls():
+    from eeesoc.live import penalties_from_plays
+
+    plays = [
+        {
+            "type": {"type": "penalty-conceded"},
+            "text": "Penalty conceded by Piero Hincapié (Bayer 04 Leverkusen) with a hand ball in the penalty area.",
+            "clock": {"displayValue": "90'+6'"},
+            "team": {"$ref": ".../teams/9"},
+        },
+        {
+            "type": {"type": "var---referee-decision-cancelled"},
+            "text": "VAR Decision: Penalty Atletico Madrid.",
+            "clock": {"displayValue": "90'+7'"},
+            "team": {"$ref": ".../teams/8"},
+        },
+        {
+            "type": {"type": "penalty---saved"},
+            "text": "Penalty saved! Yannick Carrasco (Atletico Madrid) fails to capitalise on this great opportunity.",
+            "clock": {"displayValue": "90'+9'"},
+            "team": {"$ref": ".../teams/8"},
+        },
+    ]
+    pens = penalties_from_plays(
+        plays, home_id="8", away_id="9", home="Atletico Madrid", away="Bayer 04 Leverkusen"
+    )
+    assert len(pens) == 1
+    pen = pens[0]
+    assert pen["phase"] == "check"
+    assert pen["minute"] == 90
+    assert pen["outcome"] == "saved"
+    assert pen["team"] == "home"
+    assert pen["clock"] == "90'+7'"
+    assert pen["outcome_clock"] == "90'+9'"
+
+
+def test_timeline_payload_includes_penalties_for_xg_chart():
+    from eeesoc.live import build_event_timeline, clear_timeline_cache
+
+    clear_timeline_cache()
+    plays = {
+        "pageCount": 1,
+        "items": [
+            {
+                "type": {"type": "var---penalty-not-awarded"},
+                "text": "VAR Decision: Penalty Ulsan Hyundai.",
+                "clock": {"displayValue": "54'"},
+                "team": {"$ref": ".../teams/2"},
+            },
+            {
+                "type": {"type": "penalty---scored"},
+                "text": "Júnior Negrão (Ulsan Hyundai) converts the penalty.",
+                "clock": {"displayValue": "55'"},
+                "expectedGoals": 0.79,
+                "team": {"$ref": ".../teams/2"},
+            },
+        ],
+    }
+    tl = build_event_timeline(
+        "afc.champions",
+        "586004",
+        home="Persepolis",
+        away="Ulsan Hyundai",
+        home_id="1",
+        away_id="2",
+        clock="FT",
+        fetcher=lambda url: plays,
+        use_cache=False,
+    )
+    assert tl["penalties"] == [
+        {
+            "phase": "check",
+            "minute": 54,
+            "clock": "54'",
+            "team": "away",
+            "outcome": "scored",
+            "outcome_minute": 55,
+            "outcome_clock": "55'",
+            "outcome_text": "Júnior Negrão (Ulsan Hyundai) converts the penalty.",
+            "text": "VAR Decision: Penalty Ulsan Hyundai.",
+        }
+    ]
+
+
+def test_xg_svg_draws_penalty_check_and_outcome_lines():
+    import os
+    import subprocess
+    import tempfile
+
+    js = Path("src/eeesoc/static/app.js").read_text(encoding="utf-8")
+    css = Path("src/eeesoc/static/app.css").read_text(encoding="utf-8")
+    html = Path("src/eeesoc/static/index.html").read_text(encoding="utf-8")
+    assert ".xg-pen-start.check line" in css and ".xg-pen-out line" in css
+    assert "penalty is given or VAR is checking" in html
+
+    script = (
+        "const state = {};\n"
+        + js[js.index("  function escapeHtml(s)") : js.index("  // Club-type tags and articles")]
+        + js[js.index("  function liveElapsedSeconds(tl)") : js.index("  function endToEndGap(minutes)")]
+        + r"""
+const tl = {
+  minute: 90, elapsed_seconds: 5400, frozen: true, max_minute: 90,
+  xg: { home: [{minute:0,xg:0,cumulative:0},{minute:55,xg:0.79,cumulative:0.79}], away: [], home_total: 0.79, away_total: 0 },
+  penalties: [
+    { phase: "check", minute: 54, clock: "54'", team: "away", outcome: "scored", outcome_minute: 55, outcome_clock: "55'", text: "VAR Decision: Penalty Ulsan Hyundai.", outcome_text: "converts the penalty" },
+    { phase: "given", minute: 72, clock: "72'", team: "home", outcome: "missed", outcome_minute: 73, outcome_clock: "73'", text: "Penalty conceded", outcome_text: "Penalty missed" },
+  ],
+};
+const svg = xgSvg(tl);
+if (!svg.includes('class="xg-pen xg-pen-start check away"')) process.exit(2);
+if (!svg.includes('>VAR</text>')) process.exit(3);
+if (!svg.includes('class="xg-pen xg-pen-out scored away"')) process.exit(4);
+if (!svg.includes('>IN</text>')) process.exit(5);
+if (!svg.includes("penalty being checked")) process.exit(6);
+if (!svg.includes('class="xg-pen xg-pen-start given home"')) process.exit(7);
+if (!svg.includes('>PEN</text>')) process.exit(8);
+if (!svg.includes('class="xg-pen xg-pen-out missed home"')) process.exit(9);
+if (!svg.includes('>MISS</text>')) process.exit(10);
+"""
+    )
+    with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as fh:
+        fh.write(script)
+        name = fh.name
+    try:
+        proc = subprocess.run(["node", name], capture_output=True, text=True, env={**os.environ, "TZ": "UTC"})
+    finally:
+        Path(name).unlink(missing_ok=True)
+    assert proc.returncode == 0, proc.stderr or proc.stdout or proc.returncode
+
+
 def test_timeline_score_prefers_plays_over_stale_board():
     from eeesoc.live import build_event_timeline, clear_timeline_cache
 

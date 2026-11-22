@@ -207,6 +207,30 @@ def test_archived_timeline_is_the_full_game_in_chiclet_shape():
     assert out["bulletin"][0]["player"] == "A. Striker" and out["bulletin"][0]["category"] == "team"
     assert out["bulletin"][0]["reason"] == "a passing move" and out["bulletin"][0]["clock"] == "30'"
     assert out["bulletin"][1]["category"] == "own_goal" and out["bulletin"][1]["xg"] is None
+    assert out["penalties"] == []
+
+
+def test_archived_timeline_keeps_penalty_marks_for_the_xg_chart():
+    from eeesoc.halftime import archived_timeline
+
+    pens = [
+        {
+            "phase": "check",
+            "minute": 54,
+            "clock": "54'",
+            "team": "away",
+            "outcome": "scored",
+            "outcome_minute": 55,
+            "outcome_clock": "55'",
+            "outcome_text": "converts the penalty",
+            "text": "VAR Decision: Penalty Away FC.",
+        }
+    ]
+    tl = _timeline(_quiet_half(extra=[_ev(55, "goal", "away", xg=0.79, period=2)]), away_score=1, event_id="pen1")
+    tl["penalties"] = pens
+    assert archive_timeline(tl, {"league_chiclet": "EPL", "start": "2026-09-01T14:00Z"})
+    out = archived_timeline("eng.1", "pen1")
+    assert out["penalties"] == pens
 
 
 def test_archive_timeline_endpoint_serves_the_stored_game():
