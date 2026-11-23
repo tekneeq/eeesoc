@@ -365,6 +365,88 @@ def test_leagues_include_uruguay_primera():
     assert slugs.index("bra.1") < slugs.index("uru.1")
 
 
+def test_leagues_include_turkish_super_lig():
+    assert ("tur.1", "Super Lig") in LEAGUES
+    slugs = [slug for slug, _ in LEAGUES]
+    assert slugs.index("sco.1") < slugs.index("tur.1") < slugs.index("bra.1")
+
+
+def _super_lig_scoreboard(start: str) -> dict:
+    return {
+        "leagues": [{"name": "Turkish Super Lig", "slug": "tur.1"}],
+        "events": [
+            {
+                "id": "401888370",
+                "date": start,
+                "competitions": [
+                    {
+                        "status": {
+                            "displayClock": "57'",
+                            "type": {
+                                "state": "in",
+                                "detail": "2nd Half",
+                                "shortDetail": "57'",
+                            },
+                        },
+                        "competitors": [
+                            {
+                                "homeAway": "home",
+                                "score": "0",
+                                "team": {"id": "7914", "displayName": "Istanbul Basaksehir"},
+                            },
+                            {
+                                "homeAway": "away",
+                                "score": "1",
+                                "team": {"id": "132334", "displayName": "Çorum FK"},
+                            },
+                        ],
+                    }
+                ],
+            }
+        ],
+    }
+
+
+def test_parse_turkish_super_lig_scoreboard():
+    start = (datetime.now(timezone.utc) - timedelta(minutes=57)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    matches = parse_scoreboard(_super_lig_scoreboard(start), "tur.1", "Super Lig")
+    assert len(matches) == 1
+    match = matches[0]
+    assert match.league_slug == "tur.1"
+    assert match.league_chiclet == "Super Lig"
+    assert match.league_name == "Turkish Super Lig"
+    assert match.home == "Istanbul Basaksehir"
+    assert match.home_id == "7914"
+    assert match.away == "Çorum FK"
+    assert match.away_id == "132334"
+    assert match.away_score == 1
+    assert match.state == "in"
+
+
+def test_fetch_live_board_includes_turkish_super_lig():
+    clear_live_cache()
+    start = (datetime.now(timezone.utc) - timedelta(minutes=57)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    def fake_fetch(url: str):
+        if "tur.1" in url:
+            return _super_lig_scoreboard(start)
+        return {"events": []}
+
+    board = fetch_live_board(
+        live_only=False,
+        leagues=[("tur.1", "Super Lig")],
+        fetcher=fake_fetch,
+        use_cache=False,
+    )
+    assert board["chiclets"][0]["slug"] == "tur.1"
+    assert board["chiclets"][0]["label"] == "Super Lig"
+    assert board["chiclets"][0]["live_count"] == 1
+    assert board["leagues"][0]["chiclet"] == "Super Lig"
+    assert board["leagues"][0]["name"] == "Turkish Super Lig"
+    assert board["leagues"][0]["matches"][0]["home"] == "Istanbul Basaksehir"
+    assert board["leagues"][0]["matches"][0]["away"] == "Çorum FK"
+
+
 URU_PRIMERA_SB = {
     "leagues": [{"name": "Liga AUF Uruguaya", "slug": "uru.1"}],
     "events": [
