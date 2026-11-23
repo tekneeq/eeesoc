@@ -53,6 +53,7 @@ LEAGUES: list[tuple[str, str]] = [
     ("ned.1", "Eredivisie"),
     ("por.1", "Primeira"),
     ("sco.1", "SPL"),
+    ("tur.1", "Super Lig"),
     ("bra.1", "Brasileirão"),
     ("uru.1", "Liga URU"),
 ]
