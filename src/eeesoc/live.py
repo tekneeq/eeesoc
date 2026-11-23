@@ -41,6 +41,7 @@ LEAGUES: list[tuple[str, str]] = [
     ("uefa.champions", "UCL"),
     ("uefa.europa", "UEL"),
     ("uefa.wchampions", "UWCL"),
+    ("afc.champions", "ACL"),
     ("uefa.nations", "Nations"),
     ("eng.2", "Championship"),
     ("eng.league_cup", "Carabao"),

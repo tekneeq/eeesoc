@@ -124,6 +124,87 @@ def test_leagues_include_womens_champions_league():
     assert slugs.index("uefa.europa") < slugs.index("uefa.wchampions") < slugs.index("uefa.nations")
 
 
+def test_leagues_include_afc_champions_league():
+    assert ("afc.champions", "ACL") in LEAGUES
+    slugs = [slug for slug, _ in LEAGUES]
+    assert slugs.index("uefa.wchampions") < slugs.index("afc.champions") < slugs.index("uefa.nations")
+
+
+def _acl_scoreboard(start: str) -> dict:
+    return {
+        "leagues": [{"name": "AFC Champions League Elite", "slug": "afc.champions"}],
+        "events": [
+            {
+                "id": "401912584",
+                "date": start,
+                "competitions": [
+                    {
+                        "status": {
+                            "type": {
+                                "state": "pre",
+                                "detail": "Scheduled",
+                                "shortDetail": "Scheduled",
+                            }
+                        },
+                        "competitors": [
+                            {
+                                "homeAway": "home",
+                                "score": "0",
+                                "team": {"id": "817", "displayName": "Al Nassr"},
+                            },
+                            {
+                                "homeAway": "away",
+                                "score": "0",
+                                "team": {"id": "7135", "displayName": "Al Sadd"},
+                            },
+                        ],
+                    }
+                ],
+            }
+        ],
+    }
+
+
+def test_parse_afc_champions_league_scoreboard():
+    start = (datetime.now(timezone.utc) + timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    matches = parse_scoreboard(_acl_scoreboard(start), "afc.champions", "ACL")
+    assert len(matches) == 1
+    match = matches[0]
+    assert match.league_slug == "afc.champions"
+    assert match.league_chiclet == "ACL"
+    assert match.league_name == "AFC Champions League Elite"
+    assert match.home == "Al Nassr"
+    assert match.home_id == "817"
+    assert match.away == "Al Sadd"
+    assert match.away_id == "7135"
+    assert match.state == "pre"
+    assert match.start == start
+
+
+def test_fetch_live_board_includes_afc_champions_league():
+    clear_live_cache()
+    start = (datetime.now(timezone.utc) + timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    def fake_fetch(url: str):
+        if "afc.champions" in url:
+            return _acl_scoreboard(start)
+        return {"events": []}
+
+    board = fetch_live_board(
+        live_only=False,
+        leagues=[("afc.champions", "ACL")],
+        fetcher=fake_fetch,
+        use_cache=False,
+    )
+    assert board["chiclets"][0]["slug"] == "afc.champions"
+    assert board["chiclets"][0]["label"] == "ACL"
+    assert board["chiclets"][0]["pre_count"] == 1
+    assert board["leagues"][0]["chiclet"] == "ACL"
+    assert board["leagues"][0]["name"] == "AFC Champions League Elite"
+    assert board["leagues"][0]["matches"][0]["home"] == "Al Nassr"
+    assert board["leagues"][0]["matches"][0]["away"] == "Al Sadd"
+
+
 UWCL_SB = {
     "leagues": [{"name": "UEFA Women's Champions League", "slug": "uefa.wchampions"}],
     "events": [
