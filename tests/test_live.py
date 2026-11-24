@@ -359,16 +359,10 @@ def test_leagues_omit_liga_argentina():
     assert "arg.1" not in {slug for slug, _ in LEAGUES}
 
 
-def test_leagues_include_uruguay_primera():
-    assert ("uru.1", "Liga URU") in LEAGUES
-    slugs = [slug for slug, _ in LEAGUES]
-    assert slugs.index("bra.1") < slugs.index("uru.1")
-
-
-def test_leagues_include_turkish_super_lig():
-    assert ("tur.1", "Super Lig") in LEAGUES
-    slugs = [slug for slug, _ in LEAGUES]
-    assert slugs.index("sco.1") < slugs.index("tur.1") < slugs.index("bra.1")
+def test_leagues_omit_uruguay_and_super_lig():
+    slugs = {slug for slug, _ in LEAGUES}
+    assert "uru.1" not in slugs
+    assert "tur.1" not in slugs
 
 
 def _super_lig_scoreboard(start: str) -> dict:
