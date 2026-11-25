@@ -40,6 +40,7 @@ DIGEST_LEAGUES: list[tuple[str, str]] = [
     ("uefa.europa.conf", "UECL"),
     ("uefa.wchampions", "UWCL"),
     ("afc.champions", "ACL"),
+    ("afc.cup", "ACL2"),
     ("uefa.nations", "Nations"),
     ("usa.1", "MLS"),
     ("concacaf.nations.league", "CNL"),
