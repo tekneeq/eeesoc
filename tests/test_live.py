@@ -365,6 +365,88 @@ def test_leagues_include_uruguay_primera():
     assert slugs.index("bra.1") < slugs.index("uru.1")
 
 
+def test_leagues_include_colombian_primera():
+    assert ("col.1", "Liga COL") in LEAGUES
+    slugs = [slug for slug, _ in LEAGUES]
+    assert slugs.index("uru.1") < slugs.index("col.1")
+
+
+def _colombian_scoreboard(start: str) -> dict:
+    return {
+        "leagues": [{"name": "Colombian Primera A", "slug": "col.1"}],
+        "events": [
+            {
+                "id": "401934706",
+                "date": start,
+                "competitions": [
+                    {
+                        "status": {
+                            "displayClock": "27'",
+                            "type": {
+                                "state": "in",
+                                "detail": "1st Half",
+                                "shortDetail": "27'",
+                            },
+                        },
+                        "competitors": [
+                            {
+                                "homeAway": "home",
+                                "score": "0",
+                                "team": {"id": "8109", "displayName": "América de Cali"},
+                            },
+                            {
+                                "homeAway": "away",
+                                "score": "0",
+                                "team": {"id": "2672", "displayName": "Deportivo Cali"},
+                            },
+                        ],
+                    }
+                ],
+            }
+        ],
+    }
+
+
+def test_parse_colombian_primera_scoreboard():
+    start = (datetime.now(timezone.utc) - timedelta(minutes=27)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    matches = parse_scoreboard(_colombian_scoreboard(start), "col.1", "Liga COL")
+    assert len(matches) == 1
+    match = matches[0]
+    assert match.league_slug == "col.1"
+    assert match.league_chiclet == "Liga COL"
+    assert match.league_name == "Colombian Primera A"
+    assert match.home == "América de Cali"
+    assert match.home_id == "8109"
+    assert match.away == "Deportivo Cali"
+    assert match.away_id == "2672"
+    assert match.state == "in"
+    assert match.clock == "27'"
+
+
+def test_fetch_live_board_includes_colombian_primera():
+    clear_live_cache()
+    start = (datetime.now(timezone.utc) - timedelta(minutes=27)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    def fake_fetch(url: str):
+        if "/col.1/" in url or "league=col.1" in url:
+            return _colombian_scoreboard(start)
+        return {"events": []}
+
+    board = fetch_live_board(
+        live_only=False,
+        leagues=[("col.1", "Liga COL")],
+        fetcher=fake_fetch,
+        use_cache=False,
+    )
+    assert board["chiclets"][0]["slug"] == "col.1"
+    assert board["chiclets"][0]["label"] == "Liga COL"
+    assert board["chiclets"][0]["live_count"] == 1
+    assert board["leagues"][0]["chiclet"] == "Liga COL"
+    assert board["leagues"][0]["name"] == "Colombian Primera A"
+    assert board["leagues"][0]["matches"][0]["home"] == "América de Cali"
+    assert board["leagues"][0]["matches"][0]["away"] == "Deportivo Cali"
+
+
 def test_leagues_include_turkish_super_lig():
     assert ("tur.1", "Super Lig") in LEAGUES
     slugs = [slug for slug, _ in LEAGUES]
