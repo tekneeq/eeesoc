@@ -56,6 +56,7 @@ LEAGUES: list[tuple[str, str]] = [
     ("tur.1", "Super Lig"),
     ("bra.1", "Brasileirão"),
     ("uru.1", "Liga URU"),
+    ("col.1", "Liga COL"),
 ]
 
 _CACHE_TTL_S = 6.0
