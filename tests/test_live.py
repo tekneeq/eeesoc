@@ -130,6 +130,89 @@ def test_leagues_include_afc_champions_league():
     assert slugs.index("uefa.wchampions") < slugs.index("afc.champions") < slugs.index("uefa.nations")
 
 
+def test_leagues_include_afc_champions_league_two():
+    assert ("afc.cup", "ACL2") in LEAGUES
+    slugs = [slug for slug, _ in LEAGUES]
+    assert slugs.index("afc.champions") < slugs.index("afc.cup") < slugs.index("uefa.nations")
+
+
+def _acl2_scoreboard(start: str) -> dict:
+    return {
+        "leagues": [{"name": "AFC Champions League Two", "slug": "afc.cup"}],
+        "events": [
+            {
+                "id": "401912753",
+                "date": start,
+                "competitions": [
+                    {
+                        "status": {
+                            "displayClock": "13'",
+                            "type": {
+                                "state": "in",
+                                "detail": "1st Half",
+                                "shortDetail": "13'",
+                            },
+                        },
+                        "competitors": [
+                            {
+                                "homeAway": "home",
+                                "score": "1",
+                                "team": {"id": "8293", "displayName": "Persib Bandung"},
+                            },
+                            {
+                                "homeAway": "away",
+                                "score": "0",
+                                "team": {"id": "6972", "displayName": "FC Seoul"},
+                            },
+                        ],
+                    }
+                ],
+            }
+        ],
+    }
+
+
+def test_parse_afc_champions_league_two_scoreboard():
+    start = (datetime.now(timezone.utc) - timedelta(minutes=13)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    matches = parse_scoreboard(_acl2_scoreboard(start), "afc.cup", "ACL2")
+    assert len(matches) == 1
+    match = matches[0]
+    assert match.league_slug == "afc.cup"
+    assert match.league_chiclet == "ACL2"
+    assert match.league_name == "AFC Champions League Two"
+    assert match.home == "Persib Bandung"
+    assert match.home_id == "8293"
+    assert match.away == "FC Seoul"
+    assert match.away_id == "6972"
+    assert match.home_score == 1
+    assert match.state == "in"
+    assert match.clock == "13'"
+
+
+def test_fetch_live_board_includes_afc_champions_league_two():
+    clear_live_cache()
+    start = (datetime.now(timezone.utc) - timedelta(minutes=13)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    def fake_fetch(url: str):
+        if "/afc.cup/" in url or "league=afc.cup" in url:
+            return _acl2_scoreboard(start)
+        return {"events": []}
+
+    board = fetch_live_board(
+        live_only=False,
+        leagues=[("afc.cup", "ACL2")],
+        fetcher=fake_fetch,
+        use_cache=False,
+    )
+    assert board["chiclets"][0]["slug"] == "afc.cup"
+    assert board["chiclets"][0]["label"] == "ACL2"
+    assert board["chiclets"][0]["live_count"] == 1
+    assert board["leagues"][0]["chiclet"] == "ACL2"
+    assert board["leagues"][0]["name"] == "AFC Champions League Two"
+    assert board["leagues"][0]["matches"][0]["home"] == "Persib Bandung"
+    assert board["leagues"][0]["matches"][0]["away"] == "FC Seoul"
+
+
 def _acl_scoreboard(start: str) -> dict:
     return {
         "leagues": [{"name": "AFC Champions League Elite", "slug": "afc.champions"}],
@@ -371,10 +454,8 @@ def test_leagues_include_colombian_primera():
     assert slugs.index("uru.1") < slugs.index("col.1")
 
 
-def test_leagues_include_japanese_j1():
-    assert ("jpn.1", "J1") in LEAGUES
-    slugs = [slug for slug, _ in LEAGUES]
-    assert slugs.index("col.1") < slugs.index("jpn.1")
+def test_leagues_omit_japanese_j1():
+    assert "jpn.1" not in {slug for slug, _ in LEAGUES}
 
 
 def _j1_scoreboard(start: str) -> dict:

@@ -79,6 +79,7 @@ def test_digest_leagues_cover_requested_competitions():
         "uefa.europa.conf",
         "uefa.wchampions",
         "afc.champions",
+        "afc.cup",
         "uefa.nations",
         "usa.1",
         "concacaf.nations.league",

@@ -42,6 +42,7 @@ LEAGUES: list[tuple[str, str]] = [
     ("uefa.europa", "UEL"),
     ("uefa.wchampions", "UWCL"),
     ("afc.champions", "ACL"),
+    ("afc.cup", "ACL2"),
     ("uefa.nations", "Nations"),
     ("eng.2", "Championship"),
     ("eng.league_cup", "Carabao"),
@@ -57,7 +58,6 @@ LEAGUES: list[tuple[str, str]] = [
     ("bra.1", "Brasileirão"),
     ("uru.1", "Liga URU"),
     ("col.1", "Liga COL"),
-    ("jpn.1", "J1"),
 ]
 
 _CACHE_TTL_S = 6.0
