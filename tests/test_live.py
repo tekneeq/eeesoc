@@ -130,10 +130,8 @@ def test_leagues_include_afc_champions_league():
     assert slugs.index("uefa.wchampions") < slugs.index("afc.champions") < slugs.index("uefa.nations")
 
 
-def test_leagues_include_afc_champions_league_two():
-    assert ("afc.cup", "ACL2") in LEAGUES
-    slugs = [slug for slug, _ in LEAGUES]
-    assert slugs.index("afc.champions") < slugs.index("afc.cup") < slugs.index("uefa.nations")
+def test_leagues_omit_afc_champions_league_two():
+    assert "afc.cup" not in {slug for slug, _ in LEAGUES}
 
 
 def _acl2_scoreboard(start: str) -> dict:
