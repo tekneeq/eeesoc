@@ -371,6 +371,89 @@ def test_leagues_include_colombian_primera():
     assert slugs.index("uru.1") < slugs.index("col.1")
 
 
+def test_leagues_include_japanese_j1():
+    assert ("jpn.1", "J1") in LEAGUES
+    slugs = [slug for slug, _ in LEAGUES]
+    assert slugs.index("col.1") < slugs.index("jpn.1")
+
+
+def _j1_scoreboard(start: str) -> dict:
+    return {
+        "leagues": [{"name": "Japanese J.League", "abbreviation": "Japanese J1 League", "slug": "jpn.1"}],
+        "events": [
+            {
+                "id": "401877547",
+                "date": start,
+                "competitions": [
+                    {
+                        "status": {
+                            "displayClock": "32'",
+                            "type": {
+                                "state": "in",
+                                "detail": "1st Half",
+                                "shortDetail": "32'",
+                            },
+                        },
+                        "competitors": [
+                            {
+                                "homeAway": "home",
+                                "score": "2",
+                                "team": {"id": "3385", "displayName": "Urawa Red Diamonds"},
+                            },
+                            {
+                                "homeAway": "away",
+                                "score": "0",
+                                "team": {"id": "7109", "displayName": "Cerezo Osaka"},
+                            },
+                        ],
+                    }
+                ],
+            }
+        ],
+    }
+
+
+def test_parse_japanese_j1_scoreboard():
+    start = (datetime.now(timezone.utc) - timedelta(minutes=32)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    matches = parse_scoreboard(_j1_scoreboard(start), "jpn.1", "J1")
+    assert len(matches) == 1
+    match = matches[0]
+    assert match.league_slug == "jpn.1"
+    assert match.league_chiclet == "J1"
+    assert match.league_name == "Japanese J.League"
+    assert match.home == "Urawa Red Diamonds"
+    assert match.home_id == "3385"
+    assert match.away == "Cerezo Osaka"
+    assert match.away_id == "7109"
+    assert match.home_score == 2
+    assert match.state == "in"
+    assert match.clock == "32'"
+
+
+def test_fetch_live_board_includes_japanese_j1():
+    clear_live_cache()
+    start = (datetime.now(timezone.utc) - timedelta(minutes=32)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    def fake_fetch(url: str):
+        if "/jpn.1/" in url or "league=jpn.1" in url:
+            return _j1_scoreboard(start)
+        return {"events": []}
+
+    board = fetch_live_board(
+        live_only=False,
+        leagues=[("jpn.1", "J1")],
+        fetcher=fake_fetch,
+        use_cache=False,
+    )
+    assert board["chiclets"][0]["slug"] == "jpn.1"
+    assert board["chiclets"][0]["label"] == "J1"
+    assert board["chiclets"][0]["live_count"] == 1
+    assert board["leagues"][0]["chiclet"] == "J1"
+    assert board["leagues"][0]["name"] == "Japanese J.League"
+    assert board["leagues"][0]["matches"][0]["home"] == "Urawa Red Diamonds"
+    assert board["leagues"][0]["matches"][0]["away"] == "Cerezo Osaka"
+
+
 def _colombian_scoreboard(start: str) -> dict:
     return {
         "leagues": [{"name": "Colombian Primera A", "slug": "col.1"}],
