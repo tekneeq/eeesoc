@@ -452,6 +452,14 @@ def test_leagues_include_colombian_primera():
     assert slugs.index("uru.1") < slugs.index("col.1")
 
 
+def test_leagues_include_saudi_pro_league():
+    assert ("ksa.1", "Saudi") in LEAGUES
+    slugs = [slug for slug, _ in LEAGUES]
+    assert slugs.index("col.1") < slugs.index("ksa.1")
+    # Scottish Premiership keeps the SPL chip.
+    assert ("sco.1", "SPL") in LEAGUES
+
+
 def test_leagues_omit_japanese_j1():
     assert "jpn.1" not in {slug for slug, _ in LEAGUES}
 
@@ -607,6 +615,82 @@ def test_fetch_live_board_includes_colombian_primera():
     assert board["leagues"][0]["name"] == "Colombian Primera A"
     assert board["leagues"][0]["matches"][0]["home"] == "América de Cali"
     assert board["leagues"][0]["matches"][0]["away"] == "Deportivo Cali"
+
+
+def _saudi_scoreboard(start: str) -> dict:
+    return {
+        "leagues": [{"name": "Saudi Pro League", "slug": "ksa.1"}],
+        "events": [
+            {
+                "id": "401900874",
+                "date": start,
+                "competitions": [
+                    {
+                        "status": {
+                            "displayClock": "12'",
+                            "type": {
+                                "state": "in",
+                                "detail": "1st Half",
+                                "shortDetail": "12'",
+                            },
+                        },
+                        "competitors": [
+                            {
+                                "homeAway": "home",
+                                "score": "0",
+                                "team": {"id": "13033", "displayName": "Al Fateh"},
+                            },
+                            {
+                                "homeAway": "away",
+                                "score": "0",
+                                "team": {"id": "21965", "displayName": "Al Riyadh"},
+                            },
+                        ],
+                    }
+                ],
+            }
+        ],
+    }
+
+
+def test_parse_saudi_pro_league_scoreboard():
+    start = (datetime.now(timezone.utc) - timedelta(minutes=12)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    matches = parse_scoreboard(_saudi_scoreboard(start), "ksa.1", "Saudi")
+    assert len(matches) == 1
+    match = matches[0]
+    assert match.league_slug == "ksa.1"
+    assert match.league_chiclet == "Saudi"
+    assert match.league_name == "Saudi Pro League"
+    assert match.home == "Al Fateh"
+    assert match.home_id == "13033"
+    assert match.away == "Al Riyadh"
+    assert match.away_id == "21965"
+    assert match.state == "in"
+    assert match.clock == "12'"
+
+
+def test_fetch_live_board_includes_saudi_pro_league():
+    clear_live_cache()
+    start = (datetime.now(timezone.utc) - timedelta(minutes=12)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    def fake_fetch(url: str):
+        if "/ksa.1/" in url or "league=ksa.1" in url:
+            return _saudi_scoreboard(start)
+        return {"events": []}
+
+    board = fetch_live_board(
+        live_only=False,
+        leagues=[("ksa.1", "Saudi")],
+        fetcher=fake_fetch,
+        use_cache=False,
+    )
+    assert board["chiclets"][0]["slug"] == "ksa.1"
+    assert board["chiclets"][0]["label"] == "Saudi"
+    assert board["chiclets"][0]["live_count"] == 1
+    assert board["leagues"][0]["chiclet"] == "Saudi"
+    assert board["leagues"][0]["name"] == "Saudi Pro League"
+    assert board["leagues"][0]["matches"][0]["home"] == "Al Fateh"
+    assert board["leagues"][0]["matches"][0]["away"] == "Al Riyadh"
 
 
 def test_leagues_include_turkish_super_lig():
