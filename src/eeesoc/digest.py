@@ -1,8 +1,7 @@
 """Morning Discord slate: today's fixtures in the tracked leagues.
 
 The bot posts once at 9:30 AM America/New_York (overridable). Kickoffs are
-labelled in that same timezone. Conference League is included here even if
-it is not on the live chiclet strip.
+labelled in that same timezone.
 """
 
 from __future__ import annotations
@@ -25,7 +24,6 @@ _STATE_NAME = "discord-digest.json"
 _DISCORD_SAFE_LEN = 1800
 
 # Europe first (already midday at 9:30 ET), MLS / CONCACAF / friendlies last.
-# Conference League is fetched for the slate even when it is not a dashboard chiclet.
 DIGEST_LEAGUES: list[tuple[str, str]] = [
     ("eng.1", "EPL"),
     ("eng.2", "Championship"),

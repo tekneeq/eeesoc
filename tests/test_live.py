@@ -124,6 +124,89 @@ def test_leagues_include_womens_champions_league():
     assert slugs.index("uefa.europa") < slugs.index("uefa.wchampions") < slugs.index("uefa.nations")
 
 
+def test_leagues_include_conference_league():
+    assert ("uefa.europa.conf", "UECL") in LEAGUES
+    slugs = [slug for slug, _ in LEAGUES]
+    assert slugs.index("uefa.europa") < slugs.index("uefa.europa.conf") < slugs.index("uefa.wchampions")
+
+
+def _conference_scoreboard(start: str) -> dict:
+    return {
+        "leagues": [{"name": "UEFA Conference League", "slug": "uefa.europa.conf"}],
+        "events": [
+            {
+                "id": "401915816",
+                "date": start,
+                "competitions": [
+                    {
+                        "status": {
+                            "displayClock": "47'",
+                            "type": {
+                                "state": "in",
+                                "detail": "2nd Half",
+                                "shortDetail": "47'",
+                            },
+                        },
+                        "competitors": [
+                            {
+                                "homeAway": "home",
+                                "score": "1",
+                                "team": {"id": "2528", "displayName": "Kairat Almaty"},
+                            },
+                            {
+                                "homeAway": "away",
+                                "score": "0",
+                                "team": {"id": "20301", "displayName": "Mjällby AIF"},
+                            },
+                        ],
+                    }
+                ],
+            }
+        ],
+    }
+
+
+def test_parse_conference_league_scoreboard():
+    start = (datetime.now(timezone.utc) - timedelta(minutes=47)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    matches = parse_scoreboard(_conference_scoreboard(start), "uefa.europa.conf", "UECL")
+    assert len(matches) == 1
+    match = matches[0]
+    assert match.league_slug == "uefa.europa.conf"
+    assert match.league_chiclet == "UECL"
+    assert match.league_name == "UEFA Conference League"
+    assert match.home == "Kairat Almaty"
+    assert match.home_id == "2528"
+    assert match.away == "Mjällby AIF"
+    assert match.away_id == "20301"
+    assert match.home_score == 1
+    assert match.state == "in"
+    assert match.clock == "47'"
+
+
+def test_fetch_live_board_includes_conference_league():
+    clear_live_cache()
+    start = (datetime.now(timezone.utc) - timedelta(minutes=47)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    def fake_fetch(url: str):
+        if "/uefa.europa.conf/" in url or "league=uefa.europa.conf" in url:
+            return _conference_scoreboard(start)
+        return {"events": []}
+
+    board = fetch_live_board(
+        live_only=False,
+        leagues=[("uefa.europa.conf", "UECL")],
+        fetcher=fake_fetch,
+        use_cache=False,
+    )
+    assert board["chiclets"][0]["slug"] == "uefa.europa.conf"
+    assert board["chiclets"][0]["label"] == "UECL"
+    assert board["chiclets"][0]["live_count"] == 1
+    assert board["leagues"][0]["chiclet"] == "UECL"
+    assert board["leagues"][0]["name"] == "UEFA Conference League"
+    assert board["leagues"][0]["matches"][0]["home"] == "Kairat Almaty"
+    assert board["leagues"][0]["matches"][0]["away"] == "Mjällby AIF"
+
+
 def test_leagues_include_afc_champions_league():
     assert ("afc.champions", "ACL") in LEAGUES
     slugs = [slug for slug, _ in LEAGUES]
@@ -452,12 +535,8 @@ def test_leagues_include_colombian_primera():
     assert slugs.index("uru.1") < slugs.index("col.1")
 
 
-def test_leagues_include_saudi_pro_league():
-    assert ("ksa.1", "Saudi") in LEAGUES
-    slugs = [slug for slug, _ in LEAGUES]
-    assert slugs.index("col.1") < slugs.index("ksa.1")
-    # Scottish Premiership keeps the SPL chip.
-    assert ("sco.1", "SPL") in LEAGUES
+def test_leagues_omit_saudi_pro_league():
+    assert "ksa.1" not in {slug for slug, _ in LEAGUES}
 
 
 def test_leagues_omit_japanese_j1():
