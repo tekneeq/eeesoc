@@ -3140,6 +3140,111 @@ def test_goal_ruled_out_by_var_marks_the_strip_without_counting():
     assert tl["counts_by_half"]["1h"]["away_goal"] == 1
 
 
+def test_var_own_goal_left_in_the_feed_comes_off_the_score():
+    """ESPN keeps the original own-goal sentence on Deleted After Review.
+
+    Pachuca 0–1 Guadalajara: Bauermann's own goal stands, Aguirre's is chalked
+    off three minutes later. The score drops back even when the scoreboard
+    still includes the disallowed goal.
+    """
+    from eeesoc.live import build_event_timeline, clear_timeline_cache
+
+    clear_timeline_cache()
+    plays = {
+        "pageCount": 1,
+        "items": [
+            {
+                "type": {"type": "own-goal"},
+                "scoringPlay": True,
+                "shortText": "Eduardo Bauermann Own Goal",
+                "text": "Own Goal by Eduardo Bauermann, Pachuca. Pachuca 0, Guadalajara 1.",
+                "clock": {"displayValue": "6'", "value": 360.0},
+                "period": {"number": 1},
+                "team": {"$ref": ".../teams/219"},
+            },
+            {
+                "type": {"type": "deleted-after-review"},
+                "scoringPlay": False,
+                "shortText": "Daniel Aguirre Deleted After Rev",
+                "text": "Own Goal by Daniel Aguirre, Guadalajara. Pachuca 0, Guadalajara 1.",
+                "clock": {"displayValue": "37'", "value": 2220.0},
+                "period": {"number": 1},
+                "team": {"$ref": ".../teams/219"},
+            },
+            {
+                "type": {"type": "var---referee-decision-cancelled"},
+                "scoringPlay": False,
+                "shortText": "Daniel Aguirre VAR - Referee dec",
+                "text": "VAR Decision: No Goal Pachuca 0-1 Guadalajara.",
+                "clock": {"displayValue": "40'", "value": 2400.0},
+                "period": {"number": 1},
+                "team": {"$ref": ".../teams/219"},
+            },
+        ],
+    }
+
+    def timeline(away_score: int):
+        return build_event_timeline(
+            "mex.1",
+            "401931982",
+            home="Pachuca",
+            away="Guadalajara",
+            home_id="234",
+            away_id="219",
+            clock="45'+2'",
+            home_score=0,
+            away_score=away_score,
+            fetcher=lambda url: plays,
+            use_cache=False,
+        )
+
+    corrected = timeline(1)
+    goals = [e for e in corrected["bulletin"] if e["kind"] in {"goal", "own_goal", "disallowed"}]
+    assert [(e["clock"], e["kind"], e["player"]) for e in goals] == [
+        ("6'", "own_goal", "Eduardo Bauermann"),
+        ("37'", "disallowed", "Daniel Aguirre"),
+    ]
+    assert corrected["counts"]["away_own_goal"] == 1
+    assert corrected["counts"]["disallowed"] == 1
+    assert corrected["home_score"] == 0 and corrected["away_score"] == 1
+
+    stale = timeline(2)
+    assert stale["home_score"] == 0 and stale["away_score"] == 1
+
+
+def test_displayed_score_drops_a_var_goal_the_board_still_counts():
+    import os
+    import subprocess
+    import tempfile
+
+    js = Path("src/eeesoc/static/app.js").read_text(encoding="utf-8")
+    start = js.index("  function displayedScore(")
+    end = js.index("  function redCardsBySide(")
+    script = (
+        js[start:end]
+        + r"""
+const shown = displayedScore(
+  { home_score: 0, away_score: 2 },
+  { home_score: 0, away_score: 1, counts: { disallowed: 1 } },
+);
+if (shown.home !== 0 || shown.away !== 1) process.exit(2);
+const lead = displayedScore(
+  { home_score: 0, away_score: 0 },
+  { home_score: 1, away_score: 0, counts: {} },
+);
+if (lead.home !== 1 || lead.away !== 0) process.exit(3);
+"""
+    )
+    with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as fh:
+        fh.write(script)
+        name = fh.name
+    try:
+        proc = subprocess.run(["node", name], capture_output=True, text=True, env={**os.environ, "TZ": "UTC"})
+    finally:
+        Path(name).unlink(missing_ok=True)
+    assert proc.returncode == 0, proc.stderr or proc.stdout or proc.returncode
+
+
 def test_disallowed_goal_renders_as_a_crossed_out_post_and_bulletin_row():
     import os
     import subprocess

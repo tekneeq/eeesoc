@@ -3715,9 +3715,14 @@
     const boardA = Number(m?.away_score) || 0;
     const playH = Number(tl?.home_score);
     const playA = Number(tl?.away_score);
+    const h = Number.isFinite(playH) ? playH : 0;
+    const a = Number.isFinite(playA) ? playA : 0;
+    // The timeline already took a VAR removal off the score. Don't max() it
+    // back up to a scoreboard that still includes the chalked-off goal.
+    if ((Number(tl?.counts?.disallowed) || 0) > 0) return { home: h, away: a };
     return {
-      home: Math.max(boardH, Number.isFinite(playH) ? playH : 0),
-      away: Math.max(boardA, Number.isFinite(playA) ? playA : 0),
+      home: Math.max(boardH, h),
+      away: Math.max(boardA, a),
     };
   }
 
