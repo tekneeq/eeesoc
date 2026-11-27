@@ -677,26 +677,32 @@ def _is_penalty_goal(ptype: str, play: dict[str, Any] | None = None) -> bool:
     return False
 
 
-# A goal VAR chalked off. ESPN files it as "Deleted After Review" ("GOAL
-# OVERTURNED BY VAR: X (Team) scores but the goal is ruled out after a VAR
-# review."), usually followed a minute later by "VAR - Referee decision
-# cancelled" ("VAR Decision: No Goal ..."). The goal play itself is removed
-# from the feed, so the strip would otherwise never know a ball went in.
+# A goal VAR chalked off. ESPN files it as "Deleted After Review", usually
+# followed a few minutes later by "VAR Decision: No Goal ...". Sometimes the
+# review row keeps the original goal sentence ("Own Goal by Daniel Aguirre,
+# Guadalajara. Pachuca 0, Guadalajara 1.") instead of "GOAL OVERTURNED BY VAR".
+# That row is not a second goal — the score has to come back down.
 _DISALLOWED_TEXT_RE = re.compile(
     r"goal\s+overturned|goal\s+(?:is\s+)?(?:ruled\s+out|disallowed|cancelled|canceled)|no\s+goal\b|disallowed\s+goal",
     re.I,
 )
 _DISALLOWED_PLAYER_RE = re.compile(r":\s*(?P<name>[^(:]+?)\s*\([^)]*\)\s*scores", re.I)
+_DISALLOWED_ECHO_MIN = 5
 
 
 def _is_disallowed_goal(ptype: str, play: dict[str, Any] | None = None) -> bool:
     if play is None:
         return False
-    blob = (ptype or "").lower()
-    if not ("review" in blob or "var" in blob or "disallow" in blob or "deleted" in blob):
+    blob = (ptype or "").lower().replace("_", "-").replace(" ", "-")
+    if not any(tok in blob for tok in ("review", "var", "disallow", "deleted")):
         return False
     text = " ".join(str(play.get(k) or "") for k in ("text", "shortText", "alternativeText"))
-    return bool(_DISALLOWED_TEXT_RE.search(text))
+    if _DISALLOWED_TEXT_RE.search(text):
+        return True
+    # The deleted-after-review row often still reads as the goal it removed.
+    if "deleted" in blob and (_is_own_goal("", play) or re.search(r"\bgoals?\b", text, re.I)):
+        return True
+    return False
 
 
 def _player_name_from_disallowed(play: dict[str, Any]) -> str | None:
@@ -705,9 +711,23 @@ def _player_name_from_disallowed(play: dict[str, Any]) -> str | None:
     named = _clean_player(m.group("name") if m else None)
     if named:
         return named
+    m = _OG_PLAYER_RE.search(text)
+    named = _clean_player(m.group("name") if m else None)
+    if named:
+        return named
     short = str(play.get("shortText") or "")
     m = re.match(r"^(?P<name>.+?)\s+(?:Deleted After|VAR\b)", short, re.I)
     return _clean_player(m.group("name") if m else None)
+
+
+def _score_after_var(board: int, play: int, disallowed: int) -> int:
+    """Plays lead the scoreboard, except a VAR removal the board may still include."""
+    board = int(board or 0)
+    play = int(play or 0)
+    disallowed = int(disallowed or 0)
+    if disallowed and board > play:
+        return max(play, board - disallowed)
+    return max(board, play)
 
 
 # Spot-kick incidents for the xG chart: a given/VAR-check mark, then the outcome.
@@ -1374,13 +1394,15 @@ def build_live_situation(
 
     home_shots = away_shots = home_sot = away_sot = 0
     home_goals = away_goals = 0
+    home_disallowed = away_disallowed = 0
     goals: list[dict[str, Any]] = []
     goal_minutes: list[int] = []
 
     # Running tallies so each goal can snapshot "what each team had when this happened"
     for play in plays:
         ptype = _play_type(play)
-        own = _is_own_goal(ptype, play)
+        disallowed = _is_disallowed_goal(ptype, play)
+        own = _is_own_goal(ptype, play) and not disallowed
         tid = _team_id_from_play(play)
         side = (
             _side_for_own_goal(
@@ -1393,9 +1415,11 @@ def build_live_situation(
         )
         pmin = _play_minute(play) or minute
 
-        is_shot = (not own) and ptype in SHOT_TYPES
-        is_sot = (not own) and ptype in {"shot-on-target", "goal", "penalty-goal"}
-        is_goal = own or ptype in {"goal", "penalty-goal"} or bool(play.get("scoringPlay"))
+        is_shot = (not own) and not disallowed and ptype in SHOT_TYPES
+        is_sot = (not own) and not disallowed and ptype in {"shot-on-target", "goal", "penalty-goal"}
+        is_goal = (not disallowed) and (
+            own or ptype in {"goal", "penalty-goal"} or bool(play.get("scoringPlay"))
+        )
 
         if is_shot and side == "home":
             home_shots += 1
@@ -1405,6 +1429,11 @@ def build_live_situation(
             away_shots += 1
             if is_sot:
                 away_sot += 1
+
+        if disallowed and side == "home":
+            home_disallowed += 1
+        elif disallowed and side == "away":
+            away_disallowed += 1
 
         if is_goal and side in {"home", "away"}:
             if side == "home":
@@ -1437,9 +1466,10 @@ def build_live_situation(
                 }
             )
 
-    # Prefer live scoreboard totals when plays missed attribution
-    if home_goals + away_goals < home_score + away_score:
-        home_goals, away_goals = home_score, away_score
+    # Plays lead the scoreboard. A VAR removal is the exception: the board can
+    # still include a goal the review row already took away.
+    home_goals = _score_after_var(home_score, home_goals, home_disallowed)
+    away_goals = _score_after_var(away_score, away_goals, away_disallowed)
 
     snapshot = {
         "minute": minute,
@@ -1462,8 +1492,8 @@ def build_live_situation(
         "away": away,
         "home_id": home_id,
         "away_id": away_id,
-        "home_score": home_score,
-        "away_score": away_score,
+        "home_score": home_goals,
+        "away_score": away_goals,
         "clock": clock,
         "minute": minute,
         "snapshot": snapshot,
@@ -2960,8 +2990,10 @@ def build_event_timeline(
     bulletin: list[dict[str, Any]] = []
 
     for play_index, play in enumerate(plays):
-        ptype = _normalize_play_type(_play_type(play))
-        own = _is_own_goal(ptype, play)
+        raw_type = _play_type(play)
+        disallowed = _is_disallowed_goal(raw_type, play)
+        ptype = _normalize_play_type(raw_type)
+        own = _is_own_goal(ptype, play) and not disallowed
         if own:
             ptype = "own-goal"
         pmin = _play_minute(play)
@@ -2984,19 +3016,27 @@ def build_event_timeline(
             and side in {"home", "away"}
             and xg > 0
             and not own
+            and not disallowed
         ):
             (home_xg_pts if side == "home" else away_xg_pts).append((pmin, xg))
             halves[half][f"{side}_xg"] = float(halves[half][f"{side}_xg"]) + xg
 
-        kind = _event_kind(ptype, scoring=bool(play.get("scoringPlay")))
+        kind = None if disallowed else _event_kind(ptype, scoring=bool(play.get("scoringPlay")))
         if own:
             kind = "own_goal"
-        disallowed = kind is None and _is_disallowed_goal(ptype, play)
         if disallowed:
             kind = "disallowed"
-            # The "VAR Decision: No Goal" play echoes the overturned goal a minute later.
+            player_name = _player_name_from_disallowed(play)
+            # "VAR Decision: No Goal" echoes the Deleted After Review row a few minutes later.
             if any(
-                ev["kind"] == "disallowed" and ev["team"] == side and abs(int(ev["minute"]) - int(pmin or 0)) <= 2
+                ev["kind"] == "disallowed"
+                and ev["team"] == side
+                and abs(int(ev["minute"]) - int(pmin or 0)) <= _DISALLOWED_ECHO_MIN
+                and (
+                    not player_name
+                    or not ev.get("player")
+                    or str(ev.get("player")).casefold() == player_name.casefold()
+                )
                 for ev in events
             ):
                 continue
@@ -3068,7 +3108,11 @@ def build_event_timeline(
             # ESPN's shortText is cut mid-word ("… Deleted After Re"); the long text says what VAR did.
             text = str(play.get("text") or play.get("alternativeText") or text)
         is_goal = kind in {"goal", "own_goal"}
-        player = _player_name_from_goal(play, own=own) if is_goal else (_player_name_from_disallowed(play) if disallowed else None)
+        player = (
+            _player_name_from_goal(play, own=own)
+            if is_goal
+            else (player_name if disallowed else None)
+        )
         tag = classify_goal(plays, play_index) if is_goal else None
         events.append(
             {
@@ -3111,10 +3155,10 @@ def build_event_timeline(
     bulletin.sort(key=_bulletin_sort_key)
     play_home = int(counts.get("home_goal") or 0) + int(counts.get("home_own_goal") or 0)
     play_away = int(counts.get("away_goal") or 0) + int(counts.get("away_own_goal") or 0)
-    # Plays often land a goal before the scoreboard tick — never show a
-    # chiclet score behind bars already drawn on the strip.
-    resolved_home = max(int(home_score or 0), play_home)
-    resolved_away = max(int(away_score or 0), play_away)
+    # Plays often land a goal before the scoreboard tick. A VAR removal is the
+    # other way around: the board can still include a goal the review took away.
+    resolved_home = _score_after_var(int(home_score or 0), play_home, int(counts.get("home_disallowed") or 0))
+    resolved_away = _score_after_var(int(away_score or 0), play_away, int(counts.get("away_disallowed") or 0))
     home_series = _cumulative_xg_series(home_xg_pts)
     away_series = _cumulative_xg_series(away_xg_pts)
     payload = {
