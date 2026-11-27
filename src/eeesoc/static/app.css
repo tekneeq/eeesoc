@@ -3141,8 +3141,17 @@ main {
   font-variant-numeric: tabular-nums;
 }
 
+.lu-face {
+  fill: rgba(20, 28, 24, 0.94);
+  stroke: rgba(180, 210, 200, 0.55);
+  stroke-width: 1;
+}
+
 .lu-goal {
-  font-size: 12px;
+  fill: rgba(230, 245, 238, 0.96);
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 10px;
+  font-weight: 700;
 }
 
 .lu-card.yellow {
