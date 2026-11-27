@@ -5550,11 +5550,15 @@
     const statBits = [
       s.goals ? `${s.goals}⚽` : "",
       s.assists ? `${s.assists}A` : "",
-      s.sot ? `${s.sot} on target` : s.shots ? `${s.shots} shots` : "",
+      s.shots ? `${s.shots} shot${s.shots === 1 ? "" : "s"}` : "",
+      s.sot ? `${s.sot} on target` : "",
       s.saves ? `${s.saves} saves` : "",
       s.yellow ? "🟨" : "",
       s.red ? "🟥" : "",
     ].filter(Boolean);
+    const faceBits = [s.goals ? `${s.goals}⚽` : "", s.shots ? `${s.shots}sh` : ""].filter(Boolean);
+    const face = faceBits.join(" ");
+    const faceW = face ? Math.max(30, face.length * 6.6 + 10) : 0;
     const title = `${p.name || name}${p.pos ? ` · ${p.pos}` : ""} · power ${p.power} · ${mins}′ on the pitch${
       cameOn ? ` · SUB ON ${p.in_minute}′ for ${p.sub_for || "?"}` : ""
     }${statBits.length ? ` · ${statBits.join(" · ")}` : ""}`;
@@ -5573,11 +5577,11 @@
       <text class="lu-jersey" y="4.5" text-anchor="middle">${escapeHtml(p.jersey || "")}</text>
       <rect class="lu-power ${powerClass(p.power)}" x="10" y="-27" width="26" height="15" rx="3"/>
       <text class="lu-power-num" x="23" y="-15.5" text-anchor="middle">${p.power}</text>
+      ${face ? `<rect class="lu-face" x="${(-faceW / 2).toFixed(1)}" y="-44" width="${faceW.toFixed(1)}" height="14" rx="3"/><text class="lu-goal" x="0" y="-34" text-anchor="middle">${face}</text>` : ""}
       <text class="lu-name" y="31" text-anchor="middle">${escapeHtml(name)}</text>
       <rect class="lu-stam-bg" x="${-barW / 2}" y="${stamY}" width="${barW}" height="4" rx="2"/>
       <rect class="lu-stam ${stamCls}" x="${-barW / 2}" y="${stamY}" width="${(barW * frac).toFixed(1)}" height="4" rx="2"/>
       <text class="lu-mins" y="${stamY + 12}" text-anchor="middle">${minsLabel}</text>
-      ${s.goals ? `<text class="lu-goal" x="-22" y="-14">⚽</text>` : ""}
       ${s.yellow || s.red ? `<rect class="lu-card ${s.red ? "red" : "yellow"}" x="-30" y="-4" width="7" height="10" rx="1"/>` : ""}
     </g>`;
   }
@@ -5631,7 +5635,7 @@
         ${lineupSideSvg(data.home, "home", now)}
         ${lineupSideSvg(data.away, "away", now)}
       </svg>
-      <p class="lede lu-note">Hover a player for the full line, <b>click him for his player card</b> — every logged touch, pass and shot, a touch map, and a highlight cut list you can run against your own recording. <b>Power</b> is a match-performance number from ESPN's live stats (goals, assists, shots, saves, fouls, cards) — 65 is a quiet, tidy game. The bar is <b>freshness by minutes played</b> (ESPN has no distance-run data); subs come on full. <b class="lu-sub-legend">IN 74′</b> is a player who was subbed on at that minute — dashed ring; click him and the card names who came off.</p>`;
+      <p class="lede lu-note">Hover a player for the full line, <b>click him for his player card</b> — every logged touch, pass and shot, a touch map, and a highlight cut list you can run against your own recording. <b>Power</b> is a match-performance number from ESPN's live stats (goals, assists, shots, saves, fouls, cards) — 65 is a quiet, tidy game. Beside it, <b>2⚽ 5sh</b> is his goals and shots in this match. The bar is <b>freshness by minutes played</b> (ESPN has no distance-run data); subs come on full. <b class="lu-sub-legend">IN 74′</b> is a player who was subbed on at that minute — dashed ring; click him and the card names who came off.</p>`;
     bindLineupPlayerClicks(mount, m);
   }
 

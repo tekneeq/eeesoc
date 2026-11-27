@@ -4103,6 +4103,46 @@ def test_pitch_lineups_annotate_subbed_in_players():
     assert "flex-shrink: 0" in css[css.index(".lu-title") : css.index(".lu-title") + 400]
 
 
+def test_lineup_marker_shows_goals_and_shots_beside_power():
+    """The power badge already sits on the player; goals and shots in this match print next to it."""
+    js = Path("src/eeesoc/static/app.js").read_text(encoding="utf-8")
+    css = Path("src/eeesoc/static/app.css").read_text(encoding="utf-8")
+    start = js.index("  function lineupPlayerSvg")
+    end = js.index("  function lineupSideSvg")
+    assert "s.shots ? `${s.shots} shot" in js[start:end]
+    assert "2⚽ 5sh" in js
+    assert ".lu-face" in css and ".lu-goal" in css
+
+    script = js[start:end] + r"""
+function escapeHtml(s) { return String(s ?? ""); }
+function shortName(s) { return String(s || ""); }
+function lineupMinutes() { return 40; }
+function powerClass() { return "hot"; }
+const p = {
+  name: "H. Son", short: "Son", jersey: "7", pos: "F", power: 82,
+  in_minute: 0, out_minute: null, keeper: false, sub_for: "",
+  stats: { goals: 2, assists: 1, shots: 5, sot: 3, saves: 0, yellow: 0, red: 0 },
+};
+const svg = lineupPlayerSvg(p, 100, 200, "home", 50);
+if (!svg.includes(">2⚽ 5sh<")) process.exit(2);
+if (!svg.includes("5 shots") || !svg.includes("3 on target")) process.exit(3);
+if (!svg.includes("power 82")) process.exit(4);
+const quiet = lineupPlayerSvg(
+  Object.assign({}, p, { stats: { goals: 0, shots: 0, sot: 0, assists: 0, saves: 0, yellow: 0, red: 0 } }),
+  1, 1, "away", 10,
+);
+if (quiet.includes("lu-goal")) process.exit(5);
+const sotOnly = lineupPlayerSvg(
+  Object.assign({}, p, { stats: { goals: 0, shots: 4, sot: 2, assists: 0, saves: 0, yellow: 0, red: 0 } }),
+  1, 1, "home", 20,
+);
+if (!sotOnly.includes(">4sh<") || !sotOnly.includes("4 shots") || !sotOnly.includes("2 on target")) process.exit(6);
+"""
+    import subprocess
+
+    subprocess.run(["node", "-e", script], check=True)
+
+
 def _pe_play(minute, ptype, player, team="1", *, seconds=None, x=None, y=None, scoring=False):
     play = {
         "type": {"type": ptype},
